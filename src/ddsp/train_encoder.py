@@ -123,6 +123,12 @@ class Encoder(nn.Module):
         self.head = nn.Sequential(
             nn.Linear(ch_in * n_freq + n_extra, 256), nn.GELU(), nn.Linear(256, n_out)
         )
+        # Start the output layer near zero so tanh begins in its linear region.
+        # At default init the pre-activations are large enough that tanh can pin
+        # at +-1 within a few hundred steps; its derivative is then zero and the
+        # network is permanently stuck emitting a constant, whatever the input.
+        nn.init.normal_(self.head[-1].weight, std=0.01)
+        nn.init.zeros_(self.head[-1].bias)
 
     def features(self, x: torch.Tensor, scale: float) -> torch.Tensor:
         """Spectrogram, conditioned so the network can actually see the modes.
@@ -467,10 +473,20 @@ def run(args) -> None:
         groups.append({"params": list(refiner.parameters()), "lr": args.lr})
     opt = torch.optim.Adam(groups, lr=args.lr, eps=args.adam_eps)
     def cosine(step: int, start: int, end: int) -> float:
+        """Linear warmup then cosine decay, measured from this stage's own start.
+
+        The warmup is what makes a raised learning rate safe: the first steps out
+        of a random initialization are the ones that can drive the head's
+        pre-activations far enough to saturate tanh, after which the gradient is
+        zero and the network cannot recover.
+        """
         if step < start:
             return 0.0
-        t = (step - start) / max(1, end - start)
-        return 0.5 * (1.0 + math.cos(math.pi * min(t, 1.0)))
+        t = step - start
+        if t < args.warmup_steps:
+            return (t + 1) / max(1, args.warmup_steps)
+        frac = (t - args.warmup_steps) / max(1, end - start - args.warmup_steps)
+        return 0.5 * (1.0 + math.cos(math.pi * min(frac, 1.0)))
 
     # Stage 0 anneals across the whole run; the refiner gets its own full cosine
     # over its own lifetime, so it starts at peak rate when it joins.
@@ -567,6 +583,12 @@ def run(args) -> None:
                     f"NMSE_7d {row['val_nmse_7d']:.3e}  |g| {gnorm:.2e}  "
                     f"[{row['elapsed_s']:.0f}s]"
                 )
+                if spread < 0.05:
+                    print(
+                        f"           WARNING: prediction spread {spread:.3f} of ground truth -- "
+                        f"the output has collapsed to a constant (saturated tanh); "
+                        f"lower --lr or raise --warmup-steps and restart"
+                    )
                 stage0 = row.get("val_nmse_6d_stage0")
                 extra = f"   stage0 6d {stage0:.3e}" if stage0 is not None else ""
                 print(f"           corr(identifiable)  {corr}   mean spread/GT {spread:.2f}{extra}")
@@ -635,6 +657,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--steps", type=int, default=100000)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--adam-eps", type=float, default=1e-16)
+    p.add_argument(
+        "--warmup-steps", type=int, default=2000,
+        help="Linear warmup at the start of each stage, counted from that stage's "
+             "own start step. Guards the tanh output against saturating early.",
+    )
     p.add_argument(
         "--grad-clip", type=float, default=10.0,
         help="Clip is on the objective *after* loss scaling; at 1.0 it bound on "
