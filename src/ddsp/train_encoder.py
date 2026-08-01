@@ -74,21 +74,43 @@ class Encoder(nn.Module):
     fitter searches, so predictions are in-bounds by construction.
     """
 
-    def __init__(self, n_out: int = 7, width: int = 32, n_fft: int = 1024, hop: int = 256):
+    def __init__(
+        self,
+        n_out: int = 7,
+        width: int = 32,
+        n_fft: int = 2048,
+        hop: int = 512,
+        n_blocks: int = 5,
+        max_ch: int = 256,
+    ):
         super().__init__()
         self.n_fft, self.hop = n_fft, hop
         self.register_buffer("window", torch.hann_window(n_fft))
 
-        w = width
-        self.net = nn.Sequential(
-            nn.Conv2d(1, w, 3, stride=2, padding=1), nn.GroupNorm(8, w), nn.GELU(),
-            nn.Conv2d(w, 2 * w, 3, stride=2, padding=1), nn.GroupNorm(8, 2 * w), nn.GELU(),
-            nn.Conv2d(2 * w, 4 * w, 3, stride=2, padding=1), nn.GroupNorm(8, 4 * w), nn.GELU(),
-            nn.Conv2d(4 * w, 4 * w, 3, stride=2, padding=1), nn.GroupNorm(8, 4 * w), nn.GELU(),
-            nn.AdaptiveAvgPool2d(1),
-        )
+        # Frequency position is the signal here: the parameters are fixed by
+        # where the modes sit, via om^2 = (T0/mu)*g1 + (D/mu)*g2. Pooling the
+        # frequency axis away would leave the encoder able to see how many peaks
+        # there are and how loud they are, but not where -- so it could only ever
+        # recover the coordinates that follow from gross spectral statistics.
+        # Time is pooled instead: the IR is a sum of stationary damped sinusoids,
+        # so its time structure is an exponential envelope and little else.
+        blocks, ch_in, n_freq = [], 1, n_fft // 2 + 1
+        for i in range(n_blocks):
+            ch_out = min(width * (2 ** i), max_ch)
+            # Stride time only while there are frames left to spend.
+            stride = (2, 2) if i < 3 else (2, 1)
+            blocks += [
+                nn.Conv2d(ch_in, ch_out, 3, stride=stride, padding=1),
+                nn.GroupNorm(min(8, ch_out), ch_out),
+                nn.GELU(),
+            ]
+            ch_in, n_freq = ch_out, (n_freq + 1) // 2
+        blocks.append(nn.AdaptiveAvgPool2d((None, 1)))  # pool time, keep frequency
+        self.net = nn.Sequential(*blocks)
+
+        feat = ch_in * n_freq
         self.head = nn.Sequential(
-            nn.Flatten(), nn.Linear(4 * w, 4 * w), nn.GELU(), nn.Linear(4 * w, n_out)
+            nn.Flatten(), nn.Linear(feat, 256), nn.GELU(), nn.Linear(256, n_out)
         )
 
     def features(self, x: torch.Tensor, scale: float, log_input: bool) -> torch.Tensor:
@@ -177,14 +199,41 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale) -> Dict[str, floa
     model.train()
 
     zp = torch.cat(preds).cpu().numpy()
-    est, gt = z_to_dicts(zp), z_to_dicts(z_val.cpu().numpy())
+    zt = z_val.cpu().numpy()
+    est, gt = z_to_dicts(zp), z_to_dicts(zt)
     n6 = [nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est, gt)]
     n7 = [nmse_7d(e, g) for e, g in zip(est, gt)]
-    return {
+
+    out = {
         "val_loss": float(torch.cat(losses).mean()),
         "val_nmse_6d": float(np.median(n6)),
         "val_nmse_7d": float(np.median(n7)),
     }
+    # Averaged NMSE hides which coordinates are being learned. Correlation says
+    # whether a coordinate is tracked at all; the spread ratio separates "wrong"
+    # from "collapsed", since an encoder ignoring its input emits a near-constant
+    # prediction and scores about what predicting the mean would.
+    for i, k in enumerate(PARAM_KEYS):
+        pred_sd, true_sd = float(zp[:, i].std()), float(zt[:, i].std())
+        if pred_sd > 1e-9 and true_sd > 1e-9:
+            out[f"corr_{k}"] = float(np.corrcoef(zp[:, i], zt[:, i])[0, 1])
+        else:
+            out[f"corr_{k}"] = 0.0
+        out[f"spread_{k}"] = pred_sd / max(true_sd, 1e-12)
+    return out
+
+
+def constant_predictor_nmse(z_train: torch.Tensor, z_val: torch.Tensor) -> Tuple[float, float]:
+    """NMSE of ignoring the input entirely and always emitting the training mean.
+
+    The floor any encoder beats for free. Without it an NMSE of 4e-2 reads as a
+    result rather than as "about what predicting the marginal distribution gives".
+    """
+    zc = np.repeat(z_train.mean(0, keepdim=True).cpu().numpy(), z_val.shape[0], axis=0)
+    est, gt = z_to_dicts(zc), z_to_dicts(z_val.cpu().numpy())
+    n6 = [nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est, gt)]
+    n7 = [nmse_7d(e, g) for e, g in zip(est, gt)]
+    return float(np.median(n6)), float(np.median(n7))
 
 
 def run(args) -> None:
@@ -228,10 +277,15 @@ def run(args) -> None:
         gt_loss = float(loss_fn(x_va[: args.batch_size], space.forward(z_va[: args.batch_size], None, args.duration)).mean())
         perm = torch.randperm(x_va.shape[0])[: args.batch_size]
         sat = float(loss_fn(x_va[: args.batch_size], x_va[perm]).mean())
+    const6, const7 = constant_predictor_nmse(z_tr, z_va)
     print(f"reference levels:  gt_loss {gt_loss:.4e}   saturation (unrelated IRs) {sat:.4e}")
+    print(f"constant-predictor NMSE: 6d {const6:.3e}  7d {const7:.3e}  (the floor to beat)")
     print("training loss stuck near saturation = gradient uninformative; well below = learning\n")
 
-    model = Encoder(n_out=len(PARAM_KEYS), width=args.width).to(device)
+    model = Encoder(
+        n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
+        n_blocks=args.n_blocks, max_ch=args.max_ch,
+    ).to(device)
     n_par = sum(p.numel() for p in model.parameters())
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, eps=args.adam_eps)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.steps)
@@ -258,25 +312,45 @@ def run(args) -> None:
 
         opt.zero_grad(set_to_none=True)
         (obj / loss_scale).backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+        gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip))
         opt.step()
         sched.step()
 
         if step % args.log_every == 0 or step == 1:
             tr = float(obj.detach())
-            row = {"step": step, "train_loss": tr, "elapsed_s": time.time() - t0}
+            row = {
+                "step": step,
+                "train_loss": tr,
+                "grad_norm": gnorm,
+                "clipped": bool(gnorm > args.grad_clip),
+                "elapsed_s": time.time() - t0,
+            }
             if step % args.eval_every == 0 or step == 1:
                 row.update(evaluate(model, space, z_va, x_va, args, loss_fn, scale))
+                corr = "  ".join(f"{k}={row[f'corr_{k}']:+.2f}" for k in PARAM_KEYS)
+                spread = np.mean([row[f"spread_{k}"] for k in PARAM_KEYS])
                 print(
                     f"step {step:6d}  train {tr:.4e}  val {row['val_loss']:.4e}  "
-                    f"NMSE_6d {row['val_nmse_6d']:.3e}  NMSE_7d {row['val_nmse_7d']:.3e}  "
+                    f"NMSE_6d {row['val_nmse_6d']:.3e} (const {const6:.3e})  "
+                    f"NMSE_7d {row['val_nmse_7d']:.3e}  |g| {gnorm:.2e}  "
                     f"[{row['elapsed_s']:.0f}s]"
                 )
+                print(f"           corr  {corr}   mean spread/GT {spread:.2f}")
             else:
-                print(f"step {step:6d}  train {tr:.4e}  [{row['elapsed_s']:.0f}s]")
+                print(f"step {step:6d}  train {tr:.4e}  |g| {gnorm:.2e}  [{row['elapsed_s']:.0f}s]")
             hist.append(row)
             with (out_dir / "history.json").open("w") as f:
-                json.dump({"gt_loss": gt_loss, "saturation": sat, "history": hist}, f, indent=2)
+                json.dump(
+                    {
+                        "gt_loss": gt_loss,
+                        "saturation": sat,
+                        "const_nmse_6d": const6,
+                        "const_nmse_7d": const7,
+                        "history": hist,
+                    },
+                    f,
+                    indent=2,
+                )
 
     torch.save({"model": model.state_dict(), "args": vars(args)}, out_dir / "encoder.pt")
 
@@ -318,11 +392,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-train", type=int, default=8192)
     p.add_argument("--n-val", type=int, default=512)
     p.add_argument("--batch-size", type=int, default=16)
-    p.add_argument("--steps", type=int, default=20000)
+    p.add_argument("--steps", type=int, default=100000)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--adam-eps", type=float, default=1e-16)
-    p.add_argument("--grad-clip", type=float, default=1.0)
+    p.add_argument(
+        "--grad-clip", type=float, default=10.0,
+        help="Clip is on the objective *after* loss scaling; at 1.0 it bound on "
+             "essentially every step, making it a constant rather than an outlier guard",
+    )
     p.add_argument("--width", type=int, default=32)
+    p.add_argument("--n-blocks", type=int, default=5)
+    p.add_argument("--max-ch", type=int, default=256)
+    p.add_argument("--n-fft", type=int, default=2048)
+    p.add_argument("--hop", type=int, default=512)
     p.add_argument(
         "--log-input", action="store_true",
         help="Log-compress the input spectrogram. This is a representation choice, "
