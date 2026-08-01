@@ -9,6 +9,49 @@ import torch.utils.checkpoint
 TensorOrFloat = Union[torch.Tensor, float]
 
 
+def _modal_chunk_kernel(
+    sig: torch.Tensor,
+    om: torch.Tensor,
+    den: torch.Tensor,
+    P: torch.Tensor,
+    t: torch.Tensor,
+    k: float,
+) -> torch.Tensor:
+    """Damped-sinusoid sum over modes: [N,1] mode terms against [1,C] times.
+
+    Written as a single expression so torch.compile can fuse the elementwise
+    chain into the reduction. Unfused, `env` and `osc` are each materialized at
+    the full [N,C] size, which is what makes the modal sum memory-bound.
+    """
+    env = torch.exp(-sig * k * t)
+    osc = torch.sin(om * k * (t + 1.0)) / den
+    return torch.sum(P * env * osc, dim=0)
+
+
+_COMPILED_MODAL_CHUNK = None
+
+
+def _get_modal_chunk_kernel(compile_it: bool):
+    """Compile lazily and once; dynamic=False specializes per padded shape."""
+    global _COMPILED_MODAL_CHUNK
+    if not compile_it or not hasattr(torch, "compile"):
+        return _modal_chunk_kernel
+    if _COMPILED_MODAL_CHUNK is None:
+        _COMPILED_MODAL_CHUNK = torch.compile(_modal_chunk_kernel, dynamic=False)
+    return _COMPILED_MODAL_CHUNK
+
+
+def _pad_modes(x: torch.Tensor, n_pad: int, value: float) -> torch.Tensor:
+    """Right-pad the mode axis to a fixed length so shapes stay static.
+
+    Padding is exact, not approximate: P pads with 0 and den with 1, so a padded
+    slot contributes P*exp(0)*sin(0)/1 = 0 to the sum and 0 to every gradient.
+    """
+    if x.shape[0] == n_pad:
+        return x
+    return torch.nn.functional.pad(x, (0, n_pad - x.shape[0]), value=value)
+
+
 class BatchedModalPlateTorch(torch.nn.Module):
     """Batched PyTorch port of ModalPlate/ModalPlate.py.
 
@@ -50,6 +93,8 @@ class BatchedModalPlateTorch(torch.nn.Module):
         chunk_elems: int = 50_000_000,
         grad_checkpoint: bool = False,
         batched_modal_sum: bool = False,
+        compile_modal_sum: bool = False,
+        mode_bucket: int = 1024,
     ):
         super().__init__()
         self.sample_rate = int(sample_rate)
@@ -68,6 +113,11 @@ class BatchedModalPlateTorch(torch.nn.Module):
         # batch. Trades redundant work on examples with few active modes for
         # batch parallelism. Off by default: verify equivalence before enabling.
         self.batched_modal_sum = bool(batched_modal_sum)
+        # Fuse the modal sum with torch.compile. The mode axis is padded up to a
+        # multiple of mode_bucket so the compiled kernel sees a handful of static
+        # shapes instead of a new one every step as the mode count drifts.
+        self.compile_modal_sum = bool(compile_modal_sum)
+        self.mode_bucket = int(mode_bucket)
 
     def _as_tensor(self, value: TensorOrFloat) -> torch.Tensor:
         if isinstance(value, torch.Tensor):
@@ -232,23 +282,41 @@ class BatchedModalPlateTorch(torch.nn.Module):
         if self.batched_modal_sum:
             y_raw = self._modal_sum_batched(sig, om, denom, P, k, Ts)
         else:
-            y_raw = torch.zeros((B, Ts), device=self.device, dtype=self.dtype)
+            kernel = _get_modal_chunk_kernel(self.compile_modal_sum)
+            rows = []
             for b in range(B):
                 vi = valid_mask[b].nonzero(as_tuple=True)[0]
                 if vi.numel() == 0:
+                    rows.append(torch.zeros(Ts, device=self.device, dtype=self.dtype))
                     continue
 
-                sig_b = sig[b, vi].unsqueeze(1)
-                om_b = om[b, vi].unsqueeze(1)
-                den_b = denom[b, vi].unsqueeze(1)
-                P_b = P[b, vi].unsqueeze(1)
+                n = int(vi.numel())
+                if self.compile_modal_sum:
+                    bucket = max(1, self.mode_bucket)
+                    n_pad = ((n + bucket - 1) // bucket) * bucket
+                else:
+                    n_pad = n
 
-                chunk_size = max(1000, self.chunk_elems // max(1, vi.numel()))
+                sig_b = _pad_modes(sig[b, vi], n_pad, 0.0).unsqueeze(1)
+                om_b = _pad_modes(om[b, vi], n_pad, 0.0).unsqueeze(1)
+                den_b = _pad_modes(denom[b, vi], n_pad, 1.0).unsqueeze(1)
+                P_b = _pad_modes(P[b, vi], n_pad, 0.0).unsqueeze(1)
+
+                chunk_size = max(256, self.chunk_elems // max(1, n_pad))
+                pieces = []
                 for start in range(0, Ts, chunk_size):
                     end = min(start + chunk_size, Ts)
-                    y_raw[b, start:end] = self._modal_sum_single(
-                        sig_b, om_b, den_b, P_b, k, start, end
-                    )
+                    t = torch.arange(start, end, device=self.device, dtype=self.dtype).view(1, -1)
+                    if self.grad_checkpoint and torch.is_grad_enabled() and P_b.requires_grad:
+                        pieces.append(
+                            torch.utils.checkpoint.checkpoint(
+                                kernel, sig_b, om_b, den_b, P_b, t, k, use_reentrant=False
+                            )
+                        )
+                    else:
+                        pieces.append(kernel(sig_b, om_b, den_b, P_b, t, k))
+                rows.append(torch.cat(pieces, dim=0))
+            y_raw = torch.stack(rows, dim=0)
 
         # NumPy recursion outputs y[n] = sum(q1 before update), i.e. one-sample delay.
         y = torch.zeros_like(y_raw)

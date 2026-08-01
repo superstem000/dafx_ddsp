@@ -157,10 +157,15 @@ class Raw7Space:
         self._lo = torch.as_tensor(BOUNDS_LO_NP, device=device, dtype=dtype)
         self._hi = torch.as_tensor(BOUNDS_HI_NP, device=device, dtype=dtype)
 
-    def configure_plate(self, chunk_elems: int, grad_checkpoint: bool, batched: bool = False) -> None:
+    def configure_plate(
+        self, chunk_elems: int, grad_checkpoint: bool, batched: bool = False,
+        compile_modal_sum: bool = False, mode_bucket: int = 1024,
+    ) -> None:
         self.plate.chunk_elems = chunk_elems
         self.plate.grad_checkpoint = grad_checkpoint
         self.plate.batched_modal_sum = batched
+        self.plate.compile_modal_sum = compile_modal_sum
+        self.plate.mode_bucket = mode_bucket
 
     def lhs(self, n_starts: int, seed: int) -> np.ndarray:
         # The very generator CMA-ES uses for its restart starts.
@@ -235,10 +240,15 @@ class Composite6Space:
         # Peak normalization erases the amplitude mu is carried by.
         self.profiles_mu = not normalize
 
-    def configure_plate(self, chunk_elems: int, grad_checkpoint: bool, batched: bool = False) -> None:
+    def configure_plate(
+        self, chunk_elems: int, grad_checkpoint: bool, batched: bool = False,
+        compile_modal_sum: bool = False, mode_bucket: int = 1024,
+    ) -> None:
         self.plate.chunk_elems = chunk_elems
         self.plate.grad_checkpoint = grad_checkpoint
         self.plate.batched_modal_sum = batched
+        self.plate.compile_modal_sum = compile_modal_sum
+        self.plate.mode_bucket = mode_bucket
 
     def lhs(self, n_starts: int, seed: int) -> np.ndarray:
         # Draw in raw-7 and map through, so starts stay physically realizable.
@@ -529,7 +539,10 @@ def run(args) -> None:
 
     space_cls = Raw7Space if args.space == "raw7" else Composite6Space
     space = space_cls(device, dtype, args.normalize)
-    space.configure_plate(args.chunk_elems, not args.no_grad_checkpoint, args.batched_plate)
+    space.configure_plate(
+        args.chunk_elems, not args.no_grad_checkpoint, args.batched_plate,
+        args.compile_plate, args.mode_bucket,
+    )
 
     print(f"Device: {device}   dtype: {dtype}   loss dtype: {loss_dtype}")
     print(f"Loss: {args.loss}   space: {space.name}   coords: {space.keys}")
@@ -699,6 +712,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--batched-plate", action="store_true",
         help="Sum modes for the whole batch at once instead of looping over it",
+    )
+    p.add_argument(
+        "--compile-plate", action="store_true",
+        help="torch.compile the modal sum so the elementwise chain fuses into the reduction",
+    )
+    p.add_argument(
+        "--mode-bucket", type=int, default=1024,
+        help="Pad the mode axis to a multiple of this so compiled shapes stay static",
     )
     p.add_argument("--no-plots", action="store_true")
     return p
