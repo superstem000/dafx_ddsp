@@ -32,11 +32,26 @@ _COMPILED_MODAL_CHUNK = None
 
 
 def _get_modal_chunk_kernel(compile_it: bool):
-    """Compile lazily and once; dynamic=False specializes per padded shape."""
+    """Compile lazily and once; dynamic=False specializes per padded shape.
+
+    Each padded mode count crosses with a full-length and a remainder time chunk,
+    so a run legitimately needs a few dozen specializations. Dynamo's default
+    recompile limit is 8, past which it silently falls back to eager and the
+    fusion is lost for every shape after the eighth -- raise it rather than
+    coarsen the bucketing, which would only add padding waste.
+    """
     global _COMPILED_MODAL_CHUNK
     if not compile_it or not hasattr(torch, "compile"):
         return _modal_chunk_kernel
     if _COMPILED_MODAL_CHUNK is None:
+        try:
+            import torch._dynamo as _dynamo
+
+            for name in ("recompile_limit", "cache_size_limit"):
+                if hasattr(_dynamo.config, name):
+                    setattr(_dynamo.config, name, max(getattr(_dynamo.config, name), 128))
+        except Exception:
+            pass
         _COMPILED_MODAL_CHUNK = torch.compile(_modal_chunk_kernel, dynamic=False)
     return _COMPILED_MODAL_CHUNK
 
