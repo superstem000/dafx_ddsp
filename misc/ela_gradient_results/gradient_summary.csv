@@ -1,0 +1,2 @@
+loss,alignment_median,alignment_mean,alignment_q1,alignment_q3,slope_median,slope_q1,slope_q3,frac_positive_alignment,n_valid_per_ir_median,n_irs_completed,final_batch_size,status,total_seconds
+L1_STFT,0.19676521,0.16491187,-0.07235560193657875,0.4323774389922619,2.661449,1.7029317319393158,4.238053679466248,0.6947916666666667,480,20,128,ok,1446.666131734848

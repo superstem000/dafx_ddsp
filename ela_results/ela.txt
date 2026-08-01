@@ -1,0 +1,37 @@
+Fitness-Distance Correlation (FDC, quantile-binned)
+Spearman correlation between a point's loss value and its distance to the optimum. Positive FDC means lower loss reliably indicates 
+proximity to the answer. We use quantile bins (equal number of samples per bin) to measure whether the correlation holds at all 
+distances, avoiding the empty-bin problem in high dimensions.
+— Jones & Forrest (1995). "Fitness Distance Correlation as a Measure of Problem Difficulty for Genetic Algorithms." ICGA.
+
+Autocorrelation Length (Ruggedness)
+Random walk through parameter space; compute autocorrelation of the loss sequence. The lag at which autocorrelation drops below 
+1/e is the "grain size" of the terrain. If this is smaller than the optimizer's population spread, the optimizer can't distinguish 
+signal from noise.
+— Weinberger (1990). "Correlated and Uncorrelated Fitness Landscapes and How to Tell the Difference." Biological Cybernetics.
+
+Information Content (Entropy)
+Along a random walk, classify each step as "up", "down", or "flat". Compute Shannon entropy of this sequence. 
+Low entropy = terrain dominated by one category (e.g., mostly flat plateaus). High entropy = terrain that actively responds to 
+parameter changes in all directions.
+— Vassilev et al. (2000). "Information Characteristics and the Structure of Landscapes." Evolutionary Computation.
+
+Meta-model Linear Fit (R² and Slope)
+Fit a linear regression of loss vs distance-to-GT across random samples. R² measures how well a simple linear slope explains the 
+landscape — high R² means consistent gradient direction. The regression slope measures the magnitude of that gradient — how much 
+loss actually changes per unit distance.
+— Mersmann et al. (2011). "Exploratory Landscape Analysis." GECCO. Directly from the meta-model feature set.
+
+y-Distribution (Skewness, Kurtosis)
+Statistics of the sampled loss values themselves, regardless of location. Skewness measures asymmetry — right-skewed means most 
+of the space has similar loss with a few extreme outliers. Kurtosis measures tail heaviness — high kurtosis means occasional 
+extreme loss values far from the mean.
+Skewness: most values low, high loss outliers (positive) / most values high, low loss outliers (negative)
+          'more positive' = high loss outliers are more extreme
+Kurtosis: number of outliers
+— Mersmann et al. (2011). "Exploratory Landscape Analysis." GECCO. Directly from the y-distribution feature set.
+
+Monotonicity
+Walk in a straight line from a random point toward the ground truth. Fraction of steps that decrease the loss. Directly answers: 
+"if the optimizer moves toward the correct answer, does the loss consistently reward it?"
+— Our adaptation, inspired by FDC (Jones & Forrest, 1995).

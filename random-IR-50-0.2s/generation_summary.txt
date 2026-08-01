@@ -1,0 +1,188 @@
+Random Plate Dataset Generation Summary
+========================================
+
+Generation timestamp: 2026-07-26 05:23:22
+Number of IRs requested: 50
+Duration per IR: 0.25s
+Sample rate: 44100 Hz
+Output directory: /home/bhpark3/dafxchal/random-IR-50-0.2s
+
+Parameter Ranges Used:
+--------------------
+Lx: 1.0 (fixed)
+Ly: [1.1, 4.0]
+h: [0.001, 0.005]
+T0: [0.01, 1000.0]
+rho: [2430.0, 21230.0]
+E: [67000000000.0, 220000000000.0]
+nu: 0.25 (fixed)
+T60_DC: 6.0 (fixed)
+T60_F1: 2.0 (fixed)
+loss_F1: 500.0 (fixed)
+fp_x: 0.335 (fixed)
+fp_y: 0.467 (fixed)
+op_x: [0.51, 1.0]
+op_y: [0.51, 1.0]
+
+Generation Results:
+------------------
+Successful generations: 50
+Failed generations: 0
+Success rate: 100.0%
+Average generation time: 0.20s
+Total generation time: 9.77s
+Min generation time: 0.09s
+Max generation time: 0.51s
+
+Files Generated:
+---------------
+random_IR_0001.wav
+random_IR_params_0001.csv
+random_IR_modes_0001.csv
+random_IR_0002.wav
+random_IR_params_0002.csv
+random_IR_modes_0002.csv
+random_IR_0003.wav
+random_IR_params_0003.csv
+random_IR_modes_0003.csv
+random_IR_0004.wav
+random_IR_params_0004.csv
+random_IR_modes_0004.csv
+random_IR_0005.wav
+random_IR_params_0005.csv
+random_IR_modes_0005.csv
+random_IR_0006.wav
+random_IR_params_0006.csv
+random_IR_modes_0006.csv
+random_IR_0007.wav
+random_IR_params_0007.csv
+random_IR_modes_0007.csv
+random_IR_0008.wav
+random_IR_params_0008.csv
+random_IR_modes_0008.csv
+random_IR_0009.wav
+random_IR_params_0009.csv
+random_IR_modes_0009.csv
+random_IR_0010.wav
+random_IR_params_0010.csv
+random_IR_modes_0010.csv
+random_IR_0011.wav
+random_IR_params_0011.csv
+random_IR_modes_0011.csv
+random_IR_0012.wav
+random_IR_params_0012.csv
+random_IR_modes_0012.csv
+random_IR_0013.wav
+random_IR_params_0013.csv
+random_IR_modes_0013.csv
+random_IR_0014.wav
+random_IR_params_0014.csv
+random_IR_modes_0014.csv
+random_IR_0015.wav
+random_IR_params_0015.csv
+random_IR_modes_0015.csv
+random_IR_0016.wav
+random_IR_params_0016.csv
+random_IR_modes_0016.csv
+random_IR_0017.wav
+random_IR_params_0017.csv
+random_IR_modes_0017.csv
+random_IR_0018.wav
+random_IR_params_0018.csv
+random_IR_modes_0018.csv
+random_IR_0019.wav
+random_IR_params_0019.csv
+random_IR_modes_0019.csv
+random_IR_0020.wav
+random_IR_params_0020.csv
+random_IR_modes_0020.csv
+random_IR_0021.wav
+random_IR_params_0021.csv
+random_IR_modes_0021.csv
+random_IR_0022.wav
+random_IR_params_0022.csv
+random_IR_modes_0022.csv
+random_IR_0023.wav
+random_IR_params_0023.csv
+random_IR_modes_0023.csv
+random_IR_0024.wav
+random_IR_params_0024.csv
+random_IR_modes_0024.csv
+random_IR_0025.wav
+random_IR_params_0025.csv
+random_IR_modes_0025.csv
+random_IR_0026.wav
+random_IR_params_0026.csv
+random_IR_modes_0026.csv
+random_IR_0027.wav
+random_IR_params_0027.csv
+random_IR_modes_0027.csv
+random_IR_0028.wav
+random_IR_params_0028.csv
+random_IR_modes_0028.csv
+random_IR_0029.wav
+random_IR_params_0029.csv
+random_IR_modes_0029.csv
+random_IR_0030.wav
+random_IR_params_0030.csv
+random_IR_modes_0030.csv
+random_IR_0031.wav
+random_IR_params_0031.csv
+random_IR_modes_0031.csv
+random_IR_0032.wav
+random_IR_params_0032.csv
+random_IR_modes_0032.csv
+random_IR_0033.wav
+random_IR_params_0033.csv
+random_IR_modes_0033.csv
+random_IR_0034.wav
+random_IR_params_0034.csv
+random_IR_modes_0034.csv
+random_IR_0035.wav
+random_IR_params_0035.csv
+random_IR_modes_0035.csv
+random_IR_0036.wav
+random_IR_params_0036.csv
+random_IR_modes_0036.csv
+random_IR_0037.wav
+random_IR_params_0037.csv
+random_IR_modes_0037.csv
+random_IR_0038.wav
+random_IR_params_0038.csv
+random_IR_modes_0038.csv
+random_IR_0039.wav
+random_IR_params_0039.csv
+random_IR_modes_0039.csv
+random_IR_0040.wav
+random_IR_params_0040.csv
+random_IR_modes_0040.csv
+random_IR_0041.wav
+random_IR_params_0041.csv
+random_IR_modes_0041.csv
+random_IR_0042.wav
+random_IR_params_0042.csv
+random_IR_modes_0042.csv
+random_IR_0043.wav
+random_IR_params_0043.csv
+random_IR_modes_0043.csv
+random_IR_0044.wav
+random_IR_params_0044.csv
+random_IR_modes_0044.csv
+random_IR_0045.wav
+random_IR_params_0045.csv
+random_IR_modes_0045.csv
+random_IR_0046.wav
+random_IR_params_0046.csv
+random_IR_modes_0046.csv
+random_IR_0047.wav
+random_IR_params_0047.csv
+random_IR_modes_0047.csv
+random_IR_0048.wav
+random_IR_params_0048.csv
+random_IR_modes_0048.csv
+random_IR_0049.wav
+random_IR_params_0049.csv
+random_IR_modes_0049.csv
+random_IR_0050.wav
+random_IR_params_0050.csv
+random_IR_modes_0050.csv

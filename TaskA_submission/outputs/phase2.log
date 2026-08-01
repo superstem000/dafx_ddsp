@@ -1,0 +1,24 @@
+======================================================================
+  TERNARY-SEARCH μ-REFINEMENT on CUDA (float32)
+======================================================================
+  CMA-ES results: /home/jayeonyi/code/cs448/dafxchal/results/final/phase1
+  Targets: /home/jayeonyi/code/cs448/dafxchal/data/2026-DATASET-STRIPPED
+  Loss: L1_STFT, Duration: 0.25s
+  μ search bounds: [2.430, 106.150]
+  Ternary iterations: 50  (~101 evals/IR)
+  Sanity grid check: on
+
+  Loaded 16 CMA-ES results
+  [  1/16] random_IR_0001.npz             mu  30.925 ->  23.503
+  [  2/16] random_IR_0002.npz             mu  46.018 ->  24.282
+  [  3/16] random_IR_0003.npz             mu  66.941 ->  33.156
+  [  4/16] random_IR_0004.npz             mu  29.880 ->  23.685
+  [  5/16] random_IR_0005.npz             mu  28.248 ->  25.938
+  [ 10/16] random_IR_0010.npz             mu   5.687 ->   6.023
+
+======================================================================
+  AGGREGATE
+======================================================================
+  Mean elapsed/IR:    0.66 s
+  Total runtime:      13.0 s
+  Wrote: results/final/phase2/mu_refined_summary.csv

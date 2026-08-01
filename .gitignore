@@ -1,0 +1,7 @@
+random-IR-10-5.0s/
+__pycache__/
+results/**/result*.csv
+results/**/*.db
+results/**/*.png
+cmaes_customloss/
+graddescent/
