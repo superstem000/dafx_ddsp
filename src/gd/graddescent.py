@@ -160,6 +160,10 @@ class Raw7Space:
         phys = BOUNDS_LO_NP + ((z_row + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
         return {k: float(v) for k, v in zip(PARAM_KEYS, phys)}
 
+    def gt_z(self, gt7: Dict[str, float]) -> np.ndarray:
+        phys = np.array([gt7[k] for k in PARAM_KEYS], dtype=np.float64)
+        return -1.0 + 2.0 * (phys - BOUNDS_LO_NP) / (BOUNDS_HI_NP - BOUNDS_LO_NP)
+
 
 # --------------------------------------------------------------------------
 # Composite-6 space: retained as an ablation, not the default.
@@ -237,6 +241,10 @@ class Composite6Space:
 
     def to_raw7(self, z_row: np.ndarray) -> Optional[Dict[str, float]]:
         return None
+
+    def gt_z(self, gt7: Dict[str, float]) -> np.ndarray:
+        six = seven_to_six(gt7)
+        return self.box.to_unit_np(np.array([six[k] for k in SHAPE_KEYS]))
 
 
 def solve_mu_by_scale(pred_ref, mu_ref, target, loss_fn, n_iters, loss_dtype):
@@ -420,6 +428,22 @@ def fit_one_ir(target_np, starts, args, space, loss_fn, device, dtype, loss_dtyp
     return est6, space.to_raw7(z[w]), float(loss[w]), all_hist
 
 
+def loss_at_ground_truth(gt7, gt6, target, duration, space, loss_fn, device, dtype, loss_dtype):
+    """Loss evaluated at the true parameters.
+
+    The single most informative number to sit beside the achieved loss: if the
+    fitter's loss is far above this, the optimizer failed to reach an optimum
+    the loss does define. If it is at or below it, the loss prefers some other
+    point and no optimizer would have recovered the true parameters.
+    """
+    z = torch.as_tensor(space.gt_z(gt7), device=device, dtype=dtype).unsqueeze(0)
+    mu = torch.full((1,), float(gt6["mu"]), device=device, dtype=dtype)
+    with torch.no_grad():
+        pred = space.forward(z, mu, duration)
+        lv = loss_fn(target.to(loss_dtype).expand(1, -1), pred.to(loss_dtype))
+    return float(lv[0])
+
+
 def _plot_per_ir(rid, hist, gt6, est6, elapsed, out_path):
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     ax = axes[0]
@@ -525,10 +549,20 @@ def run(args) -> None:
                 torch.cuda.empty_cache()
         elapsed = time.time() - t0
 
+        target_t = torch.as_tensor(target_np, device=device, dtype=dtype).unsqueeze(0)
+        if args.normalize:
+            target_t = target_t / torch.clamp(target_t.abs().max(), min=1e-12)
+        gt_loss = loss_at_ground_truth(
+            gt7, gt6, target_t, target_np.shape[0] / float(SAMPLE_RATE),
+            space, loss_fn, device, dtype, loss_dtype,
+        )
+
         row = {
             "id": rid,
             "filename": f"random_IR_{rid}.npz",
             "best_loss": best_loss,
+            "gt_loss": gt_loss,
+            "loss_ratio": best_loss / max(gt_loss, 1e-300),
             "nmse_6d": nmse_6d(est6, gt6),
             "mu_rel_error": abs(est6["mu"] - gt6["mu"]) / max(abs(gt6["mu"]), 1e-18),
             "runtime_s": elapsed,
@@ -548,9 +582,14 @@ def run(args) -> None:
 
         rows.append(row)
         pd.DataFrame([row]).to_csv(out_dir / f"result_random_IR_{rid}.csv", index=False)
+        verdict = (
+            "loss prefers elsewhere -- not an optimizer problem"
+            if best_loss <= gt_loss
+            else f"optimizer short of GT by {row['loss_ratio']:.1f}x"
+        )
         print(
-            f"      loss={best_loss:.6e}  NMSE_6d={row['nmse_6d']:.3e}  "
-            f"mu_rel_err={row['mu_rel_error']:.3e}  {elapsed:.1f}s"
+            f"      loss={best_loss:.6e}  gt_loss={gt_loss:.6e}  ({verdict})\n"
+            f"      NMSE_6d={row['nmse_6d']:.3e}  mu_rel_err={row['mu_rel_error']:.3e}  {elapsed:.1f}s"
         )
         if not args.no_plots:
             _plot_per_ir(rid, hist, gt6, est6, elapsed, out_dir / f"random_IR_{rid}_diagnostic.png")
