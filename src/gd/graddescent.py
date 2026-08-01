@@ -321,7 +321,11 @@ def _fit_batch(
     """
     K = z0.shape[0]
     z = nn.Parameter(torch.as_tensor(z0, device=device, dtype=dtype))
-    optim = torch.optim.Adam([z], lr=args.lr, betas=(args.adam_beta1, 0.999))
+    # eps must sit far below the gradient magnitude or it silently rescales the
+    # step (Adam's whole scale-invariance lives in the sqrt(v)+eps denominator).
+    # Un-normalized plate IRs peak around 1e-8, so the torch default of 1e-8 is
+    # the same order as the gradients themselves.
+    optim = torch.optim.Adam([z], lr=args.lr, betas=(args.adam_beta1, 0.999), eps=args.adam_eps)
 
     if args.lr_schedule == "cosine":
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=args.n_epochs)
@@ -336,6 +340,13 @@ def _fit_batch(
     best_mu = mu.clone()
     hist: List[List[float]] = [[] for _ in range(K)]
     stale = 0
+
+    # Constant divisor that puts the objective at O(1) for gradient purposes.
+    # It is fixed after the first step, so it cannot move the optimum, and it
+    # rescales the signal's *loss* rather than its amplitude -- unlike peak
+    # normalization, it leaves mu identifiable. Raw losses are still what gets
+    # recorded and reported, so numbers stay comparable to the CMA-ES sweep.
+    loss_scale: Optional[torch.Tensor] = None
 
     for epoch in range(args.n_epochs):
         # Profile mu out periodically so the shape gradient is evaluated at a
@@ -354,7 +365,20 @@ def _fit_batch(
         # Keep a bad row from poisoning the whole batch: its contribution to the
         # summed objective is dropped, and its gradient is zeroed below.
         finite = torch.isfinite(loss)
-        torch.where(finite, loss, torch.zeros_like(loss)).sum().backward()
+        objective = torch.where(finite, loss, torch.zeros_like(loss))
+
+        if args.loss_scale == "auto":
+            if loss_scale is None:
+                med = objective[finite].median() if bool(finite.any()) else None
+                loss_scale = (
+                    med.detach().abs().clamp(min=1e-30)
+                    if med is not None
+                    else torch.ones((), device=objective.device, dtype=objective.dtype)
+                )
+                print(f"      loss scale (fixed for this batch): {float(loss_scale):.4e}")
+            objective = objective / loss_scale
+
+        objective.sum().backward()
 
         if z.grad is None:  # every row was non-finite; nothing to step on
             print(f"      iter {epoch}: no finite gradients, stopping this batch")
@@ -750,6 +774,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-epochs", type=int, default=400, help="Adam steps per restart")
     p.add_argument("--lr", type=float, default=0.02, help="Adam lr, in normalized [0,1] units")
     p.add_argument("--adam-beta1", dest="adam_beta1", type=float, default=0.9)
+    p.add_argument(
+        "--adam-eps", type=float, default=1e-16,
+        help="Adam epsilon; the 1e-8 default is the same order as the gradients here",
+    )
+    p.add_argument(
+        "--loss-scale", type=str, default="auto", choices=["auto", "none"],
+        help="Divide the objective by a fixed constant so gradients are O(1)",
+    )
     p.add_argument("--grad-clip-value", type=float, default=1.0)
     p.add_argument("--grad-clip-type", type=str, default="norm", choices=["norm", "value"])
     p.add_argument("--lr-schedule", type=str, default="cosine", choices=["cosine", "plateau", "none"])
