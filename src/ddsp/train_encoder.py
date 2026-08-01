@@ -82,9 +82,11 @@ class Encoder(nn.Module):
         hop: int = 512,
         n_blocks: int = 5,
         max_ch: int = 256,
+        input_mode: str = "norm_amp",
     ):
         super().__init__()
         self.n_fft, self.hop = n_fft, hop
+        self.input_mode = input_mode
         self.register_buffer("window", torch.hann_window(n_fft))
 
         # Frequency position is the signal here: the parameters are fixed by
@@ -94,13 +96,14 @@ class Encoder(nn.Module):
         # recover the coordinates that follow from gross spectral statistics.
         # Time is pooled instead: the IR is a sum of stationary damped sinusoids,
         # so its time structure is an exponential envelope and little else.
-        blocks, ch_in, n_freq = [], 1, n_fft // 2 + 1
+        blocks, ch_in, n_freq = [], 0, n_fft // 2 + 1
         for i in range(n_blocks):
             ch_out = min(width * (2 ** i), max_ch)
             # Stride time only while there are frames left to spend.
             stride = (2, 2) if i < 3 else (2, 1)
             blocks += [
-                nn.Conv2d(ch_in, ch_out, 3, stride=stride, padding=1),
+                nn.Conv2d(ch_in if i else (2 if input_mode == "norm_amp" else 1),
+                          ch_out, 3, stride=stride, padding=1),
                 nn.GroupNorm(min(8, ch_out), ch_out),
                 nn.GELU(),
             ]
@@ -113,19 +116,42 @@ class Encoder(nn.Module):
             nn.Flatten(), nn.Linear(feat, 256), nn.GELU(), nn.Linear(256, n_out)
         )
 
-    def features(self, x: torch.Tensor, scale: float, log_input: bool) -> torch.Tensor:
+    def features(self, x: torch.Tensor, scale: float) -> torch.Tensor:
+        """Spectrogram, conditioned so the network can actually see the modes.
+
+        Plate spectra span a huge dynamic range: the low modes dominate and the
+        high ones are orders of magnitude weaker, while the overall level varies
+        with 1/mu across the dataset. Under a single global linear scale the
+        first convolution sees a few loud low-frequency peaks and near-zero
+        everywhere else -- so mode positions, which is where D/mu, T0/mu and Ly
+        live, are effectively invisible.
+
+        Compressing the *input* is unrelated to compressing the *loss*: one
+        changes what the network can see, the other changes which errors get
+        penalized. Only the latter bears on whether a loss is a good estimation
+        objective.
+
+        norm_amp keeps both halves of the information separately: a
+        peak-normalized spectrogram carrying the shape, plus log peak as a
+        second channel carrying the absolute level that identifies mu. Neither
+        is discarded, and each is on a sane numeric scale.
+        """
         spec = torch.stft(
             x, self.n_fft, self.hop, window=self.window, return_complex=True
         ).abs()
-        # A fixed constant, never a per-example norm: dividing each example by its
-        # own peak would erase the absolute amplitude that identifies mu.
-        spec = spec / scale
-        if log_input:
-            spec = torch.log(spec + 1e-6)
-        return spec.unsqueeze(1)
 
-    def forward(self, x: torch.Tensor, scale: float, log_input: bool) -> torch.Tensor:
-        return torch.tanh(self.head(self.net(self.features(x, scale, log_input))))
+        if self.input_mode == "linear":
+            return (spec / scale).unsqueeze(1)
+        if self.input_mode == "log":
+            return torch.log(spec / scale + 1e-8).unsqueeze(1)
+
+        peak = spec.amax(dim=(1, 2), keepdim=True).clamp(min=1e-30)
+        shape = torch.log(spec / peak + 1e-8).unsqueeze(1)
+        level = torch.log10(peak).unsqueeze(1).expand_as(shape)
+        return torch.cat([shape, level], dim=1)
+
+    def forward(self, x: torch.Tensor, scale: float) -> torch.Tensor:
+        return torch.tanh(self.head(self.net(self.features(x, scale))))
 
 
 @torch.no_grad()
@@ -205,7 +231,7 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale) -> Dict[str, floa
         xb = x_val[i : i + args.batch_size]
         if xb.device != z_val.device or str(xb.device) != str(space.device):
             xb = xb.to(space.device, non_blocking=True)
-        zp = model(xb, scale, args.log_input)
+        zp = model(xb, scale)
         pred = space.forward(zp, None, args.duration)
         losses.append(loss_fn(xb, pred).detach())
         preds.append(zp.detach())
@@ -318,7 +344,7 @@ def run(args) -> None:
 
     model = Encoder(
         n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
-        n_blocks=args.n_blocks, max_ch=args.max_ch,
+        n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
     ).to(device)
     n_par = sum(p.numel() for p in model.parameters())
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, eps=args.adam_eps)
@@ -347,7 +373,7 @@ def run(args) -> None:
     for step in range(1, args.steps + 1):
         idx = torch.randint(0, x_tr.shape[0], (args.batch_size,), device=x_tr.device)
         xb = _batch(x_tr, idx, device)
-        zp = model(xb, scale, args.log_input)
+        zp = model(xb, scale)
         pred = space.forward(zp, None, args.duration)
         loss = loss_fn(xb, pred)
         finite = torch.isfinite(loss)
@@ -462,10 +488,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-fft", type=int, default=2048)
     p.add_argument("--hop", type=int, default=512)
     p.add_argument(
-        "--log-input", action="store_true",
-        help="Log-compress the input spectrogram. This is a representation choice, "
-             "independent of compression in the loss; state it separately in writeups.",
+        "--input-mode", type=str, default="norm_amp", choices=["linear", "log", "norm_amp"],
+        help="Input conditioning. norm_amp = log peak-normalized spectrogram plus log "
+             "level as a second channel. This is a representation choice, independent "
+             "of compression in the loss; state it separately in writeups.",
     )
+    p.add_argument("--log-input", action="store_true", help="Deprecated alias for --input-mode log")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--data-device", type=str, default="cpu", choices=["cpu", "cuda"],
@@ -481,7 +509,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    run(build_parser().parse_args())
+    args = build_parser().parse_args()
+    if args.log_input:
+        args.input_mode = "log"
+    run(args)
 
 
 if __name__ == "__main__":
