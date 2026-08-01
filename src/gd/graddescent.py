@@ -86,6 +86,24 @@ def _read_params_csv(csv_path: Path) -> Dict[str, float]:
     return {k: float(v) for k, v in row.items()}
 
 
+def nmse_7d(est7: Optional[Dict[str, float]], gt7: Dict[str, float]) -> float:
+    """Mean squared error over the raw seven, normalized by PARAM_BOUNDS.
+
+    Same convention as compute_nmse_6d, but in raw space. The two differ in a
+    way worth reporting: every one of the six composites is invariant under
+    (E, rho, h) -> (c^3 E, c rho, h/c), so a solution displaced along that
+    symmetry scores zero in 6d while 7d sees it. Reporting both says whether a
+    fit landed on the true parameters or merely on the manifold through them.
+    """
+    if est7 is None:
+        return float("nan")
+    errs = []
+    for i, k in enumerate(PARAM_KEYS):
+        span = BOUNDS_HI_NP[i] - BOUNDS_LO_NP[i]
+        errs.append(((est7[k] - gt7[k]) / span) ** 2)
+    return float(np.mean(errs))
+
+
 # --------------------------------------------------------------------------
 # Raw-7 space: byte-for-byte the CMA-ES terrain, made differentiable.
 # --------------------------------------------------------------------------
@@ -280,8 +298,12 @@ def solve_mu_by_scale(pred_ref, mu_ref, target, loss_fn, n_iters, loss_dtype):
     return mu, best.to(torch.float64)
 
 
-def _fit_batch(z0, target, duration, args, space, loss_fn, device, dtype, loss_dtype):
-    """Batched multi-start Adam over one sub-batch of starts."""
+def _fit_batch(z0, target, duration, args, space, loss_fn, device, dtype, loss_dtype, n_epochs):
+    """Batched multi-start Adam over one wave of starts.
+
+    Returns (best_z, best_mu, best_loss, history, epochs_run); epochs_run is
+    what the caller charges against the compute budget when a wave stops early.
+    """
     K = z0.shape[0]
     z = nn.Parameter(torch.as_tensor(z0, device=device, dtype=dtype))
     # eps must sit well below the gradient magnitude; un-normalized plate IRs
@@ -289,7 +311,7 @@ def _fit_batch(z0, target, duration, args, space, loss_fn, device, dtype, loss_d
     optim = torch.optim.Adam([z], lr=args.lr, betas=(args.adam_beta1, 0.999), eps=args.adam_eps)
 
     if args.lr_schedule == "cosine":
-        sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=args.n_epochs)
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=n_epochs)
     elif args.lr_schedule == "plateau":
         sched = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, patience=args.patience, factor=0.5)
     else:
@@ -303,7 +325,9 @@ def _fit_batch(z0, target, duration, args, space, loss_fn, device, dtype, loss_d
     loss_scale: Optional[torch.Tensor] = None
     stale = 0
 
-    for epoch in range(args.n_epochs):
+    epochs_run = 0
+    for epoch in range(n_epochs):
+        epochs_run = epoch + 1
         if space.profiles_mu and (epoch % args.mu_polish_every == 0):
             with torch.no_grad():
                 ref = space.forward(z.detach(), mu, duration)
@@ -358,14 +382,14 @@ def _fit_batch(z0, target, duration, args, space, loss_fn, device, dtype, loss_d
         elif sched is not None:
             sched.step()
 
-        if epoch % max(1, args.n_epochs // 10) == 0:
-            print(f"      iter {epoch:4d}/{args.n_epochs}  best={float(best_loss.min()):.6e}")
+        if epoch % max(1, n_epochs // 10) == 0:
+            print(f"      iter {epoch:4d}/{n_epochs}  best={float(best_loss.min()):.6e}")
 
         stale = 0 if bool(improved.any()) else stale + 1
         if float(best_loss.min()) <= args.early_stop_loss:
             print(f"      early stop at iter {epoch}")
             break
-        if stale >= args.patience and args.lr_schedule != "plateau":
+        if args.patience > 0 and stale >= args.patience and args.lr_schedule != "plateau":
             print(f"      early stop at iter {epoch}: {stale} iters without improvement")
             break
 
@@ -381,23 +405,41 @@ def _fit_batch(z0, target, duration, args, space, loss_fn, device, dtype, loss_d
         best_mu.detach().cpu().numpy(),
         best_loss.detach().cpu().numpy(),
         hist,
+        epochs_run,
     )
 
 
-def fit_one_ir(target_np, starts, args, space, loss_fn, device, dtype, loss_dtype):
+def fit_one_ir(target_np, args, space, loss_fn, device, dtype, loss_dtype):
+    """Fit one IR under a fixed compute budget, in waves of fresh starts.
+
+    Budget is counted in row-steps (starts x Adam iterations), the same unit as
+    the CMA-ES --budget of function evaluations, so the two are comparable. A
+    wave that stops early hands its unspent budget to the next wave rather than
+    ending the fit, which is the point of budgeting rather than fixing the
+    iteration count: a stalled set of starts becomes fresh starts instead of a
+    truncated run.
+    """
     duration = target_np.shape[0] / float(SAMPLE_RATE)
     target = torch.as_tensor(target_np, device=device, dtype=dtype).unsqueeze(0)
     if args.normalize:
         target = target / torch.clamp(target.abs().max(), min=1e-12)
 
-    all_z, all_mu, all_loss, all_hist = [], [], [], []
-    batch = min(args.restart_batch, starts.shape[0])
-    idx = 0
-    while idx < starts.shape[0]:
-        chunk = starts[idx : idx + batch]
+    budget = args.budget if args.budget > 0 else args.n_restarts * args.n_epochs
+    batch = min(args.restart_batch, args.n_restarts)
+    spent, wave = 0, 0
+    best = None  # (loss, z_row, mu_row)
+    all_hist: List[List[float]] = []
+
+    while spent < budget and wave < args.max_waves:
+        epochs = min(args.n_epochs, (budget - spent) // max(1, batch))
+        if epochs < args.min_wave_epochs:
+            break
+        # A distinct seed per wave, so a wave that stalls is followed by
+        # genuinely different starts rather than the same ones again.
+        starts = space.lhs(batch, args.seed + 1000 * wave)
         try:
-            z_b, mu_b, loss_b, hist_b = _fit_batch(
-                chunk, target, duration, args, space, loss_fn, device, dtype, loss_dtype
+            z_b, mu_b, loss_b, hist_b, ran = _fit_batch(
+                starts, target, duration, args, space, loss_fn, device, dtype, loss_dtype, epochs
             )
         except RuntimeError as e:
             if not _is_oom(e):
@@ -405,45 +447,30 @@ def fit_one_ir(target_np, starts, args, space, loss_fn, device, dtype, loss_dtyp
             if device.type == "cuda":
                 torch.cuda.empty_cache()
             if batch == 1:
-                print("      [OOM] cannot fit a single restart; skipping remaining starts")
+                print("      [OOM] cannot fit a single start; stopping")
                 break
             batch = max(1, batch // 2)
             print(f"      [OOM] retrying with restart_batch={batch}")
             continue
-        all_z.append(z_b)
-        all_mu.append(mu_b)
-        all_loss.append(loss_b)
+
+        spent += batch * ran
         all_hist.extend(hist_b)
-        idx += chunk.shape[0]
+        w = int(np.argmin(loss_b))
+        if best is None or loss_b[w] < best[0]:
+            best = (float(loss_b[w]), z_b[w].copy(), float(mu_b[w]))
+        wave += 1
+        print(
+            f"      wave {wave}: {batch} starts x {ran} iters, "
+            f"best so far {best[0]:.6e}, budget {spent}/{budget}"
+        )
 
-    if not all_loss:
-        raise RuntimeError("all restarts failed (out of memory)")
+    if best is None:
+        raise RuntimeError("no wave completed")
 
-    z = np.concatenate(all_z, axis=0)
-    mu = np.concatenate(all_mu, axis=0)
-    loss = np.concatenate(all_loss, axis=0)
-    w = int(np.argmin(loss))
-
-    est6 = space.to_six(z[w])
+    est6 = space.to_six(best[1])
     if space.profiles_mu:
-        est6["mu"] = float(mu[w])
-    return est6, space.to_raw7(z[w]), float(loss[w]), all_hist
-
-
-def loss_at_ground_truth(gt7, gt6, target, duration, space, loss_fn, device, dtype, loss_dtype):
-    """Loss evaluated at the true parameters.
-
-    The single most informative number to sit beside the achieved loss: if the
-    fitter's loss is far above this, the optimizer failed to reach an optimum
-    the loss does define. If it is at or below it, the loss prefers some other
-    point and no optimizer would have recovered the true parameters.
-    """
-    z = torch.as_tensor(space.gt_z(gt7), device=device, dtype=dtype).unsqueeze(0)
-    mu = torch.full((1,), float(gt6["mu"]), device=device, dtype=dtype)
-    with torch.no_grad():
-        pred = space.forward(z, mu, duration)
-        lv = loss_fn(target.to(loss_dtype).expand(1, -1), pred.to(loss_dtype))
-    return float(lv[0])
+        est6["mu"] = best[2]
+    return est6, space.to_raw7(best[1]), best[0], all_hist, spent, wave
 
 
 def _plot_per_ir(rid, hist, gt6, est6, elapsed, out_path):
@@ -522,7 +549,6 @@ def run(args) -> None:
     if args.num:
         param_files = param_files[: args.num]
 
-    starts = space.lhs(args.n_restarts, args.seed)
     rows: List[Dict] = []
     print(f"Processing {len(param_files)} IR(s) from {dataset_dir}")
 
@@ -540,8 +566,8 @@ def run(args) -> None:
         print(f"[{i}/{len(param_files)}] random_IR_{rid}  ({target_np.shape[0]} samples)")
         t0 = time.time()
         try:
-            est6, est7, best_loss, hist = fit_one_ir(
-                target_np, starts, args, space, loss_fn, device, dtype, loss_dtype
+            est6, est7, best_loss, hist, spent, waves = fit_one_ir(
+                target_np, args, space, loss_fn, device, dtype, loss_dtype
             )
         except RuntimeError as e:
             print(f"      FAILED: {e}")
@@ -566,6 +592,9 @@ def run(args) -> None:
             "gt_loss": gt_loss,
             "loss_ratio": best_loss / max(gt_loss, 1e-300),
             "nmse_6d": nmse_6d(est6, gt6),
+            "nmse_7d": nmse_7d(est7, gt7),
+            "evals_spent": int(spent),
+            "waves": int(waves),
             "mu_rel_error": abs(est6["mu"] - gt6["mu"]) / max(abs(gt6["mu"]), 1e-18),
             "runtime_s": elapsed,
             "space": space.name,
@@ -591,7 +620,8 @@ def run(args) -> None:
         )
         print(
             f"      loss={best_loss:.6e}  gt_loss={gt_loss:.6e}  ({verdict})\n"
-            f"      NMSE_6d={row['nmse_6d']:.3e}  mu_rel_err={row['mu_rel_error']:.3e}  {elapsed:.1f}s"
+            f"      NMSE_6d={row['nmse_6d']:.3e}  NMSE_7d={row['nmse_7d']:.3e}  "
+            f"mu_rel_err={row['mu_rel_error']:.3e}  {elapsed:.1f}s"
         )
         if not args.no_plots:
             _plot_per_ir(rid, hist, gt6, est6, elapsed, out_dir / f"random_IR_{rid}_diagnostic.png")
@@ -604,6 +634,7 @@ def run(args) -> None:
         ).to_csv(out_dir / "submission.csv", index=False)
         print(
             f"\nMedian NMSE_6d = {df['nmse_6d'].median():.3e} | "
+            f"NMSE_7d = {df['nmse_7d'].median():.3e} | "
             f"median mu rel err = {df['mu_rel_error'].median():.3e} | "
             f"{df['runtime_s'].sum():.0f}s over {len(df)} IRs"
         )
@@ -642,7 +673,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--grad-clip-value", type=float, default=1.0)
     p.add_argument("--grad-clip-type", type=str, default="norm", choices=["norm", "value"])
     p.add_argument("--lr-schedule", type=str, default="cosine", choices=["cosine", "plateau", "none"])
-    p.add_argument("--patience", type=int, default=60)
+    p.add_argument(
+        "--patience", type=int, default=0,
+        help="Stop a wave after this many non-improving steps; 0 disables. "
+             "Was 60, which killed runs that later recovered.",
+    )
+    p.add_argument(
+        "--budget", type=int, default=0,
+        help="Total row-steps (starts x iterations), comparable to the CMA-ES "
+             "--budget of evaluations. 0 means n_restarts * n_epochs, one wave.",
+    )
+    p.add_argument("--max-waves", type=int, default=64, help="Cap on waves of fresh starts")
+    p.add_argument("--min-wave-epochs", type=int, default=100, help="Do not start a wave shorter than this")
     p.add_argument("--early-stop-loss", type=float, default=0.0)
     p.add_argument("--loss-scale", type=str, default="auto", choices=["auto", "none"])
 
