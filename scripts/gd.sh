@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Gradient descent over the identifiable 6-parameter plate space.
+# Gradient descent on the CMA-ES search terrain (raw 7 params, linear [-1,1]).
 #
-# Unlike the CMA-ES pipeline this is a SINGLE stage: mu is solved analytically
-# inside the run (see src/gd/graddescent.py), so there is no stage-2
-# ternary_mu step and the target IR must NOT be peak-normalized.
+# The only intentional difference from the CMA-ES sweep is that peak
+# normalization is off, so mu is fit directly and there is no stage-2
+# ternary_mu step. Pass --normalize to reproduce the CMA-ES objective exactly.
 #
 # Optional overrides (env vars):
 #   PYTHON_BIN, DSET_ROOT, RESULT_ROOT, LOSS, NUM, N_RESTARTS, DURATION
@@ -37,7 +37,6 @@ RESULT_ROOT="${RESULT_ROOT:-${REPO_ROOT}/results/gd/graddescent_$(echo "${LOSS}"
   --lr-schedule cosine \
   --grad-clip-type norm \
   --grad-clip-value 1.0 \
-  --mu-mode profile \
-  --init-space raw7 \
+  --space raw7 \
   --seed 42 \
   "$@"
