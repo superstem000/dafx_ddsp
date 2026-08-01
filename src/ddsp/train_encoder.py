@@ -509,9 +509,17 @@ def run(args) -> None:
     for step in range(1, args.steps + 1):
         idx = torch.randint(0, x_tr.shape[0], (args.batch_size,), device=x_tr.device)
         xb = _batch(x_tr, idx, device)
-        zp = model(xb, scale)
-        pred = space.forward(zp, None, args.duration)
-        loss = loss_fn(xb, pred)
+        two_stage = refiner is not None and step >= args.stage1_start_step
+
+        z0, x0, z1, x1 = two_stage_forward(model, refiner, cond, space, xb, scale, args, two_stage)
+        loss0 = loss_fn(xb, x0)
+        if two_stage:
+            # Deep supervision on stage 0. Without it stage 0 drifts toward
+            # "emit anything, the refiner will fix it", the residual stops being
+            # an error signal, and the cascade collapses to one deeper stage.
+            loss = loss_fn(xb, x1) + args.deep_supervision * loss0
+        else:
+            loss = loss0
         finite = torch.isfinite(loss)
         obj = torch.where(finite, loss, torch.zeros_like(loss)).mean()
 
