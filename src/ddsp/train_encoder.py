@@ -57,11 +57,12 @@ from src.cmaes.fit_7param_norm_es import BOUNDS_HI_NP, BOUNDS_LO_NP, PARAM_KEYS
 from src.gd.graddescent import (
     SAMPLE_RATE,
     Raw7Space,
+    _read_params_csv,
     nmse_7d,
     verify_mapping_matches_cmaes,
 )
 from src.loss.loss_selector import select_loss_function
-from src.mu_optimization.ternary_mu import nmse_6d, seven_to_six
+from src.mu_optimization.ternary_mu import load_target_ir_from_npz, nmse_6d, seven_to_six
 
 
 class Encoder(nn.Module):
@@ -123,6 +124,41 @@ def synth_dataset(
     return z, torch.cat(outs, dim=0)
 
 
+def load_dataset(
+    space: Raw7Space, data_dir: Path, duration: float, device, limit: Optional[int] = None
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Load a dataset written by src.data.make_dataset (or the two-step process).
+
+    Used so the encoder can be validated on the very IRs the per-IR fitting runs
+    were measured on, rather than only on freshly sampled ones.
+    """
+    csvs = sorted(data_dir.glob("random_IR_params_*.csv"))
+    if limit is not None:
+        csvs = csvs[:limit]
+    if not csvs:
+        raise FileNotFoundError(f"No random_IR_params_*.csv in {data_dir}")
+
+    want = int(duration * SAMPLE_RATE)
+    zs, irs = [], []
+    for c in csvs:
+        rid = c.stem.split("_")[-1]
+        npz = data_dir / f"random_IR_{rid}.npz"
+        if not npz.exists():
+            continue
+        ir = load_target_ir_from_npz(npz, duration, SAMPLE_RATE)
+        if ir.shape[0] != want:
+            raise ValueError(
+                f"{npz.name} has {ir.shape[0]} samples, expected {want} at "
+                f"--duration {duration}; regenerate or pick a shorter duration"
+            )
+        zs.append(space.gt_z(_read_params_csv(c)))
+        irs.append(ir)
+
+    z = torch.as_tensor(np.asarray(zs), dtype=torch.float32, device=device)
+    x = torch.as_tensor(np.asarray(irs), dtype=torch.float32, device=device)
+    return z, x
+
+
 def z_to_dicts(z: np.ndarray) -> list:
     phys = BOUNDS_LO_NP + ((z + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
     return [{k: float(v) for k, v in zip(PARAM_KEYS, row)} for row in phys]
@@ -163,11 +199,23 @@ def run(args) -> None:
     loss_fn = select_loss_function(args.loss, sample_rate=SAMPLE_RATE, device=device)
 
     print(f"Device {device} | loss {args.loss} | duration {args.duration}s")
-    print(f"Generating {args.n_train} train / {args.n_val} val targets...")
     t0 = time.time()
-    z_tr, x_tr = synth_dataset(space, args.n_train, args.duration, args.seed, args.batch_size, device)
-    z_va, x_va = synth_dataset(space, args.n_val, args.duration, args.seed + 1, args.batch_size, device)
-    print(f"  done in {time.time() - t0:.0f}s   train tensor {x_tr.numel() * 4 / 1e9:.2f} GB")
+    if args.data_dir is not None:
+        print(f"Loading train targets from {args.data_dir}")
+        z_tr, x_tr = load_dataset(space, args.data_dir, args.duration, device, args.n_train)
+    else:
+        print(f"Generating {args.n_train} train targets...")
+        z_tr, x_tr = synth_dataset(space, args.n_train, args.duration, args.seed, args.batch_size, device)
+
+    if args.val_data_dir is not None:
+        print(f"Loading val targets from {args.val_data_dir}")
+        z_va, x_va = load_dataset(space, args.val_data_dir, args.duration, device, args.n_val)
+    else:
+        z_va, x_va = synth_dataset(space, args.n_val, args.duration, args.seed + 1, args.batch_size, device)
+    print(
+        f"  {x_tr.shape[0]} train / {x_va.shape[0]} val in {time.time() - t0:.0f}s   "
+        f"train tensor {x_tr.numel() * 4 / 1e9:.2f} GB"
+    )
 
     # Fixed input scale from the training set; constant, so relative amplitude
     # between examples survives and mu stays recoverable.
@@ -259,6 +307,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-dir", type=Path, default=Path("results/ddsp/encoder"))
     p.add_argument("--loss", type=str, default="L1_STFT")
     p.add_argument("--duration", type=float, default=0.25)
+    p.add_argument(
+        "--data-dir", type=Path, default=None,
+        help="Load training targets from a dataset directory instead of generating them",
+    )
+    p.add_argument(
+        "--val-data-dir", type=Path, default=None,
+        help="Validate on a fixed dataset, e.g. the IRs the fitting runs were measured on",
+    )
     p.add_argument("--n-train", type=int, default=8192)
     p.add_argument("--n-val", type=int, default=512)
     p.add_argument("--batch-size", type=int, default=16)
