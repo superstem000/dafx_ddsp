@@ -41,6 +41,7 @@ Usage:
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -452,13 +453,35 @@ def run(args) -> None:
 
     params = list(model.parameters()) + (list(refiner.parameters()) if refiner else [])
     n_par = sum(p.numel() for p in params)
-    opt = torch.optim.Adam(params, lr=args.lr, eps=args.adam_eps)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.steps)
+
+    # Separate parameter groups, because the two networks are at different points
+    # in their training when the refiner appears. Sharing one cosine would drop a
+    # randomly initialized refiner onto whatever learning rate stage 0 had
+    # annealed to by then -- 65% of peak and falling at step 100k of 250k -- while
+    # a converged stage 0 wants the small rate the same curve is giving it.
+    groups = [{"params": list(model.parameters()), "lr": args.lr}]
+    if refiner is not None:
+        groups.append({"params": list(refiner.parameters()), "lr": args.lr})
+    opt = torch.optim.Adam(groups, lr=args.lr, eps=args.adam_eps)
+    def cosine(step: int, start: int, end: int) -> float:
+        if step < start:
+            return 0.0
+        t = (step - start) / max(1, end - start)
+        return 0.5 * (1.0 + math.cos(math.pi * min(t, 1.0)))
+
+    # Stage 0 anneals across the whole run; the refiner gets its own full cosine
+    # over its own lifetime, so it starts at peak rate when it joins.
+    lambdas = [lambda st: cosine(st, 0, args.steps)]
+    if refiner is not None:
+        lambdas.append(lambda st: cosine(st, args.stage1_start_step, args.steps))
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambdas)
     print(f"encoder{'+refiner' if refiner else ''}: {n_par/1e6:.2f}M params, width {args.width}")
     if refiner:
         print(
             f"refiner joins at step {args.stage1_start_step}, correction scale "
             f"{args.refine_scale}, deep supervision {args.deep_supervision}\n"
+            f"  lr schedules: stage0 cosine 0..{args.steps}, "
+            f"refiner cosine {args.stage1_start_step}..{args.steps}\n"
         )
     else:
         print()
@@ -498,7 +521,11 @@ def run(args) -> None:
 
         opt.zero_grad(set_to_none=True)
         (obj / loss_scale).backward()
-        gnorm = float(torch.nn.utils.clip_grad_norm_(params, args.grad_clip))
+        # Clip each network separately: one shared norm would let stage 0's much
+        # larger gradient decide how much the refiner's gets scaled.
+        gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip))
+        if refiner is not None:
+            torch.nn.utils.clip_grad_norm_(refiner.parameters(), args.grad_clip)
         opt.step()
         sched.step()
 
