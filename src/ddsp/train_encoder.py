@@ -53,7 +53,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.cmaes.fit_7param_norm_es import BOUNDS_HI_NP, BOUNDS_LO_NP, PARAM_KEYS
+from src.cmaes.fit_7param_norm_es import BOUNDS_HI_NP, BOUNDS_LO_NP, NU, PARAM_KEYS
 from src.gd.graddescent import (
     SAMPLE_RATE,
     Raw7Space,
@@ -62,7 +62,12 @@ from src.gd.graddescent import (
     verify_mapping_matches_cmaes,
 )
 from src.loss.loss_selector import select_loss_function
-from src.mu_optimization.ternary_mu import load_target_ir_from_npz, nmse_6d, seven_to_six
+from src.mu_optimization.ternary_mu import (
+    COMPOSITE_BOUNDS,
+    load_target_ir_from_npz,
+    nmse_6d,
+    seven_to_six,
+)
 
 
 class Encoder(nn.Module):
@@ -83,6 +88,8 @@ class Encoder(nn.Module):
         n_blocks: int = 5,
         max_ch: int = 256,
         input_mode: str = "norm_amp",
+        in_ch: Optional[int] = None,
+        n_extra: int = 0,
     ):
         super().__init__()
         self.n_fft, self.hop = n_fft, hop
@@ -96,14 +103,14 @@ class Encoder(nn.Module):
         # recover the coordinates that follow from gross spectral statistics.
         # Time is pooled instead: the IR is a sum of stationary damped sinusoids,
         # so its time structure is an exponential envelope and little else.
-        blocks, ch_in, n_freq = [], 0, n_fft // 2 + 1
+        first_ch = in_ch if in_ch is not None else (2 if input_mode == "norm_amp" else 1)
+        blocks, ch_in, n_freq = [], first_ch, n_fft // 2 + 1
         for i in range(n_blocks):
             ch_out = min(width * (2 ** i), max_ch)
             # Stride time only while there are frames left to spend.
             stride = (2, 2) if i < 3 else (2, 1)
             blocks += [
-                nn.Conv2d(ch_in if i else (2 if input_mode == "norm_amp" else 1),
-                          ch_out, 3, stride=stride, padding=1),
+                nn.Conv2d(ch_in, ch_out, 3, stride=stride, padding=1),
                 nn.GroupNorm(min(8, ch_out), ch_out),
                 nn.GELU(),
             ]
@@ -111,9 +118,9 @@ class Encoder(nn.Module):
         blocks.append(nn.AdaptiveAvgPool2d((None, 1)))  # pool time, keep frequency
         self.net = nn.Sequential(*blocks)
 
-        feat = ch_in * n_freq
+        self.flatten = nn.Flatten()
         self.head = nn.Sequential(
-            nn.Flatten(), nn.Linear(feat, 256), nn.GELU(), nn.Linear(256, n_out)
+            nn.Linear(ch_in * n_freq + n_extra, 256), nn.GELU(), nn.Linear(256, n_out)
         )
 
     def features(self, x: torch.Tensor, scale: float) -> torch.Tensor:
@@ -150,8 +157,21 @@ class Encoder(nn.Module):
         level = torch.log10(peak).unsqueeze(1).expand_as(shape)
         return torch.cat([shape, level], dim=1)
 
+    def from_features(self, feat: torch.Tensor, extra: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Trunk plus head, with optional non-spatial inputs joined at the head.
+
+        The conditioning vector is six scalars with no spatial extent, so it is
+        concatenated after pooling rather than broadcast into constant input
+        planes -- convolution can do nothing useful with a plane that is the same
+        value everywhere.
+        """
+        h = self.flatten(self.net(feat))
+        if extra is not None:
+            h = torch.cat([h, extra], dim=1)
+        return torch.tanh(self.head(h))
+
     def forward(self, x: torch.Tensor, scale: float) -> torch.Tensor:
-        return torch.tanh(self.head(self.net(self.features(x, scale))))
+        return self.from_features(self.features(x, scale))
 
 
 @torch.no_grad()
@@ -218,24 +238,89 @@ def _batch(x: torch.Tensor, idx: torch.Tensor, device) -> torch.Tensor:
     return out if out.device == device else out.to(device, non_blocking=True)
 
 
+class CompositeConditioner:
+    """Maps a raw-7 prediction to the six normalized composites, for conditioning.
+
+    The refiner is told where it is starting from, but only in terms the sound
+    actually depends on. The raw seven carry one dimension that provably does not
+    matter -- (E, rho, h) -> (c^3 E, c rho, h/c) leaves the IR identical -- so
+    feeding all seven would hand the refiner six meaningful numbers plus one that
+    is pure drift. Log-scaled for mu, D_mu and T0_mu, which span 1.6, 2.9 and 6.6
+    decades respectively.
+    """
+
+    KEYS = ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
+    LOG = (True, True, True, False, False, False)
+
+    def __init__(self, device, dtype=torch.float32):
+        lo = np.array([COMPOSITE_BOUNDS[k][0] for k in self.KEYS], dtype=np.float64)
+        hi = np.array([COMPOSITE_BOUNDS[k][1] for k in self.KEYS], dtype=np.float64)
+        self.lo = torch.as_tensor(lo, device=device, dtype=dtype)
+        self.hi = torch.as_tensor(hi, device=device, dtype=dtype)
+        self.log_lo = torch.as_tensor(np.log(lo), device=device, dtype=dtype)
+        self.log_hi = torch.as_tensor(np.log(hi), device=device, dtype=dtype)
+        self.is_log = torch.as_tensor(np.array(self.LOG), device=device)
+        self.b_lo = torch.as_tensor(BOUNDS_LO_NP, device=device, dtype=dtype)
+        self.b_hi = torch.as_tensor(BOUNDS_HI_NP, device=device, dtype=dtype)
+
+    def __call__(self, z: torch.Tensor) -> torch.Tensor:
+        phys = self.b_lo + ((z + 1.0) / 2.0) * (self.b_hi - self.b_lo)
+        E, rho, h, Ly, T0, op_x, op_y = [phys[:, i] for i in range(7)]
+        mu = rho * h
+        D = E * h.pow(3) / (12.0 * (1.0 - NU ** 2))
+        six = torch.stack([mu, D / mu, T0 / mu, Ly, op_x, op_y], dim=1).clamp(min=1e-30)
+        lin = (six - self.lo) / (self.hi - self.lo)
+        log = (torch.log(six) - self.log_lo) / (self.log_hi - self.log_lo)
+        return torch.where(self.is_log, log, lin).clamp(0.0, 1.0)
+
+
+def two_stage_forward(enc0, refiner, cond, space, x, scale, args, two_stage: bool):
+    """Stage 0, one synthesis, then a correction conditioned on the residual.
+
+    Returns (z0, x0, z1, x1); z1/x1 are None until the refiner is active.
+    """
+    fx = enc0.features(x, scale)
+    z0 = enc0.from_features(fx)
+    x0 = space.forward(z0, None, args.duration)
+    if not two_stage:
+        return z0, x0, None, None
+
+    f0 = enc0.features(x0, scale)
+    c0 = cond(z0)
+    if not args.refine_attach:
+        # The gradient that matters already reaches z0 through z1 = z0 + a*dz.
+        # Leaving the residual path attached mostly teaches stage 0 to make
+        # errors that are convenient for stage 1 rather than errors that are small.
+        f0, c0 = f0.detach(), c0.detach()
+    dz = refiner.from_features(torch.cat([fx, f0, fx - f0], dim=1), c0)
+    z1 = torch.clamp(z0 + args.refine_scale * dz, -1.0, 1.0)
+    return z0, x0, z1, space.forward(z1, None, args.duration)
+
+
 def z_to_dicts(z: np.ndarray) -> list:
     phys = BOUNDS_LO_NP + ((z + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
     return [{k: float(v) for k, v in zip(PARAM_KEYS, row)} for row in phys]
 
 
 @torch.no_grad()
-def evaluate(model, space, z_val, x_val, args, loss_fn, scale) -> Dict[str, float]:
+def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
+             refiner=None, cond=None, two_stage=False) -> Dict[str, float]:
     model.eval()
-    losses, preds = [], []
+    if refiner is not None:
+        refiner.eval()
+    losses, preds, preds0 = [], [], []
     for i in range(0, x_val.shape[0], args.batch_size):
         xb = x_val[i : i + args.batch_size]
-        if xb.device != z_val.device or str(xb.device) != str(space.device):
+        if str(xb.device) != str(space.device):
             xb = xb.to(space.device, non_blocking=True)
-        zp = model(xb, scale)
-        pred = space.forward(zp, None, args.duration)
+        z0, x0, z1, x1 = two_stage_forward(model, refiner, cond, space, xb, scale, args, two_stage)
+        zp, pred = (z1, x1) if two_stage else (z0, x0)
         losses.append(loss_fn(xb, pred).detach())
         preds.append(zp.detach())
+        preds0.append(z0.detach())
     model.train()
+    if refiner is not None:
+        refiner.train()
 
     zp = torch.cat(preds).cpu().numpy()
     zt = z_val.cpu().numpy()
@@ -277,6 +362,14 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale) -> Dict[str, floa
         if k in ("mu", "D_div_mu", "T0_div_mu"):
             a, b = np.log(np.maximum(a, 1e-300)), np.log(np.maximum(b, 1e-300))
         out[f"c6_{k}"] = _corr(a, b)
+
+    # With the refiner active, report stage 0 separately so "did the correction
+    # help" is visible rather than inferred from a single combined number.
+    if two_stage:
+        est0 = z_to_dicts(torch.cat(preds0).cpu().numpy())
+        out["val_nmse_6d_stage0"] = float(
+            np.median([nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est0, gt)])
+        )
     return out
 
 
@@ -346,10 +439,29 @@ def run(args) -> None:
         n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
         n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
     ).to(device)
-    n_par = sum(p.numel() for p in model.parameters())
-    opt = torch.optim.Adam(model.parameters(), lr=args.lr, eps=args.adam_eps)
+    cond = CompositeConditioner(device)
+    refiner = None
+    if args.stage1_start_step > 0:
+        # Three images in (target, attempt, residual), each two channels, plus the
+        # six normalized composites joined at the head.
+        refiner = Encoder(
+            n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
+            n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
+            in_ch=6, n_extra=len(CompositeConditioner.KEYS),
+        ).to(device)
+
+    params = list(model.parameters()) + (list(refiner.parameters()) if refiner else [])
+    n_par = sum(p.numel() for p in params)
+    opt = torch.optim.Adam(params, lr=args.lr, eps=args.adam_eps)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.steps)
-    print(f"encoder: {n_par/1e6:.2f}M params, width {args.width}\n")
+    print(f"encoder{'+refiner' if refiner else ''}: {n_par/1e6:.2f}M params, width {args.width}")
+    if refiner:
+        print(
+            f"refiner joins at step {args.stage1_start_step}, correction scale "
+            f"{args.refine_scale}, deep supervision {args.deep_supervision}\n"
+        )
+    else:
+        print()
 
     # Same trick as the fitter: a constant divisor keeps the objective at O(1)
     # for any loss in the registry without moving its optimum.
@@ -362,6 +474,7 @@ def run(args) -> None:
         torch.save(
             {
                 "model": model.state_dict(),
+                "refiner": refiner.state_dict() if refiner is not None else None,
                 "optimizer": opt.state_dict(),
                 "step": step,
                 "scale": scale,
@@ -385,7 +498,7 @@ def run(args) -> None:
 
         opt.zero_grad(set_to_none=True)
         (obj / loss_scale).backward()
-        gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip))
+        gnorm = float(torch.nn.utils.clip_grad_norm_(params, args.grad_clip))
         opt.step()
         sched.step()
 
@@ -399,7 +512,12 @@ def run(args) -> None:
                 "elapsed_s": time.time() - t0,
             }
             if step % args.eval_every == 0 or step == 1:
-                row.update(evaluate(model, space, z_va, x_va, args, loss_fn, scale))
+                row.update(
+                    evaluate(
+                        model, space, z_va, x_va, args, loss_fn, scale,
+                        refiner=refiner, cond=cond, two_stage=two_stage,
+                    )
+                )
                 corr = "  ".join(
                     f"{k}={row[f'c6_{k}']:+.2f}"
                     for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
@@ -411,7 +529,9 @@ def run(args) -> None:
                     f"NMSE_7d {row['val_nmse_7d']:.3e}  |g| {gnorm:.2e}  "
                     f"[{row['elapsed_s']:.0f}s]"
                 )
-                print(f"           corr(identifiable)  {corr}   mean spread/GT {spread:.2f}")
+                stage0 = row.get("val_nmse_6d_stage0")
+                extra = f"   stage0 6d {stage0:.3e}" if stage0 is not None else ""
+                print(f"           corr(identifiable)  {corr}   mean spread/GT {spread:.2f}{extra}")
             else:
                 print(f"step {step:6d}  train {tr:.4e}  |g| {gnorm:.2e}  [{row['elapsed_s']:.0f}s]")
             hist.append(row)
@@ -500,6 +620,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where the training set lives; cpu lifts the size limit from VRAM to RAM",
     )
     p.add_argument("--ckpt-every", type=int, default=5000, help="Steps between checkpoint writes")
+    p.add_argument(
+        "--stage1-start-step", type=int, default=0,
+        help="Step at which the refiner joins; 0 disables it. Training stage 0 first "
+             "matters: with the refiner present from the start its residual input is "
+             "noise, and it learns to ignore it.",
+    )
+    p.add_argument(
+        "--refine-scale", type=float, default=0.25,
+        help="Correction magnitude. Unconstrained, the refiner re-predicts from "
+             "scratch and the cascade becomes one deeper stage.",
+    )
+    p.add_argument("--deep-supervision", type=float, default=0.5, help="Weight on the stage-0 loss")
+    p.add_argument(
+        "--refine-attach", action="store_true",
+        help="Backprop into stage 0 through the residual too (default: detached)",
+    )
     p.add_argument("--log-every", type=int, default=100)
     p.add_argument("--eval-every", type=int, default=1000)
     p.add_argument("--compile-plate", action="store_true")
