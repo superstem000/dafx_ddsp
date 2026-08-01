@@ -213,13 +213,31 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale) -> Dict[str, floa
     # whether a coordinate is tracked at all; the spread ratio separates "wrong"
     # from "collapsed", since an encoder ignoring its input emits a near-constant
     # prediction and scores about what predicting the mean would.
+    def _corr(a, b):
+        if float(a.std()) > 1e-12 and float(b.std()) > 1e-12:
+            return float(np.corrcoef(a, b)[0, 1])
+        return 0.0
+
     for i, k in enumerate(PARAM_KEYS):
         pred_sd, true_sd = float(zp[:, i].std()), float(zt[:, i].std())
-        if pred_sd > 1e-9 and true_sd > 1e-9:
-            out[f"corr_{k}"] = float(np.corrcoef(zp[:, i], zt[:, i])[0, 1])
-        else:
-            out[f"corr_{k}"] = 0.0
+        out[f"corr_{k}"] = _corr(zp[:, i], zt[:, i])
         out[f"spread_{k}"] = pred_sd / max(true_sd, 1e-12)
+
+    # The raw-7 correlations above are only meaningful for Ly, op_x and op_y.
+    # E, rho and h are individually unidentifiable from audio -- the synthesis
+    # depends on them solely through mu = rho*h and D/mu, and the symmetry
+    # (E, rho, h) -> (c^3 E, c rho, h/c) leaves the IR untouched -- so their
+    # correlations track drift along a direction the loss cannot see. These are
+    # the ones that say whether the mapping is being learned. Compared in log
+    # space for mu, D_mu and T0_mu, which span decades.
+    est6 = [seven_to_six(e) for e in est]
+    gt6 = [seven_to_six(g) for g in gt]
+    for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y"):
+        a = np.array([e[k] for e in est6], dtype=np.float64)
+        b = np.array([g[k] for g in gt6], dtype=np.float64)
+        if k in ("mu", "D_div_mu", "T0_div_mu"):
+            a, b = np.log(np.maximum(a, 1e-300)), np.log(np.maximum(b, 1e-300))
+        out[f"c6_{k}"] = _corr(a, b)
     return out
 
 
@@ -327,7 +345,10 @@ def run(args) -> None:
             }
             if step % args.eval_every == 0 or step == 1:
                 row.update(evaluate(model, space, z_va, x_va, args, loss_fn, scale))
-                corr = "  ".join(f"{k}={row[f'corr_{k}']:+.2f}" for k in PARAM_KEYS)
+                corr = "  ".join(
+                    f"{k}={row[f'c6_{k}']:+.2f}"
+                    for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
+                )
                 spread = np.mean([row[f"spread_{k}"] for k in PARAM_KEYS])
                 print(
                     f"step {step:6d}  train {tr:.4e}  val {row['val_loss']:.4e}  "
@@ -335,7 +356,7 @@ def run(args) -> None:
                     f"NMSE_7d {row['val_nmse_7d']:.3e}  |g| {gnorm:.2e}  "
                     f"[{row['elapsed_s']:.0f}s]"
                 )
-                print(f"           corr  {corr}   mean spread/GT {spread:.2f}")
+                print(f"           corr(identifiable)  {corr}   mean spread/GT {spread:.2f}")
             else:
                 print(f"step {step:6d}  train {tr:.4e}  |g| {gnorm:.2e}  [{row['elapsed_s']:.0f}s]")
             hist.append(row)
