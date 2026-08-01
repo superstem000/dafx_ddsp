@@ -642,11 +642,18 @@ def run(args) -> None:
 
         rows.append(row)
         pd.DataFrame([row]).to_csv(out_dir / f"result_random_IR_{rid}.csv", index=False)
-        verdict = (
-            "loss prefers elsewhere -- not an optimizer problem"
-            if best_loss <= gt_loss
-            else f"optimizer short of GT by {row['loss_ratio']:.1f}x"
-        )
+        # Only call it a loss problem when the fit is genuinely elsewhere: at the
+        # bottom of the well the two differ by float32 noise, and reading that as
+        # "the loss prefers another point" gets the successful case exactly wrong.
+        ratio = row["loss_ratio"]
+        if row["nmse_6d"] < 1e-8:
+            verdict = "converged to GT"
+        elif 0.1 < ratio <= 1.0:
+            verdict = "at GT loss level, parameters differ"
+        elif ratio <= 0.1:
+            verdict = "loss prefers elsewhere -- not an optimizer problem"
+        else:
+            verdict = f"optimizer short of GT by {ratio:.1f}x"
         print(
             f"      loss={best_loss:.6e}  gt_loss={gt_loss:.6e}  ({verdict})\n"
             f"      NMSE_6d={row['nmse_6d']:.3e}  NMSE_7d={row['nmse_7d']:.3e}  "
