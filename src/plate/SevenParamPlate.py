@@ -3,6 +3,7 @@ from typing import Dict, Iterable, Optional, Sequence, Union
 
 import numpy as np
 import torch
+import torch.utils.checkpoint
 
 
 TensorOrFloat = Union[torch.Tensor, float]
@@ -46,6 +47,9 @@ class BatchedModalPlateTorch(torch.nn.Module):
         device: Optional[Union[str, torch.device]] = None,
         dtype: torch.dtype = torch.float32,
         drop_sub_20hz_modes: bool = False,
+        chunk_elems: int = 50_000_000,
+        grad_checkpoint: bool = False,
+        batched_modal_sum: bool = False,
     ):
         super().__init__()
         self.sample_rate = int(sample_rate)
@@ -54,6 +58,16 @@ class BatchedModalPlateTorch(torch.nn.Module):
         self.device = torch.device(device) if device is not None else torch.device("cpu")
         self.dtype = dtype
         self.drop_sub_20hz_modes = bool(drop_sub_20hz_modes)
+
+        # Time-chunking budget for the modal sum, in elements. Under autograd
+        # every chunk's intermediates are retained, so chunking only bounds
+        # memory when grad_checkpoint is on.
+        self.chunk_elems = int(chunk_elems)
+        self.grad_checkpoint = bool(grad_checkpoint)
+        # Sum all modes for the whole batch at once instead of looping over the
+        # batch. Trades redundant work on examples with few active modes for
+        # batch parallelism. Off by default: verify equivalence before enabling.
+        self.batched_modal_sum = bool(batched_modal_sum)
 
     def _as_tensor(self, value: TensorOrFloat) -> torch.Tensor:
         if isinstance(value, torch.Tensor):
@@ -74,6 +88,50 @@ class BatchedModalPlateTorch(torch.nn.Module):
         if device is not None:
             out = out.to(device)
         return out
+
+    def _maybe_checkpoint(self, fn, *tensors):
+        needs_grad = any(t.requires_grad for t in tensors)
+        if self.grad_checkpoint and torch.is_grad_enabled() and needs_grad:
+            return torch.utils.checkpoint.checkpoint(fn, *tensors, use_reentrant=False)
+        return fn(*tensors)
+
+    def _modal_sum_single(self, sig_b, om_b, den_b, P_b, k, start, end):
+        """Modal series over samples [start, end) for one example: [n_modes,1] inputs."""
+
+        def _inner(sig_b, om_b, den_b, P_b):
+            t = torch.arange(start, end, device=self.device, dtype=self.dtype).view(1, -1)
+            env = torch.exp(-sig_b * k * t)
+            osc = torch.sin(om_b * k * (t + 1.0)) / den_b
+            return torch.sum(P_b * env * osc, dim=0)
+
+        return self._maybe_checkpoint(_inner, sig_b, om_b, den_b, P_b)
+
+    def _modal_sum_batched(self, sig, om, denom, P, k, Ts):
+        """Modal series for the whole batch at once.
+
+        P has already been multiplied by valid_mask, so modes outside an
+        example's own limits contribute exactly zero and the per-example
+        nonzero() selection is an optimization rather than a requirement.
+        Invalid modes are safe to evaluate: sig = alpha + beta*om^2 with both
+        constants positive, so exp(-sig*k*t) decays to zero and cannot overflow.
+        """
+        B, M = P.shape
+        # Memory is now B*M*chunk rather than n_valid*chunk, so the budget has
+        # to be divided by the batch and the full mode count.
+        chunk = max(64, self.chunk_elems // max(1, B * M))
+        pieces = []
+
+        def _inner(sig, om, denom, P, start=0, end=0):
+            t = torch.arange(start, end, device=self.device, dtype=self.dtype).view(1, 1, -1)
+            env = torch.exp(-sig.unsqueeze(2) * k * t)
+            osc = torch.sin(om.unsqueeze(2) * k * (t + 1.0)) / denom.unsqueeze(2)
+            return torch.sum(P.unsqueeze(2) * env * osc, dim=1)
+
+        for start in range(0, Ts, chunk):
+            end = min(start + chunk, Ts)
+            fn = (lambda s, o, d, p, _s=start, _e=end: _inner(s, o, d, p, _s, _e))
+            pieces.append(self._maybe_checkpoint(fn, sig, om, denom, P))
+        return torch.cat(pieces, dim=1)
 
     def forward(
         self,
@@ -171,24 +229,26 @@ class BatchedModalPlateTorch(torch.nn.Module):
         denom = torch.sin(om * k)
         denom = torch.where(torch.abs(denom) < 1e-12, torch.full_like(denom, 1e-12), denom)
 
-        y_raw = torch.zeros((B, Ts), device=self.device, dtype=self.dtype)
-        for b in range(B):
-            vi = valid_mask[b].nonzero(as_tuple=True)[0]
-            if vi.numel() == 0:
-                continue
+        if self.batched_modal_sum:
+            y_raw = self._modal_sum_batched(sig, om, denom, P, k, Ts)
+        else:
+            y_raw = torch.zeros((B, Ts), device=self.device, dtype=self.dtype)
+            for b in range(B):
+                vi = valid_mask[b].nonzero(as_tuple=True)[0]
+                if vi.numel() == 0:
+                    continue
 
-            sig_b = sig[b, vi].unsqueeze(1)
-            om_b = om[b, vi].unsqueeze(1)
-            den_b = denom[b, vi].unsqueeze(1)
-            P_b = P[b, vi].unsqueeze(1)
+                sig_b = sig[b, vi].unsqueeze(1)
+                om_b = om[b, vi].unsqueeze(1)
+                den_b = denom[b, vi].unsqueeze(1)
+                P_b = P[b, vi].unsqueeze(1)
 
-            chunk_size = max(1000, 50_000_000 // max(1, vi.numel()))
-            for start in range(0, Ts, chunk_size):
-                end = min(start + chunk_size, Ts)
-                t = torch.arange(start, end, device=self.device, dtype=self.dtype).view(1, -1)
-                env = torch.exp(-sig_b * k * t)
-                osc = torch.sin(om_b * k * (t + 1.0)) / den_b
-                y_raw[b, start:end] = torch.sum(P_b * env * osc, dim=0)
+                chunk_size = max(1000, self.chunk_elems // max(1, vi.numel()))
+                for start in range(0, Ts, chunk_size):
+                    end = min(start + chunk_size, Ts)
+                    y_raw[b, start:end] = self._modal_sum_single(
+                        sig_b, om_b, den_b, P_b, k, start, end
+                    )
 
         # NumPy recursion outputs y[n] = sum(q1 before update), i.e. one-sample delay.
         y = torch.zeros_like(y_raw)

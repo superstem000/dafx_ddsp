@@ -139,9 +139,10 @@ class Raw7Space:
         self._lo = torch.as_tensor(BOUNDS_LO_NP, device=device, dtype=dtype)
         self._hi = torch.as_tensor(BOUNDS_HI_NP, device=device, dtype=dtype)
 
-    def configure_plate(self, chunk_elems: int, grad_checkpoint: bool) -> None:
+    def configure_plate(self, chunk_elems: int, grad_checkpoint: bool, batched: bool = False) -> None:
         self.plate.chunk_elems = chunk_elems
         self.plate.grad_checkpoint = grad_checkpoint
+        self.plate.batched_modal_sum = batched
 
     def lhs(self, n_starts: int, seed: int) -> np.ndarray:
         # The very generator CMA-ES uses for its restart starts.
@@ -216,9 +217,10 @@ class Composite6Space:
         # Peak normalization erases the amplitude mu is carried by.
         self.profiles_mu = not normalize
 
-    def configure_plate(self, chunk_elems: int, grad_checkpoint: bool) -> None:
+    def configure_plate(self, chunk_elems: int, grad_checkpoint: bool, batched: bool = False) -> None:
         self.plate.chunk_elems = chunk_elems
         self.plate.grad_checkpoint = grad_checkpoint
+        self.plate.batched_modal_sum = batched
 
     def lhs(self, n_starts: int, seed: int) -> np.ndarray:
         # Draw in raw-7 and map through, so starts stay physically realizable.
@@ -500,7 +502,7 @@ def run(args) -> None:
 
     space_cls = Raw7Space if args.space == "raw7" else Composite6Space
     space = space_cls(device, dtype, args.normalize)
-    space.configure_plate(args.chunk_elems, not args.no_grad_checkpoint)
+    space.configure_plate(args.chunk_elems, not args.no_grad_checkpoint, args.batched_plate)
 
     print(f"Device: {device}   dtype: {dtype}   loss dtype: {loss_dtype}")
     print(f"Loss: {args.loss}   space: {space.name}   coords: {space.keys}")
@@ -652,6 +654,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--loss-dtype", type=str, default="float32", choices=["float32", "float64"])
     p.add_argument("--chunk-elems", type=int, default=8_000_000)
     p.add_argument("--no-grad-checkpoint", action="store_true")
+    p.add_argument(
+        "--batched-plate", action="store_true",
+        help="Sum modes for the whole batch at once instead of looping over it",
+    )
     p.add_argument("--no-plots", action="store_true")
     return p
 
