@@ -3,6 +3,7 @@ from typing import Dict, Iterable, Optional, Sequence, Union
 
 import numpy as np
 import torch
+import torch.utils.checkpoint
 
 
 TensorOrFloat = Union[torch.Tensor, float]
@@ -38,6 +39,8 @@ class BatchedModalPlateTorch(torch.nn.Module):
         loss_F1: float = 500.0,
         fp_x: float = 0.335,
         fp_y: float = 0.467,
+        chunk_elems: int = 50_000_000,
+        grad_checkpoint: bool = False,
     ):
         super().__init__()
         self.sample_rate = int(sample_rate)
@@ -46,6 +49,13 @@ class BatchedModalPlateTorch(torch.nn.Module):
         self.device = torch.device(device) if device is not None else torch.device("cpu")
         self.dtype = dtype
         self.drop_sub_20hz_modes = bool(drop_sub_20hz_modes)
+
+        # Time-chunking budget for the modal sum, in (modes x samples) elements.
+        # Under autograd every chunk's intermediates are retained, so chunking
+        # only bounds memory when grad_checkpoint is on; then peak memory is
+        # ~chunk_elems instead of ~(n_modes * Ts).
+        self.chunk_elems = int(chunk_elems)
+        self.grad_checkpoint = bool(grad_checkpoint)
 
         # Fixed challenge constants.
         self.Lx = float(Lx)
@@ -69,6 +79,30 @@ class BatchedModalPlateTorch(torch.nn.Module):
         if device is not None:
             out = out.to(device)
         return out
+
+    def _modal_sum_chunk(
+        self,
+        sig_b: torch.Tensor,
+        om_b: torch.Tensor,
+        den_b: torch.Tensor,
+        P_b: torch.Tensor,
+        k: float,
+        start: int,
+        end: int,
+    ) -> torch.Tensor:
+        """Sum the modal series over samples [start, end) for one example."""
+
+        def _inner(sig_b, om_b, den_b, P_b):
+            t = torch.arange(start, end, device=self.device, dtype=self.dtype).view(1, -1)
+            env = torch.exp(-sig_b * k * t)
+            osc = torch.sin(om_b * k * (t + 1.0)) / den_b
+            return torch.sum(P_b * env * osc, dim=0)
+
+        if self.grad_checkpoint and torch.is_grad_enabled() and P_b.requires_grad:
+            return torch.utils.checkpoint.checkpoint(
+                _inner, sig_b, om_b, den_b, P_b, use_reentrant=False
+            )
+        return _inner(sig_b, om_b, den_b, P_b)
 
     def forward(
         self,
@@ -185,13 +219,10 @@ class BatchedModalPlateTorch(torch.nn.Module):
             den_b = denom[b, vi].unsqueeze(1)
             P_b = P[b, vi].unsqueeze(1)
 
-            chunk_size = max(1000, 50_000_000 // max(1, vi.numel()))
+            chunk_size = max(1000, self.chunk_elems // max(1, vi.numel()))
             for start in range(0, Ts, chunk_size):
                 end = min(start + chunk_size, Ts)
-                t = torch.arange(start, end, device=self.device, dtype=self.dtype).view(1, -1)
-                env = torch.exp(-sig_b * k * t)
-                osc = torch.sin(om_b * k * (t + 1.0)) / den_b
-                y_raw[b, start:end] = torch.sum(P_b * env * osc, dim=0)
+                y_raw[b, start:end] = self._modal_sum_chunk(sig_b, om_b, den_b, P_b, k, start, end)
 
         y = torch.zeros_like(y_raw)
         y[:, 1:] = y_raw[:, :-1]
