@@ -181,6 +181,17 @@ def load_dataset(
     return z, x
 
 
+def _batch(x: torch.Tensor, idx: torch.Tensor, device) -> torch.Tensor:
+    """Index a possibly-CPU-resident dataset and place the batch on the device.
+
+    Holding the training set in host memory costs one ~700 KB transfer per step,
+    which is nothing beside a synthesis, and lifts the dataset size limit from
+    VRAM to RAM.
+    """
+    out = x[idx]
+    return out if out.device == device else out.to(device, non_blocking=True)
+
+
 def z_to_dicts(z: np.ndarray) -> list:
     phys = BOUNDS_LO_NP + ((z + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
     return [{k: float(v) for k, v in zip(PARAM_KEYS, row)} for row in phys]
@@ -192,6 +203,8 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale) -> Dict[str, floa
     losses, preds = [], []
     for i in range(0, x_val.shape[0], args.batch_size):
         xb = x_val[i : i + args.batch_size]
+        if xb.device != z_val.device or str(xb.device) != str(space.device):
+            xb = xb.to(space.device, non_blocking=True)
         zp = model(xb, scale, args.log_input)
         pred = space.forward(zp, None, args.duration)
         losses.append(loss_fn(xb, pred).detach())
@@ -287,6 +300,9 @@ def run(args) -> None:
     # Fixed input scale from the training set; constant, so relative amplitude
     # between examples survives and mu stays recoverable.
     scale = float(x_tr.abs().max())
+    if args.data_device == "cpu":
+        x_tr = x_tr.cpu()
+        print("  training set held in host memory; batches transferred per step")
 
     # Two reference levels, so the training curve can be read against something.
     # gt_loss is the floor: the loss at the true parameters. The saturation level
@@ -313,11 +329,24 @@ def run(args) -> None:
     # for any loss in the registry without moving its optimum.
     loss_scale: Optional[float] = None
     hist = []
+    best_nmse = float("inf")
     t0 = time.time()
 
+    def save(name: str, step: int) -> None:
+        torch.save(
+            {
+                "model": model.state_dict(),
+                "optimizer": opt.state_dict(),
+                "step": step,
+                "scale": scale,
+                "args": vars(args),
+            },
+            out_dir / name,
+        )
+
     for step in range(1, args.steps + 1):
-        idx = torch.randint(0, x_tr.shape[0], (args.batch_size,), device=device)
-        xb = x_tr[idx]
+        idx = torch.randint(0, x_tr.shape[0], (args.batch_size,), device=x_tr.device)
+        xb = _batch(x_tr, idx, device)
         zp = model(xb, scale, args.log_input)
         pred = space.forward(zp, None, args.duration)
         loss = loss_fn(xb, pred)
@@ -360,6 +389,11 @@ def run(args) -> None:
             else:
                 print(f"step {step:6d}  train {tr:.4e}  |g| {gnorm:.2e}  [{row['elapsed_s']:.0f}s]")
             hist.append(row)
+            if "val_nmse_6d" in row and row["val_nmse_6d"] < best_nmse:
+                best_nmse = row["val_nmse_6d"]
+                save("encoder_best.pt", step)
+            if step % args.ckpt_every == 0:
+                save("encoder_last.pt", step)
             with (out_dir / "history.json").open("w") as f:
                 json.dump(
                     {
@@ -373,7 +407,8 @@ def run(args) -> None:
                     indent=2,
                 )
 
-    torch.save({"model": model.state_dict(), "args": vars(args)}, out_dir / "encoder.pt")
+    save("encoder_last.pt", args.steps)
+    print(f"best val NMSE_6d {best_nmse:.4e} (encoder_best.pt)")
 
     steps = [h["step"] for h in hist]
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
@@ -432,6 +467,11 @@ def build_parser() -> argparse.ArgumentParser:
              "independent of compression in the loss; state it separately in writeups.",
     )
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--data-device", type=str, default="cpu", choices=["cpu", "cuda"],
+        help="Where the training set lives; cpu lifts the size limit from VRAM to RAM",
+    )
+    p.add_argument("--ckpt-every", type=int, default=5000, help="Steps between checkpoint writes")
     p.add_argument("--log-every", type=int, default=100)
     p.add_argument("--eval-every", type=int, default=1000)
     p.add_argument("--compile-plate", action="store_true")
