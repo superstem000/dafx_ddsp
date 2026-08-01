@@ -28,7 +28,34 @@ def _modal_chunk_kernel(
     return torch.sum(P * env * osc, dim=0)
 
 
+def _modal_chunk_kernel_batched(
+    sig: torch.Tensor,
+    om: torch.Tensor,
+    den: torch.Tensor,
+    P: torch.Tensor,
+    t: torch.Tensor,
+    k: float,
+) -> torch.Tensor:
+    """Batched form of the modal sum: [B,N,1] mode terms against [1,1,C] times."""
+    env = torch.exp(-sig * k * t)
+    osc = torch.sin(om * k * (t + 1.0)) / den
+    return torch.sum(P * env * osc, dim=1)
+
+
 _COMPILED_MODAL_CHUNK = None
+_COMPILED_MODAL_CHUNK_BATCHED = None
+
+
+def _raise_recompile_limit() -> None:
+    """Dynamo defaults to 8 specializations, past which it silently falls back."""
+    try:
+        import torch._dynamo as _dynamo
+
+        for name in ("recompile_limit", "cache_size_limit"):
+            if hasattr(_dynamo.config, name):
+                setattr(_dynamo.config, name, max(getattr(_dynamo.config, name), 128))
+    except Exception:
+        pass
 
 
 def _get_modal_chunk_kernel(compile_it: bool):
@@ -44,16 +71,20 @@ def _get_modal_chunk_kernel(compile_it: bool):
     if not compile_it or not hasattr(torch, "compile"):
         return _modal_chunk_kernel
     if _COMPILED_MODAL_CHUNK is None:
-        try:
-            import torch._dynamo as _dynamo
-
-            for name in ("recompile_limit", "cache_size_limit"):
-                if hasattr(_dynamo.config, name):
-                    setattr(_dynamo.config, name, max(getattr(_dynamo.config, name), 128))
-        except Exception:
-            pass
+        _raise_recompile_limit()
         _COMPILED_MODAL_CHUNK = torch.compile(_modal_chunk_kernel, dynamic=False)
     return _COMPILED_MODAL_CHUNK
+
+
+def _get_modal_chunk_kernel_batched(compile_it: bool):
+    """Same, for the batch-parallel form, so the two paths compare like for like."""
+    global _COMPILED_MODAL_CHUNK_BATCHED
+    if not compile_it or not hasattr(torch, "compile"):
+        return _modal_chunk_kernel_batched
+    if _COMPILED_MODAL_CHUNK_BATCHED is None:
+        _raise_recompile_limit()
+        _COMPILED_MODAL_CHUNK_BATCHED = torch.compile(_modal_chunk_kernel_batched, dynamic=False)
+    return _COMPILED_MODAL_CHUNK_BATCHED
 
 
 def _pad_modes(x: torch.Tensor, n_pad: int, value: float) -> torch.Tensor:
@@ -62,9 +93,11 @@ def _pad_modes(x: torch.Tensor, n_pad: int, value: float) -> torch.Tensor:
     Padding is exact, not approximate: P pads with 0 and den with 1, so a padded
     slot contributes P*exp(0)*sin(0)/1 = 0 to the sum and 0 to every gradient.
     """
-    if x.shape[0] == n_pad:
+    # F.pad acts on the last dim, which is the mode axis for both the 1-D
+    # per-example form [modes] and the 2-D batched form [batch, modes].
+    if x.shape[-1] == n_pad:
         return x
-    return torch.nn.functional.pad(x, (0, n_pad - x.shape[0]), value=value)
+    return torch.nn.functional.pad(x, (0, n_pad - x.shape[-1]), value=value)
 
 
 class BatchedModalPlateTorch(torch.nn.Module):
@@ -172,30 +205,45 @@ class BatchedModalPlateTorch(torch.nn.Module):
         return self._maybe_checkpoint(_inner, sig_b, om_b, den_b, P_b)
 
     def _modal_sum_batched(self, sig, om, denom, P, k, Ts):
-        """Modal series for the whole batch at once.
+        """Modal series for the whole batch at once, one kernel instead of B.
 
         P has already been multiplied by valid_mask, so modes outside an
         example's own limits contribute exactly zero and the per-example
-        nonzero() selection is an optimization rather than a requirement.
-        Invalid modes are safe to evaluate: sig = alpha + beta*om^2 with both
-        constants positive, so exp(-sig*k*t) decays to zero and cannot overflow.
+        nonzero() selection is an optimization rather than a requirement. This
+        trades redundant work on examples with few active modes for batch
+        parallelism, which is the right trade only when the device is otherwise
+        idle between launches.
+
+        Padding is exact: P pads with 0 and den with 1, so a padded slot adds
+        P*exp(0)*sin(0)/1 = 0 to the sum and 0 to every gradient.
         """
         B, M = P.shape
-        # Memory is now B*M*chunk rather than n_valid*chunk, so the budget has
-        # to be divided by the batch and the full mode count.
-        chunk = max(64, self.chunk_elems // max(1, B * M))
+        if self.compile_modal_sum:
+            bucket = max(1, self.mode_bucket)
+            n_pad = ((M + bucket - 1) // bucket) * bucket
+        else:
+            n_pad = M
+
+        sig_b = _pad_modes(sig, n_pad, 0.0).unsqueeze(2)
+        om_b = _pad_modes(om, n_pad, 0.0).unsqueeze(2)
+        den_b = _pad_modes(denom, n_pad, 1.0).unsqueeze(2)
+        P_b = _pad_modes(P, n_pad, 0.0).unsqueeze(2)
+
+        # Memory is B*n_pad*chunk here rather than n_valid*chunk per example.
+        chunk = max(64, self.chunk_elems // max(1, B * n_pad))
+        kernel = _get_modal_chunk_kernel_batched(self.compile_modal_sum)
         pieces = []
-
-        def _inner(sig, om, denom, P, start=0, end=0):
-            t = torch.arange(start, end, device=self.device, dtype=self.dtype).view(1, 1, -1)
-            env = torch.exp(-sig.unsqueeze(2) * k * t)
-            osc = torch.sin(om.unsqueeze(2) * k * (t + 1.0)) / denom.unsqueeze(2)
-            return torch.sum(P.unsqueeze(2) * env * osc, dim=1)
-
         for start in range(0, Ts, chunk):
             end = min(start + chunk, Ts)
-            fn = (lambda s, o, d, p, _s=start, _e=end: _inner(s, o, d, p, _s, _e))
-            pieces.append(self._maybe_checkpoint(fn, sig, om, denom, P))
+            t = torch.arange(start, end, device=self.device, dtype=self.dtype).view(1, 1, -1)
+            if self.grad_checkpoint and torch.is_grad_enabled() and P_b.requires_grad:
+                pieces.append(
+                    torch.utils.checkpoint.checkpoint(
+                        kernel, sig_b, om_b, den_b, P_b, t, k, use_reentrant=False
+                    )
+                )
+            else:
+                pieces.append(kernel(sig_b, om_b, den_b, P_b, t, k))
         return torch.cat(pieces, dim=1)
 
     def forward(
