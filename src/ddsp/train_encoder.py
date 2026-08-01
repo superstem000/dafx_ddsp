@@ -396,7 +396,8 @@ def run(args) -> None:
 
     space = Raw7Space(device, torch.float32, normalize=False)
     space.configure_plate(
-        args.chunk_elems, True, args.batched_plate, args.compile_plate, args.mode_bucket
+        args.chunk_elems, not args.no_grad_checkpoint, args.batched_plate,
+        args.compile_plate, args.mode_bucket,
     )
     loss_fn = select_loss_function(args.loss, sample_rate=SAMPLE_RATE, device=device)
 
@@ -683,7 +684,17 @@ def build_parser() -> argparse.ArgumentParser:
              "and its throughput is flat in batch size.",
     )
     p.add_argument("--mode-bucket", type=int, default=1024)
-    p.add_argument("--chunk-elems", type=int, default=8_000_000)
+    p.add_argument(
+        "--chunk-elems", type=int, default=8_000_000,
+        help="Time-chunk budget for the modal sum. Sized for the unfused path; with "
+             "--compile-plate the intermediates never materialize, so a much larger "
+             "value cuts the chunk count and the launch overhead that goes with it.",
+    )
+    p.add_argument(
+        "--no-grad-checkpoint", action="store_true",
+        help="Checkpointing makes backward recompute the forward. It bounds memory that "
+             "fusion already bounds, so with --compile-plate it is mostly pure cost.",
+    )
     return p
 
 
