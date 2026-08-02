@@ -300,7 +300,14 @@ def two_stage_forward(enc0, refiner, cond, space, x, scale, args, two_stage: boo
         # errors that are convenient for stage 1 rather than errors that are small.
         f0, c0 = f0.detach(), c0.detach()
     dz = refiner.from_features(torch.cat([fx, f0, fx - f0], dim=1), c0)
-    z1 = torch.clamp(z0 + args.refine_scale * dz, -1.0, 1.0)
+    # Detaching z0 here splits the objectives: stage 0 is then trained only by
+    # its own loss, and the refiner is the only thing optimizing the final
+    # output. Left attached, stage 0 receives gradient from the final loss too,
+    # by a direct unscaled path against the refiner's path through
+    # refine_scale -- so anything the refiner might correct, stage 0 corrects
+    # first, and the refiner's contribution converges to nothing.
+    base = z0.detach() if args.detach_stage0 else z0
+    z1 = torch.clamp(base + args.refine_scale * dz, -1.0, 1.0)
     return z0, x0, z1, space.forward(z1, None, args.duration)
 
 
@@ -529,6 +536,9 @@ def run(args) -> None:
         idx = torch.randint(0, x_tr.shape[0], (args.batch_size,), device=x_tr.device)
         xb = _batch(x_tr, idx, device)
         two_stage = refiner is not None and step >= args.stage1_start_step
+        if args.freeze_stage0 and two_stage:
+            for prm in model.parameters():
+                prm.requires_grad_(False)
 
         z0, x0, z1, x1 = two_stage_forward(model, refiner, cond, space, xb, scale, args, two_stage)
         loss0 = loss_fn(xb, x0)
@@ -700,6 +710,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--refine-attach", action="store_true",
         help="Backprop into stage 0 through the residual too (default: detached)",
+    )
+    p.add_argument(
+        "--detach-stage0", action="store_true",
+        help="Cut the final loss's gradient path into stage 0, so stage 0 trains only "
+             "on its own loss and the refiner owns the correction. Without this the "
+             "two stages optimize the same objective and stage 0, having a direct "
+             "unscaled path, absorbs the improvement.",
+    )
+    p.add_argument(
+        "--freeze-stage0", action="store_true",
+        help="Freeze stage 0 entirely once the refiner joins. Sharper test of what "
+             "residual conditioning adds, at the cost of stage 0's further progress.",
     )
     p.add_argument("--log-every", type=int, default=100)
     p.add_argument("--eval-every", type=int, default=1000)
