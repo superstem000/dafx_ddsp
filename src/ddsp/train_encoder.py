@@ -497,7 +497,13 @@ def run(args) -> None:
 
     # Stage 0 anneals across the whole run; the refiner gets its own full cosine
     # over its own lifetime, so it starts at peak rate when it joins.
-    lambdas = [lambda st: cosine(st, 0, args.steps)]
+    # Stage 0 can complete its own cosine before the run ends, so that resuming
+    # to train a refiner does not restart or stretch a schedule stage 0 was
+    # already partway through. Once its cosine reaches zero it is frozen by the
+    # schedule rather than by a flag.
+    s0_end = args.stage0_end_step or args.steps
+    lambdas = [lambda st: cosine(st, 0, s0_end) * (
+        args.stage0_lr_mult if (refiner is not None and st >= args.stage1_start_step) else 1.0)]
     if refiner is not None:
         lambdas.append(lambda st: cosine(st, args.stage1_start_step, args.steps))
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambdas)
@@ -517,6 +523,49 @@ def run(args) -> None:
     loss_scale: Optional[float] = None
     hist = []
     best_nmse = float("inf")
+    start_step = 1
+
+    if args.resume:
+        ck = torch.load(args.resume, map_location=device, weights_only=False)
+        model.load_state_dict(ck["model"])
+        if refiner is not None and ck.get("refiner") is not None and not args.reset_refiner:
+            refiner.load_state_dict(ck["refiner"])
+            print("  refiner weights restored")
+        start_step = int(ck["step"]) + 1
+        scale = float(ck.get("scale", scale))
+        # The objective is divided by a constant fixed on the first step. Letting
+        # it be recomputed after a resume would rescale every gradient and
+        # silently change the effective learning rate mid-run.
+        if ck.get("loss_scale") is not None:
+            loss_scale = float(ck["loss_scale"])
+            print(f"  loss scale restored: {loss_scale:.4e}")
+        else:
+            print("  WARNING: checkpoint predates loss_scale saving; it will be "
+                  "recomputed, which rescales the objective relative to the original run")
+        if not args.reset_optimizer:
+            try:
+                opt.load_state_dict(ck["optimizer"])
+                print("  optimizer state restored")
+            except (ValueError, KeyError) as e:
+                print(f"  WARNING: optimizer state not loadable ({e}); starting fresh. "
+                      "This happens when the parameter groups differ, e.g. resuming a "
+                      "single-stage checkpoint into a two-stage run.")
+        hp = out_dir / "history.json"
+        if hp.exists():
+            try:
+                hist = [r for r in json.load(hp.open())["history"] if r["step"] < start_step]
+                done = [r["val_nmse_6d"] for r in hist if "val_nmse_6d" in r]
+                best_nmse = min(done) if done else float("inf")
+                print(f"  history continued from {len(hist)} rows, best so far {best_nmse:.4e}")
+            except Exception:
+                pass
+        print(f"Resumed from {args.resume} at step {ck['step']}, continuing to {args.steps}")
+
+    # The schedule is a pure function of step, so replaying it costs nothing and
+    # avoids having to serialize scheduler state.
+    for _ in range(start_step - 1):
+        sched.step()
+
     t0 = time.time()
 
     def save(name: str, step: int) -> None:
@@ -527,12 +576,13 @@ def run(args) -> None:
                 "optimizer": opt.state_dict(),
                 "step": step,
                 "scale": scale,
+                "loss_scale": loss_scale,
                 "args": vars(args),
             },
             out_dir / name,
         )
 
-    for step in range(1, args.steps + 1):
+    for step in range(start_step, args.steps + 1):
         idx = torch.randint(0, x_tr.shape[0], (args.batch_size,), device=x_tr.device)
         xb = _batch(x_tr, idx, device)
         two_stage = refiner is not None and step >= args.stage1_start_step
@@ -717,6 +767,20 @@ def build_parser() -> argparse.ArgumentParser:
              "on its own loss and the refiner owns the correction. Without this the "
              "two stages optimize the same objective and stage 0, having a direct "
              "unscaled path, absorbs the improvement.",
+    )
+    p.add_argument("--resume", type=Path, default=None, help="Checkpoint to continue from")
+    p.add_argument("--reset-optimizer", action="store_true", help="Ignore the saved optimizer state")
+    p.add_argument("--reset-refiner", action="store_true", help="Reinitialize the refiner on resume")
+    p.add_argument(
+        "--stage0-end-step", type=int, default=0,
+        help="Step at which stage 0's cosine reaches zero; 0 means --steps. Set this to "
+             "the original run's --steps when resuming to train a refiner, so stage 0 "
+             "finishes the schedule it was on instead of having it stretched.",
+    )
+    p.add_argument(
+        "--stage0-lr-mult", type=float, default=1.0,
+        help="Multiplier on stage 0's learning rate once the refiner joins. 0 freezes it, "
+             "small values keep it nearly fixed while still letting it adapt.",
     )
     p.add_argument(
         "--freeze-stage0", action="store_true",
