@@ -502,8 +502,17 @@ def run(args) -> None:
     # already partway through. Once its cosine reaches zero it is frozen by the
     # schedule rather than by a flag.
     s0_end = args.stage0_end_step or args.steps
-    lambdas = [lambda st: cosine(st, 0, s0_end) * (
-        args.stage0_lr_mult if (refiner is not None and st >= args.stage1_start_step) else 1.0)]
+
+    def stage0_lr(st: int) -> float:
+        # Before the handoff, stage 0 runs its own cosine to completion. After it,
+        # stage 0 tracks the refiner's schedule at a fixed fraction, so it keeps
+        # some room to adapt while the refiner owns the correction -- rather than
+        # sitting at exactly zero, which would make it a frozen feature extractor.
+        if refiner is not None and st >= args.stage1_start_step:
+            return args.stage0_lr_mult * cosine(st, args.stage1_start_step, args.steps)
+        return cosine(st, 0, s0_end)
+
+    lambdas = [stage0_lr]
     if refiner is not None:
         lambdas.append(lambda st: cosine(st, args.stage1_start_step, args.steps))
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambdas)
@@ -577,7 +586,10 @@ def run(args) -> None:
                 "step": step,
                 "scale": scale,
                 "loss_scale": loss_scale,
-                "args": vars(args),
+                # str() the Paths: torch>=2.6 loads with weights_only=True by
+                # default, which refuses to unpickle PosixPath and makes the
+                # checkpoint unreadable without opting out of the safety check.
+                "args": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},
             },
             out_dir / name,
         )
