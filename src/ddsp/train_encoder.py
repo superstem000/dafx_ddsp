@@ -521,8 +521,10 @@ def run(args) -> None:
         print(
             f"refiner joins at step {args.stage1_start_step}, correction scale "
             f"{args.refine_scale}, deep supervision {args.deep_supervision}\n"
-            f"  lr schedules: stage0 cosine 0..{args.steps}, "
-            f"refiner cosine {args.stage1_start_step}..{args.steps}\n"
+            f"  lr schedules: stage0 cosine 0..{s0_end}"
+            f"{f', then {args.stage0_lr_mult}x the refiner' if args.stage0_lr_mult != 1.0 else ''}, "
+            f"refiner cosine {args.stage1_start_step}..{args.steps} "
+            f"(warmup {args.warmup_steps})\n"
         )
     else:
         print()
