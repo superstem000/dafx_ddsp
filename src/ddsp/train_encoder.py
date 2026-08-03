@@ -480,12 +480,22 @@ def run(args) -> None:
         groups.append({"params": list(refiner.parameters()), "lr": args.lr})
     opt = torch.optim.Adam(groups, lr=args.lr, eps=args.adam_eps)
     def cosine(step: int, start: int, end: int) -> float:
-        """Linear warmup then cosine decay, measured from this stage's own start.
+        """Warmup, cosine decay to a floor, then hold that floor.
 
         The warmup is what makes a raised learning rate safe: the first steps out
         of a random initialization are the ones that can drive the head's
         pre-activations far enough to saturate tanh, after which the gradient is
         zero and the network cannot recover.
+
+        The floor exists so that a plateau means something. A schedule annealing
+        to zero flattens the metric by construction, so "it stopped improving"
+        and "the learning rate ran out" look identical and cannot be told apart.
+        Decaying to a fixed fraction and holding it means any flattening during
+        the hold is the model converging, not the schedule ending.
+
+        `end` is where the floor is reached, not where the run stops; past it the
+        rate stays constant, so --lr-decay-end below --steps buys a long tail at
+        a known, constant rate.
         """
         if step < start:
             return 0.0
@@ -493,7 +503,10 @@ def run(args) -> None:
         if t < args.warmup_steps:
             return (t + 1) / max(1, args.warmup_steps)
         frac = (t - args.warmup_steps) / max(1, end - start - args.warmup_steps)
-        return 0.5 * (1.0 + math.cos(math.pi * min(frac, 1.0)))
+        if frac >= 1.0:
+            return args.lr_floor
+        decayed = 0.5 * (1.0 + math.cos(math.pi * frac))
+        return args.lr_floor + (1.0 - args.lr_floor) * decayed
 
     # Stage 0 anneals across the whole run; the refiner gets its own full cosine
     # over its own lifetime, so it starts at peak rate when it joins.
@@ -501,7 +514,7 @@ def run(args) -> None:
     # to train a refiner does not restart or stretch a schedule stage 0 was
     # already partway through. Once its cosine reaches zero it is frozen by the
     # schedule rather than by a flag.
-    s0_end = args.stage0_end_step or args.steps
+    s0_end = args.stage0_end_step or args.lr_decay_end or args.steps
 
     def stage0_lr(st: int) -> float:
         # Before the handoff, stage 0 runs its own cosine to completion. After it,
@@ -514,14 +527,16 @@ def run(args) -> None:
 
     lambdas = [stage0_lr]
     if refiner is not None:
-        lambdas.append(lambda st: cosine(st, args.stage1_start_step, args.steps))
+        lambdas.append(
+            lambda st: cosine(st, args.stage1_start_step, args.lr_decay_end or args.steps)
+        )
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambdas)
     print(f"encoder{'+refiner' if refiner else ''}: {n_par/1e6:.2f}M params, width {args.width}")
     if refiner:
         print(
             f"refiner joins at step {args.stage1_start_step}, correction scale "
             f"{args.refine_scale}, deep supervision {args.deep_supervision}\n"
-            f"  lr schedules: stage0 cosine 0..{s0_end}"
+            f"  lr schedules: stage0 cosine 0..{s0_end} (floor {args.lr_floor})"
             f"{f', then {args.stage0_lr_mult}x the refiner' if args.stage0_lr_mult != 1.0 else ''}, "
             f"refiner cosine {args.stage1_start_step}..{args.steps} "
             f"(warmup {args.warmup_steps})\n"
@@ -731,6 +746,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--steps", type=int, default=100000)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--adam-eps", type=float, default=1e-16)
+    p.add_argument(
+        "--lr-floor", type=float, default=0.0,
+        help="Fraction of peak the cosine decays to and then holds. 0 reproduces the "
+             "previous anneal-to-zero. A nonzero floor is what lets a plateau be "
+             "distinguished from the schedule simply running out.",
+    )
+    p.add_argument(
+        "--lr-decay-end", type=int, default=0,
+        help="Step at which the floor is reached; 0 means --steps. Setting it below "
+             "--steps leaves the remainder of the run at a constant known rate.",
+    )
     p.add_argument(
         "--warmup-steps", type=int, default=2000,
         help="Linear warmup at the start of each stage, counted from that stage's "
