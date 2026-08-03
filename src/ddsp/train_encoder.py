@@ -345,8 +345,11 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     # Median alone hides the tail, and the tail is where the error lives: at one
     # checkpoint the mean was 1.39e-02 against a median of 2.81e-03, a 5x gap
     # meaning a minority of IRs are fit far worse than the typical one.
+    # Geometric mean is what the CMA-ES pipeline reports (1 restart gives ~5e-6),
+    # so it is the statistic these numbers are directly comparable against.
     out = {
         "val_loss": float(torch.cat(losses).mean()),
+        "val_nmse_6d_geo": float(np.exp(np.mean(np.log(np.maximum(n6, 1e-30))))),
         "val_nmse_6d": float(np.median(n6)),
         "val_nmse_6d_mean": float(np.mean(n6)),
         "val_nmse_6d_p90": float(np.percentile(n6, 90)),
@@ -683,7 +686,7 @@ def run(args) -> None:
                 spread = np.mean([row[f"spread_{k}"] for k in PARAM_KEYS])
                 print(
                     f"step {step:6d}  train {tr:.4e}  val {row['val_loss']:.4e}  "
-                    f"6d med {row['val_nmse_6d']:.3e} mean {row['val_nmse_6d_mean']:.3e} "
+                    f"6d geo {row['val_nmse_6d_geo']:.3e} med {row['val_nmse_6d']:.3e} "
                     f"p90 {row['val_nmse_6d_p90']:.3e} (const {const6:.3e})  |g| {gnorm:.2e}  "
                     f"[{row['elapsed_s']:.0f}s]"
                 )
