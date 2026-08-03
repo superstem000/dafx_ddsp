@@ -342,9 +342,15 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     n6 = [nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est, gt)]
     n7 = [nmse_7d(e, g) for e, g in zip(est, gt)]
 
+    # Median alone hides the tail, and the tail is where the error lives: at one
+    # checkpoint the mean was 1.39e-02 against a median of 2.81e-03, a 5x gap
+    # meaning a minority of IRs are fit far worse than the typical one.
     out = {
         "val_loss": float(torch.cat(losses).mean()),
         "val_nmse_6d": float(np.median(n6)),
+        "val_nmse_6d_mean": float(np.mean(n6)),
+        "val_nmse_6d_p90": float(np.percentile(n6, 90)),
+        "val_nmse_6d_p99": float(np.percentile(n6, 99)),
         "val_nmse_7d": float(np.median(n7)),
     }
     # Averaged NMSE hides which coordinates are being learned. Correlation says
@@ -376,6 +382,15 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
         if k in ("mu", "D_div_mu", "T0_div_mu"):
             a, b = np.log(np.maximum(a, 1e-300)), np.log(np.maximum(b, 1e-300))
         out[f"c6_{k}"] = _corr(a, b)
+        # Correlation says whether a coordinate is tracked; this says how much it
+        # actually costs. The two diverge badly -- T0_div_mu has by far the worst
+        # correlation and contributes ~2% of the error, because NMSE normalizes
+        # linearly over bounds spanning 6.6 decades while its truths sit near the
+        # bottom of that range.
+        lo, hi = COMPOSITE_BOUNDS[k]
+        raw_a = np.array([e[k] for e in est6], dtype=np.float64)
+        raw_b = np.array([g[k] for g in gt6], dtype=np.float64)
+        out[f"nmse_{k}"] = float(np.mean((((raw_a - lo) - (raw_b - lo)) / (hi - lo)) ** 2))
 
     # With the refiner active, report stage 0 separately so "did the correction
     # help" is visible rather than inferred from a single combined number.
@@ -668,8 +683,8 @@ def run(args) -> None:
                 spread = np.mean([row[f"spread_{k}"] for k in PARAM_KEYS])
                 print(
                     f"step {step:6d}  train {tr:.4e}  val {row['val_loss']:.4e}  "
-                    f"NMSE_6d {row['val_nmse_6d']:.3e} (const {const6:.3e})  "
-                    f"NMSE_7d {row['val_nmse_7d']:.3e}  |g| {gnorm:.2e}  "
+                    f"6d med {row['val_nmse_6d']:.3e} mean {row['val_nmse_6d_mean']:.3e} "
+                    f"p90 {row['val_nmse_6d_p90']:.3e} (const {const6:.3e})  |g| {gnorm:.2e}  "
                     f"[{row['elapsed_s']:.0f}s]"
                 )
                 if spread < 0.05:
@@ -681,6 +696,13 @@ def run(args) -> None:
                 stage0 = row.get("val_nmse_6d_stage0")
                 extra = f"   stage0 6d {stage0:.3e}" if stage0 is not None else ""
                 print(f"           corr(identifiable)  {corr}   mean spread/GT {spread:.2f}{extra}")
+                tot = sum(row[f"nmse_{k}"] for k in
+                          ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y"))
+                share = "  ".join(
+                    f"{k}={row[f'nmse_{k}']/max(tot,1e-30)*100:.0f}%"
+                    for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
+                )
+                print(f"           err share           {share}")
             else:
                 print(f"step {step:6d}  train {tr:.4e}  |g| {gnorm:.2e}  [{row['elapsed_s']:.0f}s]")
             hist.append(row)
