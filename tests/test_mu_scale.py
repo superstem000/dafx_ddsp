@@ -47,9 +47,25 @@ def weighted_median(values: torch.Tensor, weights: torch.Tensor) -> float:
 
 
 def recover_c(loss_fn, target, pred, mu_pred, iters=60):
-    """Run the production search and report the scale it chose."""
+    """Run the production search and report the scale it chose.
+
+    The search brackets c so that the implied mu = mu_pred/c covers exactly
+    COMPOSITE_BOUNDS["mu"] -- deliberate in production, since a scale fit must
+    not buy loss by leaving the physical box, but it means a synthetic test has
+    to pick mu_pred such that the c it is looking for is reachable at all. A
+    result pinned to either end is a fixture error, not a minimizer, so say so
+    rather than returning a number that looks like an answer.
+    """
     mu_fit = fit_mu_scale(loss_fn, target, pred, torch.tensor([mu_pred], dtype=DTYPE), iters)
-    return mu_pred / float(mu_fit[0])
+    c = mu_pred / float(mu_fit[0])
+    lo, hi = COMPOSITE_BOUNDS["mu"]
+    c_lo, c_hi = mu_pred / hi, mu_pred / lo
+    if not (1.01 * c_lo < c < 0.99 * c_hi):
+        raise AssertionError(
+            f"search pinned at its bracket edge: c={c:.4f} in ({c_lo:.4f}, {c_hi:.4f}). "
+            f"Raise or lower mu_pred={mu_pred} so the expected c is reachable."
+        )
+    return c
 
 
 def _spectra(seed=0, n=512):
@@ -191,8 +207,10 @@ def test_log_minimizer_moves_with_eps():
     def loss_eps(a, b):
         return (torch.log(a + 1e-7) - torch.log(b + 1e-7)).abs().mean(dim=-1)
 
-    c0 = recover_c(loss_exact, t, p, mu_pred=10.0)
-    ce = recover_c(loss_eps, t, p, mu_pred=10.0)
+    # mu_pred=100 so the bracket spans c in (0.94, 41): both the majority
+    # answer near 10*c_true and the loud-bin answer near c_true are reachable.
+    c0 = recover_c(loss_exact, t, p, mu_pred=100.0)
+    ce = recover_c(loss_eps, t, p, mu_pred=100.0)
     assert c0 / c_true > 5.0, f"eps=0 log should follow the 70% majority, got {c0:.3f}"
     assert ce / c_true < 2.0, f"eps=1e-7 should follow the loud bins, got {ce:.3f}"
     assert c0 / ce > 3.0, (
