@@ -316,13 +316,117 @@ def z_to_dicts(z: np.ndarray) -> list:
     return [{k: float(v) for k, v in zip(PARAM_KEYS, row)} for row in phys]
 
 
+SHAPE_KEYS = ("D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
+
+
+def nmse_shape(est_6: Dict[str, float], gt_6: Dict[str, float]) -> float:
+    """NMSE over the five composites that survive peak normalization.
+
+    nmse_6d includes mu, and under a peak-normalized loss mu is not fitted at
+    all -- the loss is exactly invariant to it. Reporting only the 6d number
+    would mix a fitted quantity with an unfitted one, which is the reporting
+    trap the CMA-ES stage-1 number falls into. These five are what the
+    normalized loss actually determines; mu arrives from the scale stage.
+    """
+    errs = []
+    for key in SHAPE_KEYS:
+        lo, hi = COMPOSITE_BOUNDS[key]
+        errs.append(((est_6[key] - gt_6[key]) / (hi - lo)) ** 2)
+    return float(np.mean(errs))
+
+
+def peak_normalized(loss_fn):
+    """Compare both signals at unit peak, as CMA-ES phase 1 does.
+
+    A wrapper, not an edit to the loss: LOSS_COMPONENTS[...] is untouched, so
+    the same registry entry keeps serving CMA-ES and the per-IR fitter, and the
+    sweep stays single-variable because every rung of the compression ladder
+    gets this identical treatment.
+
+    Two things this buys, beyond matching the CMA-ES pipeline.
+
+    Equal weight per example. The dataset's IR peaks span 4.3e-12 to 1.1e-06 --
+    five and a half decades -- so an unnormalized loss lets one loud IR in a
+    batch of 64 outweigh a quiet one by up to 250,000:1, and the batch gradient
+    is effectively computed on whichever two or three examples happen to be
+    loudest.
+
+    A well-defined compression ladder. log(x + eps) has its knee at eps = 1e-7
+    (losses.py). Through a 4096-point Hann window the quietest IR in the val set
+    cannot produce a magnitude above ~8e-9, so *every* bin of it sits below the
+    knee: the log loss is constant there and its gradient is exactly zero, while
+    for the loudest IR the same knee is four decades down and irrelevant. Left
+    unnormalized, a compression sweep measures where each IR happens to fall
+    relative to eps rather than what compression does.
+    """
+
+    def wrapped(target: torch.Tensor, pred: torch.Tensor) -> torch.Tensor:
+        t = target / target.abs().amax(dim=-1, keepdim=True).clamp(min=1e-30)
+        p = pred / pred.abs().amax(dim=-1, keepdim=True).clamp(min=1e-30)
+        return loss_fn(t, p)
+
+    return wrapped
+
+
+@torch.no_grad()
+def fit_mu_scale(loss_fn, target, pred, mu_pred, iters: int = 30):
+    """Recover mu by fitting one scalar per example. No resynthesis.
+
+    mu enters the synthesis in exactly one place: P = 4*out*in*k^2*r /
+    (ms*Lx*Ly) with ms = 0.25*mu*Lx*Ly (SevenParamPlate.py). Frequencies and
+    damping come from T0/mu and D/mu, and the mode grid does too --
+
+        disc = (-T0/mu + sqrt((T0/mu)^2 + 4*max_om^2*(D/mu))) / (2*D/mu)
+
+    after dividing through by mu -- so holding the ratios fixed and moving mu
+    leaves om, sig, the retained mode set and both coupling terms untouched and
+    scales only the prefactor. y(mu) = y(mu_p)*(mu_p/mu) is therefore an exact
+    identity, and c*y is the waveform at mu = mu_p/c. Every candidate mu is one
+    multiply on a waveform already in memory; evaluate_at_mu's ~100 resyntheses
+    per IR all produce scalar multiples of their first.
+
+    Ternary search on log c, not the per-loss closed forms, deliberately. The
+    linear and pow closed forms are exact (pow's +1e-12 guard sits ~5 decades
+    under the data), but log(c*A + eps) != log c + log(A + eps) once eps = 1e-7
+    is comparable to the quiet bins, and log1p is not a shift in any regime. One
+    search that is correct for every loss beats four closed forms, three of
+    which are right.
+
+    Caveat: each term is unimodal in log c but a sum of unimodal functions need
+    not be, so this is a heuristic here rather than an exact minimizer. The
+    closed forms are asserted against it on synthetic data with eps = 0 in
+    tests/test_mu_scale.py.
+
+    The bracket keeps the implied mu = mu_p/c inside COMPOSITE_BOUNDS["mu"], so
+    the fit cannot buy loss by leaving the physical box.
+    """
+    mu_lo, mu_hi = COMPOSITE_BOUNDS["mu"]
+    lo = torch.log(mu_pred / mu_hi)
+    hi = torch.log(mu_pred / mu_lo)
+    for _ in range(iters):
+        third = (hi - lo) / 3.0
+        m1, m2 = lo + third, hi - third
+        l1 = loss_fn(target, torch.exp(m1).unsqueeze(-1) * pred)
+        l2 = loss_fn(target, torch.exp(m2).unsqueeze(-1) * pred)
+        left = l1 <= l2
+        hi = torch.where(left, m2, hi)
+        lo = torch.where(left, lo, m1)
+    return mu_pred / torch.exp(0.5 * (lo + hi))
+
+
 @torch.no_grad()
 def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
-             refiner=None, cond=None, two_stage=False) -> Dict[str, float]:
+             refiner=None, cond=None, two_stage=False, mu_loss_fn=None) -> Dict[str, float]:
+    """mu_loss_fn must be the *unnormalized* loss.
+
+    The scale stage fits mu against absolute amplitude, which is the only thing
+    that carries it. Handing it the peak-normalized loss would hand it an
+    objective that is exactly flat in the quantity being fitted.
+    """
     model.eval()
     if refiner is not None:
         refiner.eval()
-    losses, preds, preds0 = [], [], []
+    losses, preds, preds0, mu_fits = [], [], [], []
     for i in range(0, x_val.shape[0], args.batch_size):
         xb = x_val[i : i + args.batch_size]
         if str(xb.device) != str(space.device):
@@ -330,6 +434,15 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
         z0, x0, z1, x1 = two_stage_forward(model, refiner, cond, space, xb, scale, args, two_stage)
         zp, pred = (z1, x1) if two_stage else (z0, x0)
         losses.append(loss_fn(xb, pred).detach())
+        if mu_loss_fn is not None:
+            phys_b = BOUNDS_LO_NP + ((zp.detach().cpu().numpy() + 1.0) / 2.0) * (
+                BOUNDS_HI_NP - BOUNDS_LO_NP
+            )
+            mu_b = torch.as_tensor(
+                phys_b[:, PARAM_KEYS.index("rho")] * phys_b[:, PARAM_KEYS.index("h")],
+                device=pred.device, dtype=pred.dtype,
+            )
+            mu_fits.append(fit_mu_scale(mu_loss_fn, xb, pred, mu_b).cpu().numpy())
         preds.append(zp.detach())
         preds0.append(z0.detach())
     model.train()
@@ -339,8 +452,22 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     zp = torch.cat(preds).cpu().numpy()
     zt = z_val.cpu().numpy()
     est, gt = z_to_dicts(zp), z_to_dicts(zt)
-    n6 = [nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est, gt)]
+    est6 = [seven_to_six(e) for e in est]
+    gt6 = [seven_to_six(g) for g in gt]
+    n6 = [nmse_6d(e, g) for e, g in zip(est6, gt6)]
+    n5 = [nmse_shape(e, g) for e, g in zip(est6, gt6)]
     n7 = [nmse_7d(e, g) for e, g in zip(est, gt)]
+
+    # The scale stage, reported separately from the shape fit rather than folded
+    # into one number: under a peak-normalized loss the encoder's own mu is
+    # untrained, so val_nmse_6d alone would be meaningless and val_nmse_6d_postmu
+    # is the like-for-like number against CMA-ES's post-ternary 5e-6.
+    n6_post = None
+    if mu_fits:
+        mu_hat = np.concatenate(mu_fits)
+        n6_post = [
+            nmse_6d({**e, "mu": float(m)}, g) for e, m, g in zip(est6, mu_hat, gt6)
+        ]
 
     # Median alone hides the tail, and the tail is where the error lives: at one
     # checkpoint the mean was 1.39e-02 against a median of 2.81e-03, a 5x gap
@@ -354,8 +481,21 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
         "val_nmse_6d_mean": float(np.mean(n6)),
         "val_nmse_6d_p90": float(np.percentile(n6, 90)),
         "val_nmse_6d_p99": float(np.percentile(n6, 99)),
+        "val_nmse_5d_geo": float(np.exp(np.mean(np.log(np.maximum(n5, 1e-30))))),
+        "val_nmse_5d": float(np.median(n5)),
         "val_nmse_7d": float(np.median(n7)),
     }
+    if n6_post is not None:
+        out["val_nmse_6d_postmu_geo"] = float(
+            np.exp(np.mean(np.log(np.maximum(n6_post, 1e-30))))
+        )
+        out["val_nmse_6d_postmu"] = float(np.median(n6_post))
+        out["val_nmse_6d_postmu_mean"] = float(np.mean(n6_post))
+        out["val_nmse_6d_postmu_p90"] = float(np.percentile(n6_post, 90))
+        out["val_mu_logerr"] = float(
+            np.median(np.abs(np.log(np.maximum(mu_hat, 1e-30))
+                             - np.log([g["mu"] for g in gt6])))
+        )
     # Averaged NMSE hides which coordinates are being learned. Correlation says
     # whether a coordinate is tracked at all; the spread ratio separates "wrong"
     # from "collapsed", since an encoder ignoring its input emits a near-constant
@@ -377,8 +517,6 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     # correlations track drift along a direction the loss cannot see. These are
     # the ones that say whether the mapping is being learned. Compared in log
     # space for mu, D_mu and T0_mu, which span decades.
-    est6 = [seven_to_six(e) for e in est]
-    gt6 = [seven_to_six(g) for g in gt]
     for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y"):
         a = np.array([e[k] for e in est6], dtype=np.float64)
         b = np.array([g[k] for g in gt6], dtype=np.float64)
@@ -430,7 +568,15 @@ def run(args) -> None:
         args.chunk_elems, not args.no_grad_checkpoint, args.batched_plate,
         args.compile_plate, args.mode_bucket,
     )
-    loss_fn = select_loss_function(args.loss, sample_rate=SAMPLE_RATE, device=device)
+    raw_loss_fn = select_loss_function(args.loss, sample_rate=SAMPLE_RATE, device=device)
+    loss_fn = peak_normalized(raw_loss_fn) if args.peak_normalize else raw_loss_fn
+    # The scale stage always fits against the unnormalized loss; --peak-normalize
+    # only decides what trains the encoder. Default it on when normalizing, since
+    # mu is then not fitted by training at all and the run would report nothing
+    # about it, but allow it either way so the two pipelines stay comparable.
+    fit_mu = args.fit_mu if args.fit_mu is not None else args.peak_normalize
+    mu_loss_fn = raw_loss_fn if fit_mu else None
+    best_key = "val_nmse_6d_postmu_geo" if fit_mu else "val_nmse_6d_geo"
 
     print(f"Device {device} | loss {args.loss} | duration {args.duration}s")
     t0 = time.time()
@@ -598,7 +744,7 @@ def run(args) -> None:
         if hp.exists():
             try:
                 hist = [r for r in json.load(hp.open())["history"] if r["step"] < start_step]
-                done = [r["val_nmse_6d"] for r in hist if "val_nmse_6d" in r]
+                done = [r[best_key] for r in hist if best_key in r]
                 best_nmse = min(done) if done else float("inf")
                 print(f"  history continued from {len(hist)} rows, best so far {best_nmse:.4e}")
             except Exception:
@@ -677,6 +823,7 @@ def run(args) -> None:
                     evaluate(
                         model, space, z_va, x_va, args, loss_fn, scale,
                         refiner=refiner, cond=cond, two_stage=two_stage,
+                        mu_loss_fn=mu_loss_fn,
                     )
                 )
                 corr = "  ".join(
@@ -690,6 +837,18 @@ def run(args) -> None:
                     f"p90 {row['val_nmse_6d_p90']:.3e} (const {const6:.3e})  |g| {gnorm:.2e}  "
                     f"[{row['elapsed_s']:.0f}s]"
                 )
+                # Shape and scale never collapsed into one number: 5d is what the
+                # (possibly normalized) loss fits, postmu is the like-for-like
+                # number against the CMA-ES post-ternary result.
+                stage = f"           5d geo {row['val_nmse_5d_geo']:.3e} med {row['val_nmse_5d']:.3e}"
+                if "val_nmse_6d_postmu_geo" in row:
+                    stage += (
+                        f"   postmu 6d geo {row['val_nmse_6d_postmu_geo']:.3e} "
+                        f"med {row['val_nmse_6d_postmu']:.3e} "
+                        f"p90 {row['val_nmse_6d_postmu_p90']:.3e}"
+                        f"   mu |dlog| {row['val_mu_logerr']:.4f}"
+                    )
+                print(stage)
                 if spread < 0.05:
                     print(
                         f"           WARNING: prediction spread {spread:.3f} of ground truth -- "
@@ -709,8 +868,11 @@ def run(args) -> None:
             else:
                 print(f"step {step:6d}  train {tr:.4e}  |g| {gnorm:.2e}  [{row['elapsed_s']:.0f}s]")
             hist.append(row)
-            if "val_nmse_6d" in row and row["val_nmse_6d"] < best_nmse:
-                best_nmse = row["val_nmse_6d"]
+            # Selected on the geometric mean, the statistic actually reported:
+            # tracking the median can hand back a checkpoint that is better at
+            # the middle of the distribution and worse everywhere else.
+            if best_key in row and row[best_key] < best_nmse:
+                best_nmse = row[best_key]
                 save("encoder_best.pt", step)
             if step % args.ckpt_every == 0:
                 save("encoder_last.pt", step)
@@ -728,7 +890,7 @@ def run(args) -> None:
                 )
 
     save("encoder_last.pt", args.steps)
-    print(f"best val NMSE_6d {best_nmse:.4e} (encoder_best.pt)")
+    print(f"best {best_key} {best_nmse:.4e} (encoder_best.pt)")
 
     steps = [h["step"] for h in hist]
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
@@ -851,6 +1013,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--freeze-stage0", action="store_true",
         help="Freeze stage 0 entirely once the refiner joins. Sharper test of what "
              "residual conditioning adds, at the cost of stage 0's further progress.",
+    )
+    p.add_argument(
+        "--peak-normalize", action="store_true",
+        help="Compare both signals at unit peak, as CMA-ES phase 1 does. Wraps the "
+             "selected loss at the call site; LOSS_COMPONENTS is untouched. Makes "
+             "the loss exactly mu-invariant, so mu comes from the scale stage.",
+    )
+    p.add_argument(
+        "--fit-mu", dest="fit_mu", action="store_const", const=True, default=None,
+        help="Recover mu by a scalar fit against the unnormalized loss and report "
+             "postmu metrics. Defaults on with --peak-normalize, off without.",
+    )
+    p.add_argument(
+        "--no-fit-mu", dest="fit_mu", action="store_const", const=False,
+        help="Skip the mu scale stage even when peak-normalizing",
     )
     p.add_argument("--log-every", type=int, default=100)
     p.add_argument("--eval-every", type=int, default=1000)
