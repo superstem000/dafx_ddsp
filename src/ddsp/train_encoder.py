@@ -692,13 +692,28 @@ def run(args) -> None:
         `end` is where the floor is reached, not where the run stops; past it the
         rate stays constant, so --lr-decay-end below --steps buys a long tail at
         a known, constant rate.
+
+        --lr-hold-frac holds the peak rate for that fraction of the span before
+        the cosine starts. The archived unnormalized run measured progress as
+        proportional to learning rate across 1.4 decades of NMSE, with the
+        normalized rate flat at 0.15-0.19 dex per 10k steps per unit LR and no
+        sign of decaying -- it only stopped when the schedule ran out of rate. If
+        that holds, what buys accuracy is the integral of LR over the run, and a
+        pure cosine spends half its budget below half rate. Holding 0.6 then
+        cosining gives 0.6 + 0.4*0.5 = 0.8 against the cosine's 0.5, so 1.6x the
+        integral for the same wall clock. Defaults to 0.0, i.e. the plain cosine
+        every earlier run used.
         """
         if step < start:
             return 0.0
         t = step - start
         if t < args.warmup_steps:
             return (t + 1) / max(1, args.warmup_steps)
-        frac = (t - args.warmup_steps) / max(1, end - start - args.warmup_steps)
+        span = max(1, end - start - args.warmup_steps)
+        held = args.lr_hold_frac * span
+        if t - args.warmup_steps < held:
+            return 1.0
+        frac = (t - args.warmup_steps - held) / max(1.0, span - held)
         if frac >= 1.0:
             return args.lr_floor
         decayed = 0.5 * (1.0 + math.cos(math.pi * frac))
@@ -1064,6 +1079,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-fit-mu", dest="fit_mu", action="store_const", const=False,
         help="Skip the mu scale stage even when peak-normalizing",
+    )
+    p.add_argument(
+        "--lr-hold-frac", type=float, default=0.0,
+        help="Hold the peak rate for this fraction of the decay span before the "
+             "cosine starts. Progress was measured proportional to LR, so the "
+             "integral of LR is what buys accuracy; 0.6 gives 1.6x a pure cosine's.",
     )
     p.add_argument("--log-every", type=int, default=100)
     p.add_argument("--eval-every", type=int, default=1000)
