@@ -335,15 +335,15 @@ def nmse_shape(est_6: Dict[str, float], gt_6: Dict[str, float]) -> float:
     return float(np.mean(errs))
 
 
-def peak_normalized(loss_fn):
-    """Compare both signals at unit peak, as CMA-ES phase 1 does.
+def peak_normalized(loss_fn, mode: str = "target"):
+    """Put both signals on a common scale before the loss sees them.
 
     A wrapper, not an edit to the loss: LOSS_COMPONENTS[...] is untouched, so
     the same registry entry keeps serving CMA-ES and the per-IR fitter, and the
     sweep stays single-variable because every rung of the compression ladder
     gets this identical treatment.
 
-    Two things this buys, beyond matching the CMA-ES pipeline.
+    Two things any normalization here buys.
 
     Equal weight per example. The dataset's IR peaks span 4.3e-12 to 1.1e-06 --
     five and a half decades -- so an unnormalized loss lets one loud IR in a
@@ -357,12 +357,43 @@ def peak_normalized(loss_fn):
     knee: the log loss is constant there and its gradient is exactly zero, while
     for the loudest IR the same knee is four decades down and irrelevant. Left
     unnormalized, a compression sweep measures where each IR happens to fall
-    relative to eps rather than what compression does.
+    relative to eps rather than what compression does. Measured on the val set:
+    eps sits at percentile 96.2 unnormalized and 0.0 normalized.
+
+    The two modes differ in what they cost.
+
+    "self" divides each signal by its own peak, as CMA-ES phase 1 does. That
+    makes the loss exactly mu-invariant, which is why the scale stage exists --
+    but it deletes one scalar per example, and that scalar is the only place
+    mu*Ly is visible, since level enters synthesis as 1/(0.25*mu*Lx*Ly). Run for
+    16000 steps it cost more than it bought: Ly stalled at +0.18 against the
+    unnormalized run's +0.65 at the same step, T0_div_mu at +0.04 against +0.41,
+    op_x actively regressed 0.57 -> 0.39, and the postmu median sat at 4.99e-02
+    against a constant-predictor floor of 4.73e-02. The reweighting itself
+    worked -- mean/median fell to 1.19x from the unnormalized run's 5.6x -- but
+    at a level 2.5x worse.
+
+    "target" divides *both* signals by the target's peak. For a homogeneous
+    loss that is exactly L(t, p) / peak(t): a pure per-example reweighting, so
+    it buys the same equal weighting. But the prediction keeps its level
+    relative to the target, so mu and the mu*Ly cue survive and none of the
+    above has a mechanism. Magnitudes still land in a common O(1) range, so the
+    eps knee stays uniform and the ladder stays well defined. It is also
+    smoother: peak(t) is a constant with no gradient, where "self"
+    differentiates through the prediction's own max.
+
+    What "target" gives up is exact mu-invariance, which was never wanted for
+    its own sake -- it was a side effect that the scale stage then had to
+    repair. The scale stage still runs, as a refinement with less to do.
     """
+    if mode not in ("self", "target"):
+        raise ValueError(f"unknown normalization mode {mode!r}")
 
     def wrapped(target: torch.Tensor, pred: torch.Tensor) -> torch.Tensor:
-        t = target / target.abs().amax(dim=-1, keepdim=True).clamp(min=1e-30)
-        p = pred / pred.abs().amax(dim=-1, keepdim=True).clamp(min=1e-30)
+        tp = target.abs().amax(dim=-1, keepdim=True).clamp(min=1e-30)
+        t = target / tp
+        p = pred / (pred.abs().amax(dim=-1, keepdim=True).clamp(min=1e-30)
+                    if mode == "self" else tp)
         return loss_fn(t, p)
 
     return wrapped
@@ -569,7 +600,8 @@ def run(args) -> None:
         args.compile_plate, args.mode_bucket,
     )
     raw_loss_fn = select_loss_function(args.loss, sample_rate=SAMPLE_RATE, device=device)
-    loss_fn = peak_normalized(raw_loss_fn) if args.peak_normalize else raw_loss_fn
+    loss_fn = (peak_normalized(raw_loss_fn, args.peak_normalize)
+               if args.peak_normalize else raw_loss_fn)
     # The scale stage always fits against the unnormalized loss; --peak-normalize
     # only decides what trains the encoder. Default it on when normalizing, since
     # mu is then not fitted by training at all and the run would report nothing
@@ -1015,10 +1047,14 @@ def build_parser() -> argparse.ArgumentParser:
              "residual conditioning adds, at the cost of stage 0's further progress.",
     )
     p.add_argument(
-        "--peak-normalize", action="store_true",
-        help="Compare both signals at unit peak, as CMA-ES phase 1 does. Wraps the "
-             "selected loss at the call site; LOSS_COMPONENTS is untouched. Makes "
-             "the loss exactly mu-invariant, so mu comes from the scale stage.",
+        "--peak-normalize", nargs="?", const="self", default=None,
+        choices=["self", "target"],
+        help="Scale both signals before the loss sees them. 'target' divides both "
+             "by the target's peak: equal weight per example, but the prediction "
+             "keeps its level so mu and the mu*Ly cue survive. 'self' divides each "
+             "by its own peak as CMA-ES phase 1 does, making the loss exactly "
+             "mu-invariant -- measured worse, see peak_normalized(). Bare "
+             "--peak-normalize means 'self' for compatibility with earlier runs.",
     )
     p.add_argument(
         "--fit-mu", dest="fit_mu", action="store_const", const=True, default=None,
