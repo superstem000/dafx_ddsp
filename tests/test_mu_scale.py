@@ -11,9 +11,15 @@ Two independent things are verified here.
    that have one. Deliberately only for those: log(c*A + eps) is not
    log c + log(A + eps) once eps is comparable to the quiet bins, and log1p is
    not a shift in any regime, so the shift-based closed forms exist only in the
-   eps -> 0 limit. test_log_closed_form_needs_zero_eps pins that down rather
-   than leaving it as folklore -- it is the reason the production path runs one
-   search for every loss instead of four closed forms.
+   eps -> 0 limit. The two log tests pin that down rather than leaving it as
+   folklore -- it is the reason the production path runs one search for every
+   loss instead of four closed forms.
+
+   Worth knowing while reading them: when the prediction is already close to a
+   scalar multiple of the target, every one of these rules minimizes at nearly
+   the same c, because far below the knee log(t+eps) - log(cp+eps) ~ (t - cp)/eps,
+   which is the linear objective over a constant. The rules diverge where the
+   shape fit is poor -- the tail IRs that carry about half the total error.
 
 Run:  python -m tests.test_mu_scale
 """
@@ -136,38 +142,65 @@ def test_sc_matches_least_squares():
     print(f"test_sc_matches_least_squares            OK  (c={got:.4f})")
 
 
-def test_log_closed_form_needs_zero_eps():
-    """The shift identity holds at eps=0 and fails at the production eps.
+def test_log_shift_identity_fails_with_eps():
+    """log(c*A + eps) != log c + log(A + eps). Pure algebra, no optimizer.
 
-    losses.py uses log(x + 1e-7). The quiet bins of these IRs sit within a
-    factor of a few of that, which is exactly where log(c*A + eps) departs from
-    log c + log(A + eps) -- so the median-of-log-ratios closed form is wrong for
-    the loss as implemented, while remaining right in the limit.
+    This is the whole reason the production path does not use a closed form for
+    the log losses. The identity the closed form rests on is exact only at
+    eps = 0, and losses.py uses eps = 1e-7 -- right among the quiet bins.
     """
-    t, p, _ = _spectra(seed=3)
-    want = float(torch.median(torch.log(t[0]) - torch.log(p[0])).exp())
+    eps, c = 1e-7, 3.0
+    A = torch.tensor([1e-9, 1e-8, 1e-7, 1e-6, 1e-5], dtype=DTYPE)
+    lhs = torch.log(c * A + eps)
+    rhs = math.log(c) + torch.log(A + eps)
+    dev = (lhs - rhs).abs()
+    assert float(dev.max()) > 0.5, "shift identity unexpectedly held"
+    # Exact in the limit, and the departure grows as A falls under the knee.
+    lhs0 = torch.log(c * A)
+    rhs0 = math.log(c) + torch.log(A)
+    assert float((lhs0 - rhs0).abs().max()) < 1e-12, "identity should be exact at eps=0"
+    assert dev[0] > dev[-1], "departure should be worst for the quietest bin"
+    print(f"test_log_shift_identity_fails_with_eps   OK  "
+          f"(max departure {float(dev.max()):.3f} nats at A=1e-9)")
+
+
+def test_log_minimizer_moves_with_eps():
+    """And the departure moves the minimizer, not just the objective's value.
+
+    Needs data that is *not* a clean rescale: when the prediction is already
+    close to a scalar multiple of the target -- the well-fit case -- every one
+    of these objectives minimizes at nearly the same c, since far below the knee
+    log(t+eps) - log(cp+eps) ~ (t - cp)/eps, the linear objective over a
+    constant. The rules diverge exactly where the shape fit is poor, which is
+    the tail this pipeline cares about.
+
+    Here 70% of the bins sit under the knee and disagree with the target by a
+    factor of 10, while 30% sit well above it and agree. A pure log weights both
+    groups equally and follows the majority; log(x + 1e-7) squashes the group
+    below the knee and follows the loud minority instead.
+    """
+    c_true = 2.7
+    quiet_p = torch.logspace(-9, -8, 700, dtype=DTYPE)
+    loud_p = torch.logspace(-6, -5, 300, dtype=DTYPE)
+    p = torch.cat([quiet_p, loud_p]).unsqueeze(0)
+    t = torch.cat([10.0 * c_true * quiet_p, c_true * loud_p]).unsqueeze(0)
 
     def loss_exact(a, b):
         return (torch.log(a) - torch.log(b)).abs().mean(dim=-1)
 
-    got = recover_c(loss_exact, t, p, mu_pred=10.0)
-    assert abs(got - want) / want < 1e-3, f"log eps=0: got {got:.6f} want {want:.6f}"
-
-    # Now push the data down so eps=1e-7 sits inside it, as it does for the
-    # quiet IRs, and the same closed form should no longer be the minimizer.
-    eps = 1e-7
-    ts, ps = t * 1e-7, p * 1e-7
-
     def loss_eps(a, b):
-        return (torch.log(a + eps) - torch.log(b + eps)).abs().mean(dim=-1)
+        return (torch.log(a + 1e-7) - torch.log(b + 1e-7)).abs().mean(dim=-1)
 
-    got_eps = recover_c(loss_eps, ts, ps, mu_pred=10.0)
-    assert abs(got_eps - want) / want > 1e-2, (
-        "log(x+eps) happened to agree with the eps=0 closed form; if this ever "
-        "holds, the premise for running a search instead of a closed form is gone"
+    c0 = recover_c(loss_exact, t, p, mu_pred=10.0)
+    ce = recover_c(loss_eps, t, p, mu_pred=10.0)
+    assert c0 / c_true > 5.0, f"eps=0 log should follow the 70% majority, got {c0:.3f}"
+    assert ce / c_true < 2.0, f"eps=1e-7 should follow the loud bins, got {ce:.3f}"
+    assert c0 / ce > 3.0, (
+        f"minimizers barely moved (eps=0 {c0:.3f}, eps=1e-7 {ce:.3f}); if this "
+        f"ever holds, the premise for a search over a closed form is gone"
     )
-    print(f"test_log_closed_form_needs_zero_eps      OK  "
-          f"(eps=0 {got:.4f}, eps=1e-7 {got_eps:.4f})")
+    print(f"test_log_minimizer_moves_with_eps        OK  "
+          f"(eps=0 c={c0:.3f}, eps=1e-7 c={ce:.3f}, true {c_true})")
 
 
 def test_search_respects_mu_bounds():
@@ -190,6 +223,7 @@ if __name__ == "__main__":
     test_linear_l1_matches_weighted_median()
     test_pow_matches_weighted_median_of_powers()
     test_sc_matches_least_squares()
-    test_log_closed_form_needs_zero_eps()
+    test_log_shift_identity_fails_with_eps()
+    test_log_minimizer_moves_with_eps()
     test_search_respects_mu_bounds()
     print("\nall OK")
