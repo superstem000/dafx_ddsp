@@ -1,0 +1,135 @@
+"""How far above zero is the loss at the true parameters, and why.
+
+For a linear loss the target/candidate disagreement is a fixed relative error
+and disappears into the noise: the L1_STFT run ended with a training loss of
+0.152 against a gt_loss of ~1e-5. For log(x + 1e-7) that reasoning fails. The
+float32 disagreement is roughly an absolute floor spread across bins spanning
+seven decades, so in the quiet bins -- where the value approaches eps -- it
+becomes an O(1) discrepancy in log space. confirm_f32_gt.py already showed this
+shape for the old numpy-vs-torch gap: the log error concentrated in the
+quietest energy deciles while the linear error did not.
+
+That matters for the sweep more than for any single run. If the log arm's floor
+sits near its saturation level, then "log compression is bad for parameter
+estimation" is unattributable -- it could just be reporting that our targets
+and our synthesis disagree in exactly the bins log weights most.
+
+Three things now differ between how a target was rendered and how the same
+parameters are synthesized during training, and this measures each separately:
+
+  params   make_dataset builds the 14-vector straight from the CSV in float32;
+           training goes CSV -> gt_z (float64) -> stored float32 ->
+           norm_to_physical_torch -> plate14.
+  path     make_dataset uses the plate's defaults; training runs
+           --batched-plate --compile-plate --chunk-elems 1e9.
+  batch    torch.sum over the mode axis reduces in blocks whose grouping
+           depends on n_modes = max_DDx * max_DDy for the batch. Padded modes
+           are exactly zero but still change the tree shape, so the nonzero
+           terms group differently and an IR's rendering depends on the batch
+           it was in. Training batches are random, so this one cannot be
+           matched by any generation scheme -- only bounded.
+
+    python -m src.ddsp.diag_gt_floor --n-val 64
+"""
+
+import argparse
+from pathlib import Path
+
+import numpy as np
+import torch
+
+from src.cmaes.fit_7param_norm_es import PARAM_KEYS
+from src.ddsp.train_encoder import load_dataset, peak_normalized
+from src.gd.graddescent import Raw7Space
+from src.loss.loss_selector import select_loss_function
+
+LOSSES = ("L1_STFT", "L1_STFT_pow", "L1_STFT_c2", "L1_STFT_log")
+
+
+def build_space(dev, batched, chunk, bucket):
+    space = Raw7Space(dev, torch.float32, normalize=False)
+    space.configure_plate(chunk, False, batched, False, bucket)
+    return space
+
+
+def synth(space, z, duration, batch):
+    out = []
+    with torch.no_grad():
+        for i in range(0, z.shape[0], batch):
+            out.append(space.forward(z[i : i + batch], None, duration).float())
+    return torch.cat(out, dim=0)
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("--data-dir", type=Path, default=Path("data/val-1000-0.25s"))
+    p.add_argument("--n-val", type=int, default=64)
+    p.add_argument("--duration", type=float, default=0.25)
+    p.add_argument("--batch-size", type=int, default=64)
+    p.add_argument("--chunk-elems", type=int, default=20_000_000)
+    p.add_argument("--mode-bucket", type=int, default=1024)
+    p.add_argument("--device", type=str, default="cuda")
+    args = p.parse_args()
+
+    dev = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    space = build_space(dev, True, args.chunk_elems, args.mode_bucket)
+    z, x_tgt = load_dataset(space, args.data_dir, args.duration, dev, args.n_val)
+    print(f"{args.data_dir}   {x_tgt.shape[0]} IRs\n")
+
+    # The training loss is the registry entry wrapped in target-peak
+    # normalization, so that is the form the floor has to be read in.
+    fns = {n: peak_normalized(select_loss_function(n, sample_rate=44100, device=dev), "target")
+           for n in LOSSES}
+
+    variants = {
+        "training path (batched, batch=N)": synth(space, z, args.duration, args.batch_size),
+        "same path, batch=1": synth(space, z, args.duration, 1),
+        "unbatched modal sum": synth(build_space(dev, False, args.chunk_elems, args.mode_bucket),
+                                     z, args.duration, args.batch_size),
+    }
+
+    perm = torch.randperm(x_tgt.shape[0], generator=torch.Generator().manual_seed(0))
+    print(f"{'':34s} " + "  ".join(f"{n:>13s}" for n in LOSSES))
+    with torch.no_grad():
+        sat = {n: float(fns[n](x_tgt, x_tgt[perm]).mean()) for n in LOSSES}
+        print(f"{'saturation (unrelated IRs)':34s} " +
+              "  ".join(f"{sat[n]:13.4e}" for n in LOSSES))
+        print()
+        for tag, x_syn in variants.items():
+            vals = {n: float(fns[n](x_tgt, x_syn).mean()) for n in LOSSES}
+            print(f"{tag:34s} " + "  ".join(f"{vals[n]:13.4e}" for n in LOSSES))
+            print(f"{'  as % of saturation':34s} " +
+                  "  ".join(f"{100*vals[n]/max(sat[n],1e-30):12.4f}%" for n in LOSSES))
+        print()
+
+    # Where the log disagreement lives, by target-magnitude decile -- the same
+    # decomposition confirm_f32_gt.py used for the numpy gap.
+    x_syn = variants["training path (batched, batch=N)"]
+    w = torch.hann_window(4096, device=dev)
+
+    def mag(v):
+        v = v / v.abs().amax(dim=-1, keepdim=True).clamp(min=1e-30)
+        return torch.stft(v, 4096, 1024, window=w, return_complex=True).abs()
+
+    with torch.no_grad():
+        A, B = mag(x_tgt), mag(x_syn)
+        a, b = A.flatten(), B.flatten()
+        lerr = (torch.log(a + 1e-7) - torch.log(b + 1e-7)).abs()
+        linerr = (a - b).abs()
+        order = torch.argsort(a)
+    groups = np.array_split(order.cpu().numpy(), 10)
+    print("disagreement share by target-magnitude decile (1 = quietest):")
+    print(f"  {'decile':>7s} {'tgt mag':>11s} {'log share':>10s} {'linear share':>13s}")
+    lt, nt = float(lerr.sum()), float(linerr.sum())
+    for i, g in enumerate(groups, 1):
+        idx = torch.as_tensor(g, device=dev)
+        print(f"  {i:7d} {float(a[idx].mean()):11.3e} "
+              f"{100*float(lerr[idx].sum())/lt:9.1f}% {100*float(linerr[idx].sum())/nt:12.1f}%")
+    print("\n  A log floor concentrated in the quiet deciles is the failure mode: it")
+    print("  means the log arm's error is partly our own target/synthesis disagreement")
+    print("  rather than what compression does to the terrain. Read the floors above")
+    print("  against saturation -- linear will be ~1e-3 %; log needs to be small too.")
+
+
+if __name__ == "__main__":
+    main()
