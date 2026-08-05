@@ -161,8 +161,18 @@ def report_mode_grid(param_sets: List[Dict[str, float]], sample_rate: int) -> No
     print(f"mode grid over {len(param_sets)} parameter sets:")
     print(f"  DDx  median {np.median(ddx):.0f}  p99 {np.percentile(ddx,99):.0f}  max {ddx.max():.0f}")
     print(f"  DDy  median {np.median(ddy):.0f}  p99 {np.percentile(ddy,99):.0f}  max {ddy.max():.0f}")
-    print(f"  modes  median {np.median(ddx*ddy):,.0f}   worst-case pin "
-          f"{ddx.max()*ddy.max():,.0f}  ({ddx.max()*ddy.max()/max(np.median(ddx*ddy),1):.2f}x)")
+    # The cost of pinning is against what the batched plate already pays, which
+    # is the *batch* maximum, not the median individual IR -- those differ by
+    # nearly 5x here, so comparing to the per-IR median overstates the cost.
+    rng = np.random.default_rng(0)
+    B = 64
+    batch_modes = [ddx[i].max() * ddy[i].max()
+                   for i in (rng.integers(0, len(ddx), size=(200, B)))]
+    typical = float(np.median(batch_modes))
+    pin = float(ddx.max() * ddy.max())
+    print(f"  modes  per-IR median {np.median(ddx*ddy):,.0f}   "
+          f"batch-of-{B} max, median {typical:,.0f}   pin {pin:,.0f}")
+    print(f"  pinning costs {pin/max(typical,1):.2f}x what the batched plate pays now")
     print(f"\n  --fixed-mode-grid {int(ddx.max())},{int(ddy.max())}")
 
 
