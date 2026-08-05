@@ -105,8 +105,20 @@ def main() -> None:
           for i in range(0, len(dicts), args.batch_size)]
     x_md = torch.as_tensor(np.concatenate(md, axis=0), dtype=torch.float32, device=dev)
 
+    # The condition training actually faces: batches drawn at random, so an IR
+    # sits with different companions every step. Before pinning, n_modes was the
+    # batch maximum and therefore depended on those companions, so this is the
+    # row that would expose it -- the sorted-batch row above cannot, since it
+    # reproduces the batching generation used. Rendered shuffled, then put back
+    # in order to compare against the targets.
+    g = torch.Generator().manual_seed(1234)
+    order = torch.randperm(z.shape[0], generator=g).to(z.device)
+    inv = torch.argsort(order)
+    x_shuf = synth(space, z[order], args.duration, args.batch_size)[inv]
+
     variants = {
         "training path (batched, batch=N)": synth(space, z, args.duration, args.batch_size),
+        "training path, SHUFFLED batches": x_shuf,
         "same path, batch=1": synth(space, z, args.duration, 1),
         "unbatched modal sum": synth(build_space(dev, False, args.chunk_elems, args.mode_bucket,
                                                  args.compile_plate, args.fixed_mode_grid),
