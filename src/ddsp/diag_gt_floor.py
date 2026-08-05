@@ -47,9 +47,9 @@ from src.loss.loss_selector import select_loss_function
 LOSSES = ("L1_STFT", "L1_STFT_pow", "L1_STFT_c2", "L1_STFT_log")
 
 
-def build_space(dev, batched, chunk, bucket):
+def build_space(dev, batched, chunk, bucket, compile_plate=False):
     space = Raw7Space(dev, torch.float32, normalize=False)
-    space.configure_plate(chunk, False, batched, False, bucket)
+    space.configure_plate(chunk, False, batched, compile_plate, bucket)
     return space
 
 
@@ -69,11 +69,13 @@ def main() -> None:
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--chunk-elems", type=int, default=20_000_000)
     p.add_argument("--mode-bucket", type=int, default=1024)
+    p.add_argument("--compile-plate", action="store_true",
+                   help="Match the training run's --compile-plate; a fused kernel changes\nthe arithmetic, so leaving it off measures a floor training does not have")
     p.add_argument("--device", type=str, default="cuda")
     args = p.parse_args()
 
     dev = torch.device(args.device if torch.cuda.is_available() else "cpu")
-    space = build_space(dev, True, args.chunk_elems, args.mode_bucket)
+    space = build_space(dev, True, args.chunk_elems, args.mode_bucket, args.compile_plate)
     z, x_tgt = load_dataset(space, args.data_dir, args.duration, dev, args.n_val)
     print(f"{args.data_dir}   {x_tgt.shape[0]} IRs\n")
 
@@ -96,7 +98,7 @@ def main() -> None:
     variants = {
         "training path (batched, batch=N)": synth(space, z, args.duration, args.batch_size),
         "same path, batch=1": synth(space, z, args.duration, 1),
-        "unbatched modal sum": synth(build_space(dev, False, args.chunk_elems, args.mode_bucket),
+        "unbatched modal sum": synth(build_space(dev, False, args.chunk_elems, args.mode_bucket, args.compile_plate),
                                      z, args.duration, args.batch_size),
         "make_dataset path (no float32 z)": x_md,
     }
