@@ -138,6 +138,19 @@ def render_training_path(space, batch: List[Dict[str, float]], duration: float) 
         return space.forward(z_t, None, duration).float().cpu().numpy()
 
 
+def mode_grid_of(param_sets: List[Dict[str, float]], sample_rate: int):
+    """(DDx, DDy) each parameter set needs, in closed form -- no synthesis."""
+    plate = SevenParamPlate(sample_rate=sample_rate, device="cpu", dtype=torch.float32,
+                            drop_sub_20hz_modes=False)
+    a = np.array([[p["E"], p["rho"], p["h"], p["Ly"], p["T0"], p["nu"]] for p in param_sets],
+                 dtype=np.float64)
+    E, rho, h, Ly, T0, nu = (a[:, i] for i in range(6))
+    D = E * h ** 3 / (12.0 * (1.0 - nu ** 2))
+    inner = np.sqrt(np.maximum(T0 ** 2 + 4.0 * (plate.max_omega ** 2) * rho * h * D, 0.0))
+    disc = np.maximum((-T0 + inner) / (2.0 * D), 0.0)
+    return (np.floor(1.0 / np.pi * np.sqrt(disc)), np.floor(Ly / np.pi * np.sqrt(disc)))
+
+
 def report_mode_grid(param_sets: List[Dict[str, float]], sample_rate: int) -> None:
     """Largest modal grid any of these parameter sets needs.
 
@@ -148,16 +161,7 @@ def report_mode_grid(param_sets: List[Dict[str, float]], sample_rate: int) -> No
     silently makes its target something other than the plate's output there,
     which is exactly the class of error the pin exists to remove.
     """
-    plate = SevenParamPlate(sample_rate=sample_rate, device="cpu", dtype=torch.float32,
-                            drop_sub_20hz_modes=False)
-    a = np.array([[p["E"], p["rho"], p["h"], p["Ly"], p["T0"], p["nu"]] for p in param_sets],
-                 dtype=np.float64)
-    E, rho, h, Ly, T0, nu = (a[:, i] for i in range(6))
-    D = E * h ** 3 / (12.0 * (1.0 - nu ** 2))
-    inner = np.sqrt(np.maximum(T0 ** 2 + 4.0 * (plate.max_omega ** 2) * rho * h * D, 0.0))
-    disc = np.maximum((-T0 + inner) / (2.0 * D), 0.0)
-    ddx = np.floor(1.0 / np.pi * np.sqrt(disc))
-    ddy = np.floor(Ly / np.pi * np.sqrt(disc))
+    ddx, ddy = mode_grid_of(param_sets, sample_rate)
     print(f"mode grid over {len(param_sets)} parameter sets:")
     print(f"  DDx  median {np.median(ddx):.0f}  p99 {np.percentile(ddx,99):.0f}  max {ddx.max():.0f}")
     print(f"  DDy  median {np.median(ddy):.0f}  p99 {np.percentile(ddy,99):.0f}  max {ddy.max():.0f}")
@@ -173,7 +177,16 @@ def report_mode_grid(param_sets: List[Dict[str, float]], sample_rate: int) -> No
     print(f"  modes  per-IR median {np.median(ddx*ddy):,.0f}   "
           f"batch-of-{B} max, median {typical:,.0f}   pin {pin:,.0f}")
     print(f"  pinning costs {pin/max(typical,1):.2f}x what the batched plate pays now")
-    print(f"\n  --fixed-mode-grid {int(ddx.max())},{int(ddy.max())}")
+    px, py = int(np.percentile(ddx, 99)), int(np.percentile(ddy, 99))
+    drop = int(((ddx > px) | (ddy > py)).sum())
+    print(f"\n  --fixed-mode-grid {int(ddx.max())},{int(ddy.max())}   (keeps every IR, "
+          f"{ddx.max()*ddy.max()/max(typical,1):.2f}x)")
+    print(f"  --fixed-mode-grid {px},{py}   (drops {drop} of {len(ddx)}, "
+          f"{100*drop/len(ddx):.2f}%, at {px*py/max(typical,1):.2f}x)")
+    print("\n  The max is priced by a handful of outliers and is paid on every step of")
+    print("  every run; the p99 grid usually costs about what an unpinned batch already")
+    print("  did. Generating with --fixed-mode-grid drops the sets that exceed it, so a")
+    print("  dataset never contains an IR its own pin would truncate.")
 
 
 def verify_against(generated: List[Dict[str, float]], ref_dir: Path) -> None:
@@ -228,6 +241,22 @@ def run(args) -> None:
         verify_against(param_sets, args.verify_against)
         if args.verify_only:
             return
+
+    if args.fixed_mode_grid is not None:
+        # A target rendered under a pin that truncates it is not the plate's
+        # output at those parameters, so such sets are excluded rather than
+        # silently mis-rendered. The pin therefore defines the dataset, and the
+        # plate's truncation warning can never fire on data made this way.
+        ddx, ddy = mode_grid_of(param_sets, args.sample_rate)
+        keep = (ddx <= args.fixed_mode_grid[0]) & (ddy <= args.fixed_mode_grid[1])
+        dropped = int((~keep).sum())
+        if dropped:
+            print(f"  pin {args.fixed_mode_grid[0]},{args.fixed_mode_grid[1]} excludes "
+                  f"{dropped} of {len(keep)} parameter sets ({100*dropped/len(keep):.2f}%) "
+                  f"that need a finer grid")
+        param_sets = [p for p, k in zip(param_sets, keep) if k]
+        indices = [i for i, k in zip(indices, keep) if k]
+        args.number = len(param_sets)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     if args.render_path == "training":
