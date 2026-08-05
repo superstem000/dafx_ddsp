@@ -36,9 +36,10 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 
-from src.cmaes.fit_7param_norm_es import PARAM_KEYS
+from src.data.make_dataset import render as md_render
 from src.ddsp.train_encoder import load_dataset, peak_normalized
 from src.gd.graddescent import Raw7Space
 from src.loss.loss_selector import select_loss_function
@@ -81,11 +82,23 @@ def main() -> None:
     fns = {n: peak_normalized(select_loss_function(n, sample_rate=44100, device=dev), "target")
            for n in LOSSES}
 
+    # The make_dataset path: plate14 built straight from the CSV, never through
+    # a float32 z. This is how the targets on disk were rendered, so it is the
+    # decisive comparison -- if it alone scores ~0 while every z-path variant
+    # sits at the floor, the round-trip is the whole story and regenerating
+    # through space.forward() fixes it.
+    csvs = sorted(args.data_dir.glob("random_IR_params_*.csv"))[: x_tgt.shape[0]]
+    dicts = [pd.read_csv(c).iloc[0].to_dict() for c in csvs]
+    md = [md_render(space.plate, dicts[i : i + args.batch_size], args.duration)
+          for i in range(0, len(dicts), args.batch_size)]
+    x_md = torch.as_tensor(np.concatenate(md, axis=0), dtype=torch.float32, device=dev)
+
     variants = {
         "training path (batched, batch=N)": synth(space, z, args.duration, args.batch_size),
         "same path, batch=1": synth(space, z, args.duration, 1),
         "unbatched modal sum": synth(build_space(dev, False, args.chunk_elems, args.mode_bucket),
                                      z, args.duration, args.batch_size),
+        "make_dataset path (no float32 z)": x_md,
     }
 
     perm = torch.randperm(x_tgt.shape[0], generator=torch.Generator().manual_seed(0))
