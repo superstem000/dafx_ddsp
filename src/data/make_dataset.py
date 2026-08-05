@@ -138,6 +138,34 @@ def render_training_path(space, batch: List[Dict[str, float]], duration: float) 
         return space.forward(z_t, None, duration).float().cpu().numpy()
 
 
+def report_mode_grid(param_sets: List[Dict[str, float]], sample_rate: int) -> None:
+    """Largest modal grid any of these parameter sets needs.
+
+    Closed form, no synthesis, so it runs over the whole set rather than a
+    sample -- which matters, because --fixed-mode-grid must be at least this
+    large. Truncating a *prediction* is acceptable and no different from the
+    max_omega cut the plate already applies; truncating a *true* parameter set
+    silently makes its target something other than the plate's output there,
+    which is exactly the class of error the pin exists to remove.
+    """
+    plate = SevenParamPlate(sample_rate=sample_rate, device="cpu", dtype=torch.float32,
+                            drop_sub_20hz_modes=False)
+    a = np.array([[p["E"], p["rho"], p["h"], p["Ly"], p["T0"], p["nu"]] for p in param_sets],
+                 dtype=np.float64)
+    E, rho, h, Ly, T0, nu = (a[:, i] for i in range(6))
+    D = E * h ** 3 / (12.0 * (1.0 - nu ** 2))
+    inner = np.sqrt(np.maximum(T0 ** 2 + 4.0 * (plate.max_omega ** 2) * rho * h * D, 0.0))
+    disc = np.maximum((-T0 + inner) / (2.0 * D), 0.0)
+    ddx = np.floor(1.0 / np.pi * np.sqrt(disc))
+    ddy = np.floor(Ly / np.pi * np.sqrt(disc))
+    print(f"mode grid over {len(param_sets)} parameter sets:")
+    print(f"  DDx  median {np.median(ddx):.0f}  p99 {np.percentile(ddx,99):.0f}  max {ddx.max():.0f}")
+    print(f"  DDy  median {np.median(ddy):.0f}  p99 {np.percentile(ddy,99):.0f}  max {ddy.max():.0f}")
+    print(f"  modes  median {np.median(ddx*ddy):,.0f}   worst-case pin "
+          f"{ddx.max()*ddy.max():,.0f}  ({ddx.max()*ddy.max()/max(np.median(ddx*ddy),1):.2f}x)")
+    print(f"\n  --fixed-mode-grid {int(ddx.max())},{int(ddy.max())}")
+
+
 def verify_against(generated: List[Dict[str, float]], ref_dir: Path) -> None:
     """Check the generated parameters match an existing dataset's CSVs."""
     csvs = sorted(ref_dir.glob("random_IR_params_*.csv"))
@@ -181,6 +209,10 @@ def run(args) -> None:
         print(f"Sampling {args.number} parameter sets (seed {args.seed})")
         param_sets = sample_parameters(args.number, args.seed)
         indices = [f"{i + 1:04d}" for i in range(args.number)]
+
+    if args.report_grid:
+        report_mode_grid(param_sets, args.sample_rate)
+        return
 
     if args.verify_against is not None:
         verify_against(param_sets, args.verify_against)
@@ -279,6 +311,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compare sampled parameters to an existing dataset's CSVs",
     )
     p.add_argument("--verify-only", action="store_true", help="Verify and exit without rendering")
+    p.add_argument(
+        "--report-grid", action="store_true",
+        help="Print the largest modal grid these parameters need, and exit. The value "
+             "to pass to --fixed-mode-grid.",
+    )
     p.add_argument(
         "--rerender-from", type=Path, default=None,
         help="Re-render an existing dataset's parameters, read from its CSVs, instead "
