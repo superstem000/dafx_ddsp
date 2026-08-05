@@ -71,6 +71,8 @@ def main() -> None:
     p.add_argument("--mode-bucket", type=int, default=1024)
     p.add_argument("--compile-plate", action="store_true",
                    help="Match the training run's --compile-plate; a fused kernel changes\nthe arithmetic, so leaving it off measures a floor training does not have")
+    p.add_argument("--report-grid", action="store_true",
+                   help="Price pinning n_modes: global max grid vs the typical batch max")
     p.add_argument("--device", type=str, default="cuda")
     args = p.parse_args()
 
@@ -136,10 +138,47 @@ def main() -> None:
     print("disagreement share by target-magnitude decile (1 = quietest):")
     print(f"  {'decile':>7s} {'tgt mag':>11s} {'log share':>10s} {'linear share':>13s}")
     lt, nt = float(lerr.sum()), float(linerr.sum())
-    for i, g in enumerate(groups, 1):
-        idx = torch.as_tensor(g, device=dev)
-        print(f"  {i:7d} {float(a[idx].mean()):11.3e} "
-              f"{100*float(lerr[idx].sum())/lt:9.1f}% {100*float(linerr[idx].sum())/nt:12.1f}%")
+    if lt == 0.0 and nt == 0.0:
+        # Not a degenerate case to guard around: an exactly zero disagreement is
+        # the goal. Targets and training synthesis are bit-identical, so there
+        # is no error left to decompose.
+        print("  target and training synthesis agree bit-for-bit; nothing to decompose")
+    else:
+        for i, g in enumerate(groups, 1):
+            idx = torch.as_tensor(g, device=dev)
+            print(f"  {i:7d} {float(a[idx].mean()):11.3e} "
+                  f"{100*float(lerr[idx].sum())/max(lt,1e-300):9.1f}% "
+                  f"{100*float(linerr[idx].sum())/max(nt,1e-300):12.1f}%")
+    if args.report_grid:
+        # The last term is that n_modes is the batch maximum, so an IR renders
+        # differently depending on which batch it was in. Pinning it to a global
+        # constant removes that, at the cost of every batch paying the worst
+        # case -- which is exactly the batch-max effect that made early training
+        # 2.5x faster. This prices it before committing.
+        pl = space.plate
+        ddx, ddy = [], []
+        with torch.no_grad():
+            for i in range(0, z.shape[0], args.batch_size):
+                p14 = pl.__class__  # only the closed form is needed, not a render
+                zz = z[i : i + args.batch_size]
+                from src.cmaes.fit_7param_norm_es import BOUNDS_HI_NP, BOUNDS_LO_NP
+                ph = BOUNDS_LO_NP + ((zz.cpu().numpy() + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
+                E, rho, h, Ly, T0 = ph[:, 0], ph[:, 1], ph[:, 2], ph[:, 3], ph[:, 4]
+                D = E * h ** 3 / (12.0 * (1.0 - 0.25 ** 2))
+                inner = np.sqrt(np.maximum(T0 ** 2 + 4.0 * (pl.max_omega ** 2) * rho * h * D, 0.0))
+                disc = np.maximum((-T0 + inner) / (2.0 * D), 0.0)
+                ddx.append(np.floor(1.0 / np.pi * np.sqrt(disc)))
+                ddy.append(np.floor(Ly / np.pi * np.sqrt(disc)))
+        bx = np.array([b.max() for b in ddx]); by = np.array([b.max() for b in ddy])
+        allx, ally = np.concatenate(ddx), np.concatenate(ddy)
+        print(f"\nmode grid, batches of {args.batch_size}:")
+        print(f"  per-batch max   DDx median {np.median(bx):.0f}  DDy median {np.median(by):.0f}"
+              f"   -> {np.median(bx*by):,.0f} modes")
+        print(f"  global max      DDx {allx.max():.0f}  DDy {ally.max():.0f}"
+              f"   -> {allx.max()*ally.max():,.0f} modes")
+        print(f"  pinning costs   {allx.max()*ally.max()/max(np.median(bx*by),1):.2f}x the "
+              f"typical batch's modal work")
+
     print("\n  A log floor concentrated in the quiet deciles is the failure mode: it")
     print("  means the log arm's error is partly our own target/synthesis disagreement")
     print("  rather than what compression does to the terrain. Read the floors above")
