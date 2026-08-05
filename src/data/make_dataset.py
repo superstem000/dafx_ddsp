@@ -215,7 +215,22 @@ def run(args) -> None:
     out_dir = args.output_dir or Path(f"data/random-IR-torch-{args.number}-{args.duration:g}s")
     out_dir = Path(out_dir)
 
-    if args.rerender_from is not None:
+    if args.params_csv is not None:
+        # One combined CSV instead of per-IR files. val-1000-0.25s could not be
+        # reproduced from any seed we tried -- it predates the current sampler --
+        # so its parameters are the irreplaceable part and travel as a file,
+        # while its 51 MB of audio does not. Rendering is deterministic given
+        # the parameters and the flags, and must be redone per machine anyway
+        # since a different GPU reduces float32 in a different order.
+        df = pd.read_csv(args.params_csv)
+        if "idx" not in df.columns:
+            raise ValueError(f"{args.params_csv} has no 'idx' column")
+        df = df.sort_values("idx", key=lambda c: c.astype(int))
+        indices = [f"{int(v):04d}" for v in df["idx"]]
+        param_sets = df.drop(columns=["idx"]).to_dict("records")
+        args.number = len(param_sets)
+        print(f"Rendering {args.number} parameter sets from {args.params_csv}")
+    elif args.rerender_from is not None:
         # Re-render an existing dataset's parameters without re-sampling. The
         # seed that produced a directory is not always recoverable, and any
         # re-sample risks silently shifting the parameters a finished run was
@@ -354,6 +369,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--report-grid", action="store_true",
         help="Print the largest modal grid these parameters need, and exit. The value "
              "to pass to --fixed-mode-grid.",
+    )
+    p.add_argument(
+        "--params-csv", type=Path, default=None,
+        help="Render from a single combined parameter CSV with an 'idx' column, as written "
+             "by docs/DATASETS.md. Lets a dataset move between machines as a file of "
+             "parameters rather than gigabytes of regenerable audio.",
     )
     p.add_argument(
         "--rerender-from", type=Path, default=None,
