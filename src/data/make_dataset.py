@@ -53,6 +53,21 @@ SAMPLE_RATE = 44100
 PARAM_ORDER = list(SevenParamPlate.PARAM_ORDER)
 
 
+def parse_mode_grid(text: str):
+    """Parse "DDX,DDY" for --fixed-mode-grid.
+
+    Defined here rather than imported from train_encoder: a dataset generator
+    should not pull in matplotlib and the encoder stack to parse two integers.
+    """
+    try:
+        x, y = (int(v) for v in text.split(","))
+    except Exception:
+        raise argparse.ArgumentTypeError(f"expected DDX,DDY (e.g. 116,340), got {text!r}")
+    if x < 1 or y < 1:
+        raise argparse.ArgumentTypeError("both grid dimensions must be positive")
+    return (x, y)
+
+
 def sample_parameters(num: int, seed: int) -> List[Dict[str, float]]:
     """Draw parameter sets, reproducing DatasetGen.generate_random_parameters.
 
@@ -180,7 +195,8 @@ def run(args) -> None:
 
         space = Raw7Space(device, torch.float32, normalize=False)
         space.configure_plate(
-            args.chunk_elems, False, args.batched_plate, args.compile_plate, args.mode_bucket
+            args.chunk_elems, False, args.batched_plate, args.compile_plate,
+            args.mode_bucket, args.fixed_mode_grid,
         )
         renderer = lambda chunk: render_training_path(space, chunk, args.duration)
         print(f"Rendering on {device} into {out_dir} via the training path "
@@ -253,6 +269,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--batched-plate", action="store_true", help="Match training's modal-sum path")
     p.add_argument("--chunk-elems", type=int, default=20_000_000, help="Match training's")
     p.add_argument("--mode-bucket", type=int, default=1024, help="Match training's")
+    p.add_argument(
+        "--fixed-mode-grid", type=parse_mode_grid, default=None, metavar="DDX,DDY",
+        help="Pin the modal grid; must match the training run's exactly, or targets "
+             "and training synthesis disagree again.",
+    )
     p.add_argument(
         "--verify-against", type=Path, default=None,
         help="Compare sampled parameters to an existing dataset's CSVs",

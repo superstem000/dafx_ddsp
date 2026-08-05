@@ -597,7 +597,7 @@ def run(args) -> None:
     space = Raw7Space(device, torch.float32, normalize=False)
     space.configure_plate(
         args.chunk_elems, not args.no_grad_checkpoint, args.batched_plate,
-        args.compile_plate, args.mode_bucket,
+        args.compile_plate, args.mode_bucket, args.fixed_mode_grid,
     )
     raw_loss_fn = select_loss_function(args.loss, sample_rate=SAMPLE_RATE, device=device)
     loss_fn = (peak_normalized(raw_loss_fn, args.peak_normalize)
@@ -958,6 +958,17 @@ def run(args) -> None:
     print(f"\nDone. Outputs written to {out_dir}")
 
 
+def parse_mode_grid(text: str):
+    """Parse "DDX,DDY" for --fixed-mode-grid."""
+    try:
+        x, y = (int(v) for v in text.split(","))
+    except Exception:
+        raise argparse.ArgumentTypeError(f"expected DDX,DDY (e.g. 116,340), got {text!r}")
+    if x < 1 or y < 1:
+        raise argparse.ArgumentTypeError("both grid dimensions must be positive")
+    return (x, y)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Train an audio-to-parameter encoder through the differentiable plate",
@@ -1096,6 +1107,13 @@ def build_parser() -> argparse.ArgumentParser:
              "and its throughput is flat in batch size.",
     )
     p.add_argument("--mode-bucket", type=int, default=1024)
+    p.add_argument(
+        "--fixed-mode-grid", type=parse_mode_grid, default=None, metavar="DDX,DDY",
+        help="Pin the modal grid instead of sizing it from the batch maximum, so a "
+             "target rendered offline and the same parameters synthesized in a random "
+             "training batch agree bit-for-bit. Must match the value the dataset was "
+             "rendered with. Use src.ddsp.diag_gt_floor --report-grid to pick it.",
+    )
     p.add_argument(
         "--chunk-elems", type=int, default=8_000_000,
         help="Time-chunk budget for the modal sum. Sized for the unfused path; with "

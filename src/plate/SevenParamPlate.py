@@ -143,6 +143,7 @@ class BatchedModalPlateTorch(torch.nn.Module):
         batched_modal_sum: bool = False,
         compile_modal_sum: bool = False,
         mode_bucket: int = 1024,
+        fixed_mode_grid=None,
     ):
         super().__init__()
         self.sample_rate = int(sample_rate)
@@ -166,6 +167,31 @@ class BatchedModalPlateTorch(torch.nn.Module):
         # shapes instead of a new one every step as the mode count drifts.
         self.compile_modal_sum = bool(compile_modal_sum)
         self.mode_bucket = int(mode_bucket)
+        # (DDx, DDy) held constant instead of taken from the batch maximum.
+        #
+        # The grid is normally sized by max(DDx) over the batch, so an IR renders
+        # differently depending on which batch it was in: torch.sum over the mode
+        # axis reduces in blocks whose grouping depends on that length, and the
+        # padded modes, though exactly zero, still move the nonzero terms around
+        # the reduction tree. Harmless for a linear loss -- measured at 0.0000%
+        # of saturation -- but log(x + 1e-7) turns it into 6.1%, because the
+        # disagreement is an absolute floor and the quiet bins sit near eps.
+        #
+        # Pinning it makes synthesis a function of the parameters alone, so a
+        # target rendered offline and the same parameters synthesized inside a
+        # random training batch agree bit-for-bit. Measured cost on the val set:
+        # 1.21x the typical batch's modal work, since the empirical maximum is
+        # only slightly above the median batch's. It also removes two .item()
+        # syncs per forward and gives torch.compile a single static shape.
+        #
+        # Parameters needing a finer grid than the pin are truncated, exactly as
+        # max_omega already truncates. Set it from the data the targets were
+        # drawn from, so no true parameter set is ever truncated.
+        self.fixed_mode_grid = (
+            None if fixed_mode_grid is None
+            else (int(fixed_mode_grid[0]), int(fixed_mode_grid[1]))
+        )
+        self._truncation_warned = False
 
     def _as_tensor(self, value: TensorOrFloat) -> torch.Tensor:
         if isinstance(value, torch.Tensor):
@@ -295,8 +321,21 @@ class BatchedModalPlateTorch(torch.nn.Module):
         sqrt_disc = torch.sqrt(disc)
         DDx_f = torch.floor(Lx / math.pi * sqrt_disc)
         DDy_f = torch.floor(Ly / math.pi * sqrt_disc)
-        max_DDx = max(1, int(torch.max(DDx_f).item()))
-        max_DDy = max(1, int(torch.max(DDy_f).item()))
+        if self.fixed_mode_grid is not None:
+            max_DDx, max_DDy = self.fixed_mode_grid
+            if not self._truncation_warned:
+                over = int(((DDx_f > max_DDx) | (DDy_f > max_DDy)).sum().item())
+                if over:
+                    self._truncation_warned = True
+                    print(
+                        f"  WARNING: {over} of {DDx_f.shape[0]} parameter sets need a finer "
+                        f"grid than the pinned ({max_DDx}, {max_DDy}) and are truncated. "
+                        f"Raise --fixed-mode-grid; targets rendered under a pin that "
+                        f"truncates them are not the plate's output at those parameters."
+                    )
+        else:
+            max_DDx = max(1, int(torch.max(DDx_f).item()))
+            max_DDy = max(1, int(torch.max(DDy_f).item()))
 
         m_vals = (
             torch.arange(1, max_DDx + 1, device=self.device, dtype=self.dtype)

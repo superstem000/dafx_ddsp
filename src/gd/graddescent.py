@@ -160,12 +160,19 @@ class Raw7Space:
     def configure_plate(
         self, chunk_elems: int, grad_checkpoint: bool, batched: bool = False,
         compile_modal_sum: bool = False, mode_bucket: int = 1024,
+        fixed_mode_grid=None,
     ) -> None:
         self.plate.chunk_elems = chunk_elems
         self.plate.grad_checkpoint = grad_checkpoint
         self.plate.batched_modal_sum = batched
         self.plate.compile_modal_sum = compile_modal_sum
         self.plate.mode_bucket = mode_bucket
+        # Held constant so synthesis stops depending on the batch it happened
+        # in; see SevenParamPlate.fixed_mode_grid.
+        self.plate.fixed_mode_grid = (
+            None if fixed_mode_grid is None
+            else (int(fixed_mode_grid[0]), int(fixed_mode_grid[1]))
+        )
 
     def lhs(self, n_starts: int, seed: int) -> np.ndarray:
         # The very generator CMA-ES uses for its restart starts.
