@@ -5,3 +5,8 @@ results/**/*.db
 results/**/*.png
 cmaes_customloss/
 graddescent/
+# Datasets: ~19 GB, regenerable per machine (see docs/DATASETS.md).
+data/
+
+# Checkpoints: 43-89 MB each.
+*.pt

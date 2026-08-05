@@ -1,0 +1,25 @@
+Device cuda | loss L1_STFT_log | duration 0.25s
+Loading train targets from data/train-100000-0.25s-v3
+Loading val targets from data/val-1000-0.25s-v3
+  99968 train / 1000 val in 48s   train tensor 4.41 GB
+  training set held in host memory; batches transferred per step
+reference levels:  gt_loss 0.0000e+00   saturation (unrelated IRs) 1.5511e+00
+constant-predictor NMSE: 6d 4.732e-02  7d 7.948e-02  (the floor to beat)
+training loss stuck near saturation = gradient uninformative; well below = learning
+
+encoder: 3.74M params, width 32
+
+loss scale (fixed): 1.3985e+00
+step      1  train 1.3985e+00  val 1.3029e+00  6d geo 4.274e-02 med 4.716e-02 p90 8.211e-02 (const 4.732e-02)  |g| 1.60e+02  [9s]
+           5d geo 4.187e-02 med 4.833e-02   postmu 6d geo 4.258e-02 med 4.704e-02 p90 9.328e-02   mu |dlog| 0.4398
+           WARNING: prediction spread 0.008 of ground truth -- the output has collapsed to a constant (saturated tanh); lower --lr or raise --warmup-steps and restart
+           corr(identifiable)  mu=+0.21  D_div_mu=-0.07  T0_div_mu=-0.05  Ly=+0.15  op_x=+0.42  op_y=-0.32   mean spread/GT 0.01
+           err share           mu=16%  D_div_mu=3%  T0_div_mu=2%  Ly=26%  op_x=28%  op_y=26%
+step    100  train 1.2654e+00  |g| 1.14e+02  [129s]
+step    200  train 1.2400e+00  |g| 7.44e+01  [302s]
+step    300  train 1.2905e+00  |g| 1.12e+02  [502s]
+step    400  train 1.6304e+00  |g| 2.67e+02  [720s]
+step    500  train 1.5227e+00  |g| 4.81e+02  [941s]
+step    600  train 1.2829e+00  |g| 3.38e+02  [1112s]
+step    700  train 1.3976e+00  |g| 3.70e+02  [1352s]
+step    800  train 1.3576e+00  |g| 1.71e+02  [1597s]

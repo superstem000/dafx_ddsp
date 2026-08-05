@@ -1,0 +1,2 @@
+Device cuda | loss L1_STFT_log | duration 0.25s
+Loading train targets from data/train-p99
