@@ -1,0 +1,45 @@
+======================================================================
+  TERNARY-SEARCH μ-REFINEMENT on CUDA (float32)
+======================================================================
+  CMA-ES results: /home/bhpark3/dafxchal/results/decomp_sweep/esr/stage1
+  Targets: /home/bhpark3/dafxchal/data/random-IR-100-1.0s
+  Loss: ESR, Duration: 0.25s
+  μ search bounds: [2.430, 106.150]
+  Ternary iterations: 50  (~101 evals/IR)
+  Sanity grid check: on
+
+  Loaded 50 CMA-ES results
+  [  1/50] random_IR_0001.npz             mu  68.937 ->  48.794 (GT  48.930)
+          NMSE 0.006202 -> 0.000001 (-100.0%)  loss 0.000427 -> 0.000000  (1.0s)
+  [  2/50] random_IR_0002.npz             mu  88.694 ->  83.054 (GT  84.056)
+          NMSE 0.000341 -> 0.000023 (-93.2%)  loss 0.000001 -> 0.000000  (1.2s)
+  [  3/50] random_IR_0003.npz             mu  11.378 ->   4.710 (GT  24.386)
+          NMSE 0.029827 -> 0.033204 (+11.3%)  loss 0.006123 -> 0.006123  (0.6s)
+  [  4/50] random_IR_0004.npz             mu  17.027 ->  13.464 (GT  13.244)
+          NMSE 0.000223 -> 0.000002 (-99.2%)  loss 0.000243 -> 0.000001  (1.0s)
+  [  5/50] random_IR_0005.npz             mu  34.799 ->  45.229 (GT  45.159)
+          NMSE 0.001663 -> 0.000000 (-100.0%)  loss 0.003324 -> 0.000002  (1.6s)
+  [ 10/50] random_IR_0010.npz             mu  31.217 ->  31.659 (GT  31.912)
+          NMSE 0.000008 -> 0.000001 (-81.6%)  loss 0.000048 -> 0.000013  (1.8s)
+  [ 20/50] random_IR_0020.npz             mu  69.012 ->  43.405 (GT  43.384)
+          NMSE 0.010176 -> 0.000000 (-100.0%)  loss 0.002461 -> 0.000003  (0.8s)
+  [ 30/50] random_IR_0030.npz             mu  37.019 ->  16.714 (GT  16.703)
+          NMSE 0.006395 -> 0.000001 (-100.0%)  loss 0.113467 -> 0.000032  (2.3s)
+  [ 40/50] random_IR_0040.npz             mu  24.193 ->  38.791 (GT  38.783)
+          NMSE 0.003297 -> 0.000000 (-100.0%)  loss 0.001659 -> 0.000000  (3.0s)
+  [ 50/50] random_IR_0050.npz             mu  28.612 -> 106.150 (GT  51.163)
+          NMSE 0.010609 -> 0.049573 (+367.3%)  loss 0.019755 -> 0.000753  (0.5s)
+
+======================================================================
+  AGGREGATE
+======================================================================
+  Mean NMSE   orig: 0.014030
+              refn: 0.008009
+  Median NMSE orig: 0.002788
+              refn: 0.000002
+  IRs improved: 43 / 50  worsened: 7  unchanged: 0
+  Mean elapsed/IR:    1.32 s
+  WARN: Sanity check (multi-modal loss-vs-mu) flagged on: 1 IRs
+      random_IR_0003.npz
+  Total runtime:      79.7 s
+  Wrote: /home/bhpark3/dafxchal/results/decomp_sweep/esr/stage2/mu_refined_summary.csv

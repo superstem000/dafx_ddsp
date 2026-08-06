@@ -1,0 +1,38 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/bhpark3/dafxchal/src/mu_optimization/ternary_mu.py", line 422, in <module>
+    run(build_parser().parse_args())
+  File "/home/bhpark3/dafxchal/src/mu_optimization/ternary_mu.py", line 293, in run
+    sanity_ok, mus, grid_losses = grid_sanity_check(
+                                  ^^^^^^^^^^^^^^^^^^
+  File "/home/bhpark3/dafxchal/src/mu_optimization/ternary_mu.py", line 161, in grid_sanity_check
+    losses = evaluate_fn(mus, fixed_5, target_t, duration, synth, loss_fn, device, dtype)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bhpark3/dafxchal/src/mu_optimization/ternary_mu.py", line 288, in evaluate_counted
+    return evaluate_at_mu(mu_values, fixed_5, target_t, duration, synth, loss_fn, device, dtype)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bhpark3/dafxchal/src/mu_optimization/ternary_mu.py", line 113, in evaluate_at_mu
+    pred = synth(six_t, duration, normalize=False)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bhpark3/dafxenv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bhpark3/dafxenv/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bhpark3/dafxchal/src/plate/SixParamPlate.py", line 130, in forward
+    max_DDx = max(1, int(torch.max(DDx_f).item()))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: cannot convert float NaN to integer
+======================================================================
+  TERNARY-SEARCH μ-REFINEMENT on CUDA (float32)
+======================================================================
+  CMA-ES results: /home/bhpark3/dafxchal/results/decomp_sweep/scattering1d/stage1
+  Targets: /home/bhpark3/dafxchal/data/random-IR-100-1.0s
+  Loss: Scattering1D, Duration: 0.25s
+  μ search bounds: [2.430, 106.150]
+  Ternary iterations: 50  (~101 evals/IR)
+  Sanity grid check: on
+
+  Loaded 50 CMA-ES results

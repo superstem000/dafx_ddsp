@@ -1,0 +1,261 @@
+[2026-07-09 05:58:19] === standard_sweep START ===
+[2026-07-09 05:58:19] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-09 05:58:19] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-09 05:58:19] RESULT_ROOT=/home/bhpark3/dafxchal/results/decomp_sweep
+[2026-07-09 05:58:19] LOSSES (12): L1_STFT L1_STFT_512 L1_STFT_1024 L1_STFT_2048 L1_STFT_8192 L1_STFT_multi L1_STFT_log L1_STFT_sc L1_STFT_log_multi L1_STFT_sc_multi L1_STFT_log_sc MSS
+[2026-07-09 05:58:19] ----- [L1_STFT] (slug=l1_stft) START -----
+[2026-07-09 05:58:19] [L1_STFT] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft/stage1.log
+[2026-07-09 05:58:19] [L1_STFT] stage 1: CMA-ES
+[2026-07-09 07:40:48] [L1_STFT] stage 2: ternary mu
+[2026-07-09 07:42:15] [L1_STFT] DONE in 6236s
+[2026-07-09 07:42:15] ----- [L1_STFT_512] (slug=l1_stft_512) START -----
+[2026-07-09 07:42:15] [L1_STFT_512] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_512/stage1.log
+[2026-07-09 07:42:15] [L1_STFT_512] stage 1: CMA-ES
+[2026-07-09 10:49:23] [L1_STFT_512] stage 2: ternary mu
+[2026-07-09 10:50:49] [L1_STFT_512] DONE in 11314s
+[2026-07-09 10:50:49] ----- [L1_STFT_1024] (slug=l1_stft_1024) START -----
+[2026-07-09 10:50:49] [L1_STFT_1024] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_1024/stage1.log
+[2026-07-09 10:50:49] [L1_STFT_1024] stage 1: CMA-ES
+[2026-07-09 13:29:58] [L1_STFT_1024] stage 2: ternary mu
+[2026-07-09 13:31:27] [L1_STFT_1024] DONE in 9638s
+[2026-07-09 13:31:27] ----- [L1_STFT_2048] (slug=l1_stft_2048) START -----
+[2026-07-09 13:31:27] [L1_STFT_2048] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_2048/stage1.log
+[2026-07-09 13:31:27] [L1_STFT_2048] stage 1: CMA-ES
+[2026-07-09 15:55:40] [L1_STFT_2048] stage 2: ternary mu
+[2026-07-09 15:57:07] [L1_STFT_2048] DONE in 8740s
+[2026-07-09 15:57:07] ----- [L1_STFT_8192] (slug=l1_stft_8192) START -----
+[2026-07-09 15:57:07] [L1_STFT_8192] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_8192/stage1.log
+[2026-07-09 15:57:07] [L1_STFT_8192] stage 1: CMA-ES
+[2026-07-09 18:46:51] [L1_STFT_8192] stage 2: ternary mu
+[2026-07-09 18:48:18] [L1_STFT_8192] DONE in 10271s
+[2026-07-09 18:48:18] ----- [L1_STFT_multi] (slug=l1_stft_multi) START -----
+[2026-07-09 18:48:18] [L1_STFT_multi] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_multi/stage1.log
+[2026-07-09 18:48:18] [L1_STFT_multi] stage 1: CMA-ES
+[2026-07-09 21:04:42] [L1_STFT_multi] stage 2: ternary mu
+[2026-07-09 21:06:09] [L1_STFT_multi] DONE in 8271s
+[2026-07-09 21:06:09] ----- [L1_STFT_log] (slug=l1_stft_log) START -----
+[2026-07-09 21:06:09] [L1_STFT_log] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_log/stage1.log
+[2026-07-09 21:06:09] [L1_STFT_log] stage 1: CMA-ES
+[2026-07-10 03:28:56] [L1_STFT_log] stage 2: ternary mu
+[2026-07-10 03:32:00] [L1_STFT_log] DONE in 23151s
+[2026-07-10 03:32:00] ----- [L1_STFT_sc] (slug=l1_stft_sc) START -----
+[2026-07-10 03:32:00] [L1_STFT_sc] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_sc/stage1.log
+[2026-07-10 03:32:00] [L1_STFT_sc] stage 1: CMA-ES
+[2026-07-10 05:54:49] [L1_STFT_sc] stage 2: ternary mu
+[2026-07-10 05:56:16] [L1_STFT_sc] DONE in 8656s
+[2026-07-10 05:56:16] ----- [L1_STFT_log_multi] (slug=l1_stft_log_multi) START -----
+[2026-07-10 05:56:16] [L1_STFT_log_multi] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_log_multi/stage1.log
+[2026-07-10 05:56:16] [L1_STFT_log_multi] stage 1: CMA-ES
+[2026-07-10 05:57:36] === standard_sweep START ===
+[2026-07-10 05:57:36] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-10 05:57:36] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-10 05:57:36] RESULT_ROOT=/home/bhpark3/dafxchal/results/decomp_sweep
+[2026-07-10 05:57:36] LOSSES (5): SmoothMSS L1_STFT_log_multi L1_STFT_sc_multi L1_STFT_log_sc MSS
+[2026-07-10 05:57:36] ----- [SmoothMSS] (slug=smoothmss) START -----
+[2026-07-10 05:57:36] [SmoothMSS] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/smoothmss/stage1.log
+[2026-07-10 05:57:36] [SmoothMSS] stage 1: CMA-ES
+[2026-07-10 13:38:26] [SmoothMSS] stage 2: ternary mu
+[2026-07-10 13:39:53] [SmoothMSS] DONE in 27737s
+[2026-07-10 13:39:53] ----- [L1_STFT_log_multi] (slug=l1_stft_log_multi) START -----
+[2026-07-10 13:39:53] [L1_STFT_log_multi] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_log_multi/stage1.log
+[2026-07-10 13:39:53] [L1_STFT_log_multi] stage 1: CMA-ES
+[2026-07-10 19:49:16] === standard_sweep START ===
+[2026-07-10 19:49:16] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-10 19:49:16] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-10 19:49:16] RESULT_ROOT=/home/bhpark3/dafxchal/results/decomp_sweep
+[2026-07-10 19:49:16] LOSSES (5): SmoothMSS_resmatch L1_STFT_log_multi L1_STFT_sc_multi L1_STFT_log_sc MSS
+[2026-07-10 19:49:16] ----- [SmoothMSS_resmatch] (slug=smoothmss_resmatch) START -----
+[2026-07-10 19:49:16] [SmoothMSS_resmatch] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/smoothmss_resmatch/stage1.log
+[2026-07-10 19:49:16] [SmoothMSS_resmatch] stage 1: CMA-ES
+[2026-07-11 04:39:33] [SmoothMSS_resmatch] stage 2: ternary mu
+[2026-07-11 04:41:08] [SmoothMSS_resmatch] DONE in 31912s
+[2026-07-11 04:41:08] ----- [L1_STFT_log_multi] (slug=l1_stft_log_multi) START -----
+[2026-07-11 04:41:08] [L1_STFT_log_multi] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_log_multi/stage1.log
+[2026-07-11 04:41:08] [L1_STFT_log_multi] stage 1: CMA-ES
+[2026-07-11 21:21:58] [L1_STFT_log_multi] stage 2: ternary mu
+[2026-07-11 21:24:06] [L1_STFT_log_multi] DONE in 60178s
+[2026-07-11 21:24:06] ----- [L1_STFT_sc_multi] (slug=l1_stft_sc_multi) START -----
+[2026-07-11 21:24:06] [L1_STFT_sc_multi] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_sc_multi/stage1.log
+[2026-07-11 21:24:06] [L1_STFT_sc_multi] stage 1: CMA-ES
+[2026-07-11 23:42:52] [L1_STFT_sc_multi] stage 2: ternary mu
+[2026-07-11 23:44:19] [L1_STFT_sc_multi] DONE in 8413s
+[2026-07-11 23:44:19] ----- [L1_STFT_log_sc] (slug=l1_stft_log_sc) START -----
+[2026-07-11 23:44:19] [L1_STFT_log_sc] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_log_sc/stage1.log
+[2026-07-11 23:44:19] [L1_STFT_log_sc] stage 1: CMA-ES
+[2026-07-12 12:12:13] [L1_STFT_log_sc] stage 2: ternary mu
+[2026-07-12 12:13:30] [L1_STFT_log_sc] DONE in 44951s
+[2026-07-12 12:13:30] ----- [MSS] (slug=mss) START -----
+[2026-07-12 12:13:30] [MSS] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/mss/stage1.log
+[2026-07-12 12:13:30] [MSS] stage 1: CMA-ES
+[2026-07-13 01:35:52] [MSS] stage 2: ternary mu
+[2026-07-13 01:37:15] [MSS] DONE in 48225s
+[2026-07-13 01:37:15] === standard_sweep FINISHED ===
+[2026-07-13 01:37:15]   SmoothMSS_resmatch: OK (31912s)
+[2026-07-13 01:37:15]   L1_STFT_log_multi: OK (60178s)
+[2026-07-13 01:37:15]   L1_STFT_sc_multi: OK (8413s)
+[2026-07-13 01:37:15]   L1_STFT_log_sc: OK (44951s)
+[2026-07-13 01:37:15]   MSS: OK (48225s)
+[2026-07-13 01:37:15] Aggregate:  /home/bhpark3/dafxenv/bin/python src/standard_sweep/aggregate_sweep.py --root /home/bhpark3/dafxchal/results/decomp_sweep --plot
+[2026-07-13 01:54:09] === standard_sweep START ===
+[2026-07-13 01:54:09] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-13 01:54:09] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-13 01:54:09] RESULT_ROOT=/home/bhpark3/dafxchal/results/decomp_sweep
+[2026-07-13 01:54:09] LOSSES (4): SOT_lin SOT L1_STFT_pow L1_STFT_c2
+[2026-07-13 01:54:09] ----- [SOT_lin] (slug=sot_lin) START -----
+[2026-07-13 01:54:09] [SOT_lin] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/sot_lin/stage1.log
+[2026-07-13 01:54:09] [SOT_lin] stage 1: CMA-ES
+[2026-07-13 04:33:52] [SOT_lin] stage 2: ternary mu
+[2026-07-13 04:35:19] [SOT_lin] DONE in 9670s
+[2026-07-13 04:35:19] ----- [SOT] (slug=sot) START -----
+[2026-07-13 04:35:19] [SOT] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/sot/stage1.log
+[2026-07-13 04:35:19] [SOT] stage 1: CMA-ES
+[2026-07-13 05:46:35] === standard_sweep START ===
+[2026-07-13 05:46:35] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-13 05:46:35] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-13 05:46:35] RESULT_ROOT=/home/bhpark3/dafxchal/results/decomp_sweep
+[2026-07-13 05:46:35] LOSSES (4): SOT_lin SOT L1_STFT_c2 L1_STFT_pow
+[2026-07-13 05:46:35] ----- [SOT_lin] (slug=sot_lin) START -----
+[2026-07-13 05:46:35] [SOT_lin] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/sot_lin/stage1.log
+[2026-07-13 05:46:35] [SOT_lin] stage 1: CMA-ES
+[2026-07-13 08:38:42] [SOT_lin] stage 2: ternary mu
+[2026-07-13 08:40:10] [SOT_lin] DONE in 10415s
+[2026-07-13 08:40:10] ----- [SOT] (slug=sot) START -----
+[2026-07-13 08:40:10] [SOT] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/sot/stage1.log
+[2026-07-13 08:40:10] [SOT] stage 1: CMA-ES
+[2026-07-13 12:40:19] [SOT] stage 2: ternary mu
+[2026-07-13 12:41:54] [SOT] DONE in 14504s
+[2026-07-13 12:41:54] ----- [L1_STFT_c2] (slug=l1_stft_c2) START -----
+[2026-07-13 12:41:54] [L1_STFT_c2] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_c2/stage1.log
+[2026-07-13 12:41:54] [L1_STFT_c2] stage 1: CMA-ES
+[2026-07-13 21:44:13] [L1_STFT_c2] stage 2: ternary mu
+[2026-07-13 21:46:28] [L1_STFT_c2] DONE in 32674s
+[2026-07-13 21:46:28] ----- [L1_STFT_pow] (slug=l1_stft_pow) START -----
+[2026-07-13 21:46:28] [L1_STFT_pow] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_pow/stage1.log
+[2026-07-13 21:46:28] [L1_STFT_pow] stage 1: CMA-ES
+[2026-07-14 08:59:40] [L1_STFT_pow] stage 2: ternary mu
+[2026-07-14 09:01:37] [L1_STFT_pow] DONE in 40509s
+[2026-07-14 09:01:37] === standard_sweep FINISHED ===
+[2026-07-14 09:01:37]   SOT_lin: OK (10415s)
+[2026-07-14 09:01:37]   SOT: OK (14504s)
+[2026-07-14 09:01:37]   L1_STFT_c2: OK (32674s)
+[2026-07-14 09:01:37]   L1_STFT_pow: OK (40509s)
+[2026-07-14 09:01:37] Aggregate:  /home/bhpark3/dafxenv/bin/python src/standard_sweep/aggregate_sweep.py --root /home/bhpark3/dafxchal/results/decomp_sweep --plot
+[2026-07-14 09:03:04] === standard_sweep START ===
+[2026-07-14 09:03:04] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-14 09:03:04] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-14 09:03:04] RESULT_ROOT=/home/bhpark3/dafxchal/results/decomp_sweep
+[2026-07-14 09:03:04] LOSSES (5): L1_STFT_log_masked L1_STFT_masked Mel Mel_linear ESR
+[2026-07-14 09:03:04] ----- [L1_STFT_log_masked] (slug=l1_stft_log_masked) START -----
+[2026-07-14 09:03:04] [L1_STFT_log_masked] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_log_masked/stage1.log
+[2026-07-14 09:03:04] [L1_STFT_log_masked] stage 1: CMA-ES
+[2026-07-15 00:31:59] [L1_STFT_log_masked] stage 2: ternary mu
+[2026-07-15 00:34:19] [L1_STFT_log_masked] DONE in 55875s
+[2026-07-15 00:34:19] ----- [L1_STFT_masked] (slug=l1_stft_masked) START -----
+[2026-07-15 00:34:19] [L1_STFT_masked] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_masked/stage1.log
+[2026-07-15 00:34:19] [L1_STFT_masked] stage 1: CMA-ES
+[2026-07-15 02:17:55] [L1_STFT_masked] stage 2: ternary mu
+[2026-07-15 02:19:22] [L1_STFT_masked] DONE in 6303s
+[2026-07-15 02:19:22] ----- [Mel] (slug=mel) START -----
+[2026-07-15 02:19:22] [Mel] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/mel/stage1.log
+[2026-07-15 02:19:22] [Mel] stage 1: CMA-ES
+[2026-07-15 06:36:04] [Mel] stage 1 FAILED (rc=143) -> see mel/stage1.log ; skipping stage 2
+[2026-07-15 06:36:04] ----- [Mel_linear] (slug=mel_linear) START -----
+[2026-07-15 06:36:04] [Mel_linear] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/mel_linear/stage1.log
+[2026-07-15 06:36:04] [Mel_linear] stage 1: CMA-ES
+[2026-07-15 06:44:47] === standard_sweep START ===
+[2026-07-15 06:44:47] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-15 06:44:47] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-15 06:44:47] RESULT_ROOT=/home/bhpark3/dafxchal/results/decomp_sweep
+[2026-07-15 06:44:47] DTYPE=float32
+[2026-07-15 06:44:47] LOSSES (4): Mel Mel_linear ESR L1_STFT_masked
+[2026-07-15 06:44:47] ----- [Mel] (slug=mel) START -----
+[2026-07-15 06:44:47] [Mel] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/mel/stage1.log
+[2026-07-15 06:44:47] [Mel] stage 1: CMA-ES
+[2026-07-15 12:13:55] === standard_sweep START ===
+[2026-07-15 12:13:55] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-15 12:13:55] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-15 12:13:55] RESULT_ROOT=/home/bhpark3/dafxchal/results/decomp_sweep
+[2026-07-15 12:13:55] DTYPE=float32
+[2026-07-15 12:13:55] LOSSES (5): L1_STFT_log_masked L1_STFT_masked Mel Mel_linear ESR
+[2026-07-15 12:13:55] ----- [L1_STFT_log_masked] (slug=l1_stft_log_masked) START -----
+[2026-07-15 12:13:55] [L1_STFT_log_masked] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_log_masked/stage1.log
+[2026-07-15 12:13:55] [L1_STFT_log_masked] stage 1: CMA-ES
+[2026-07-15 12:56:29] [Mel] stage 2: ternary mu
+[2026-07-15 12:57:50] [Mel] DONE in 22383s
+[2026-07-15 12:57:50] ----- [Mel_linear] (slug=mel_linear) START -----
+[2026-07-15 12:57:50] [Mel_linear] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/mel_linear/stage1.log
+[2026-07-15 12:57:50] [Mel_linear] stage 1: CMA-ES
+[2026-07-15 16:23:05] [Mel_linear] stage 2: ternary mu
+[2026-07-15 16:24:33] [Mel_linear] DONE in 12403s
+[2026-07-15 16:24:33] ----- [ESR] (slug=esr) START -----
+[2026-07-15 16:24:33] [ESR] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/esr/stage1.log
+[2026-07-15 16:24:33] [ESR] stage 1: CMA-ES
+[2026-07-15 18:29:40] [ESR] stage 2: ternary mu
+[2026-07-15 18:31:02] [ESR] DONE in 7589s
+[2026-07-15 18:31:02] ----- [L1_STFT_masked] (slug=l1_stft_masked) START -----
+[2026-07-15 18:31:02] [L1_STFT_masked] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/l1_stft_masked/stage1.log
+[2026-07-15 18:31:02] [L1_STFT_masked] stage 1: CMA-ES
+[2026-07-15 18:31:05] [L1_STFT_masked] stage 2: ternary mu
+[2026-07-15 18:32:32] [L1_STFT_masked] DONE in 90s
+[2026-07-15 18:32:32] === standard_sweep FINISHED ===
+[2026-07-15 18:32:32]   Mel: OK (22383s)
+[2026-07-15 18:32:32]   Mel_linear: OK (12403s)
+[2026-07-15 18:32:32]   ESR: OK (7589s)
+[2026-07-15 18:32:32]   L1_STFT_masked: OK (90s)
+[2026-07-15 18:32:32] Aggregate:  /home/bhpark3/dafxenv/bin/python src/standard_sweep/aggregate_sweep.py --root /home/bhpark3/dafxchal/results/decomp_sweep --plot
+[2026-07-15 18:41:34] === standard_sweep START ===
+[2026-07-15 18:41:34] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-15 18:41:34] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-15 18:41:34] RESULT_ROOT=/home/bhpark3/dafxchal/results/decomp_sweep
+[2026-07-15 18:41:34] DTYPE=float32
+[2026-07-15 18:41:34] LOSSES (8): SI-SDR EDC EDR MFCC SpectralOT_LP CQT_L1 ComplexSTFT Scattering1D
+[2026-07-15 18:41:34] ----- [SI-SDR] (slug=si_sdr) START -----
+[2026-07-15 18:41:34] [SI-SDR] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/si_sdr/stage1.log
+[2026-07-15 18:41:34] [SI-SDR] stage 1: CMA-ES
+[2026-07-15 21:06:13] [SI-SDR] stage 2: ternary mu
+[2026-07-15 21:07:39] [SI-SDR] DONE in 8765s
+[2026-07-15 21:07:39] ----- [EDC] (slug=edc) START -----
+[2026-07-15 21:07:39] [EDC] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/edc/stage1.log
+[2026-07-15 21:07:39] [EDC] stage 1: CMA-ES
+[2026-07-16 01:13:00] [EDC] stage 2: ternary mu
+[2026-07-16 01:14:29] [EDC] DONE in 14810s
+[2026-07-16 01:14:29] ----- [EDR] (slug=edr) START -----
+[2026-07-16 01:14:29] [EDR] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/edr/stage1.log
+[2026-07-16 01:14:29] [EDR] stage 1: CMA-ES
+[2026-07-16 13:38:49] [EDR] stage 2: ternary mu
+[2026-07-16 13:41:01] [EDR] DONE in 44792s
+[2026-07-16 13:41:01] ----- [MFCC] (slug=mfcc) START -----
+[2026-07-16 13:41:01] [MFCC] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/mfcc/stage1.log
+[2026-07-16 13:41:01] [MFCC] stage 1: CMA-ES
+[2026-07-16 21:18:03] [MFCC] stage 2: ternary mu
+[2026-07-16 21:19:28] [MFCC] DONE in 27507s
+[2026-07-16 21:19:28] ----- [SpectralOT_LP] (slug=spectralot_lp) START -----
+[2026-07-16 21:19:28] [SpectralOT_LP] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/spectralot_lp/stage1.log
+[2026-07-16 21:19:28] [SpectralOT_LP] stage 1: CMA-ES
+[2026-07-17 00:41:48] [SpectralOT_LP] stage 2: ternary mu
+[2026-07-17 00:43:12] [SpectralOT_LP] DONE in 12224s
+[2026-07-17 00:43:12] ----- [CQT_L1] (slug=cqt_l1) START -----
+[2026-07-17 00:43:12] [CQT_L1] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/cqt_l1/stage1.log
+[2026-07-17 00:43:12] [CQT_L1] stage 1: CMA-ES
+[2026-07-17 08:42:41] [CQT_L1] stage 2: ternary mu
+[2026-07-17 08:44:57] [CQT_L1] DONE in 28905s
+[2026-07-17 08:44:57] ----- [ComplexSTFT] (slug=complexstft) START -----
+[2026-07-17 08:44:57] [ComplexSTFT] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/complexstft/stage1.log
+[2026-07-17 08:44:57] [ComplexSTFT] stage 1: CMA-ES
+[2026-07-17 12:02:35] [ComplexSTFT] stage 2: ternary mu
+[2026-07-17 12:04:11] [ComplexSTFT] DONE in 11954s
+[2026-07-17 12:04:11] ----- [Scattering1D] (slug=scattering1d) START -----
+[2026-07-17 12:04:11] [Scattering1D] watch:  tail -f /home/bhpark3/dafxchal/results/decomp_sweep/scattering1d/stage1.log
+[2026-07-17 12:04:11] [Scattering1D] stage 1: CMA-ES
+[2026-07-17 12:28:10] [Scattering1D] stage 2: ternary mu
+[2026-07-17 12:28:13] [Scattering1D] stage 2 FAILED (rc=1) -> see scattering1d/stage2.log  (1442s)
+[2026-07-17 12:28:13] === standard_sweep FINISHED ===
+[2026-07-17 12:28:13]   SI-SDR: OK (8765s)
+[2026-07-17 12:28:13]   EDC: OK (14810s)
+[2026-07-17 12:28:13]   EDR: OK (44792s)
+[2026-07-17 12:28:13]   MFCC: OK (27507s)
+[2026-07-17 12:28:13]   SpectralOT_LP: OK (12224s)
+[2026-07-17 12:28:13]   CQT_L1: OK (28905s)
+[2026-07-17 12:28:13]   ComplexSTFT: OK (11954s)
+[2026-07-17 12:28:13]   Scattering1D: STAGE2_FAIL(rc=1)
+[2026-07-17 12:28:13] Aggregate:  /home/bhpark3/dafxenv/bin/python src/standard_sweep/aggregate_sweep.py --root /home/bhpark3/dafxchal/results/decomp_sweep --plot

@@ -1,0 +1,39 @@
+======================================================================
+  TERNARY-SEARCH μ-REFINEMENT on CUDA (float32)
+======================================================================
+  CMA-ES results: /home/bhpark3/dafxchal/results/decomp_sweep/mel/stage1
+  Targets: /home/bhpark3/dafxchal/data/random-IR-100-1.0s
+  Loss: Mel, Duration: 0.25s
+  μ search bounds: [2.430, 106.150]
+  Ternary iterations: 50  (~101 evals/IR)
+  Sanity grid check: on
+
+  Loaded 30 CMA-ES results
+  [  1/30] random_IR_0021.npz             mu  60.971 ->  47.418 (GT  47.424)
+          NMSE 0.002890 -> 0.000047 (-98.4%)  loss 0.006918 -> 0.000578  (2.3s)
+  [  2/30] random_IR_0022.npz             mu  16.627 -> 106.150 (GT  20.209)
+          NMSE 0.085430 -> 0.199657 (+133.7%)  loss 0.117541 -> 0.016270  (2.2s)
+  [  3/30] random_IR_0023.npz             mu  89.132 ->  30.739 (GT  57.663)
+          NMSE 0.044596 -> 0.040485 (-9.2%)  loss 0.044011 -> 0.023404  (0.9s)
+  [  4/30] random_IR_0024.npz             mu  68.050 ->  80.800 (GT  80.758)
+          NMSE 0.002504 -> 0.000002 (-99.9%)  loss 0.005153 -> 0.000316  (1.0s)
+  [  5/30] random_IR_0025.npz             mu  20.064 ->  10.103 (GT   5.821)
+          NMSE 0.028083 -> 0.025224 (-10.2%)  loss 0.070375 -> 0.046073  (4.7s)
+  [ 10/30] random_IR_0030.npz             mu  15.732 ->   7.727 (GT  16.703)
+          NMSE 0.077057 -> 0.078291 (+1.6%)  loss 0.087740 -> 0.052875  (4.0s)
+  [ 20/30] random_IR_0040.npz             mu   5.676 ->  43.874 (GT  38.783)
+          NMSE 0.068221 -> 0.051641 (-24.3%)  loss 0.127995 -> 0.014069  (3.8s)
+  [ 30/30] random_IR_0050.npz             mu  43.391 ->  82.072 (GT  51.163)
+          NMSE 0.031675 -> 0.045541 (+43.8%)  loss 0.036715 -> 0.025956  (0.8s)
+
+======================================================================
+  AGGREGATE
+======================================================================
+  Mean NMSE   orig: 0.056046
+              refn: 0.052668
+  Median NMSE orig: 0.054630
+              refn: 0.047844
+  IRs improved: 19 / 30  worsened: 11  unchanged: 0
+  Mean elapsed/IR:    2.15 s
+  Total runtime:      78.1 s
+  Wrote: /home/bhpark3/dafxchal/results/decomp_sweep/mel/stage2/mu_refined_summary.csv

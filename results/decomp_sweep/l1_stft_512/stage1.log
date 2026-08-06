@@ -1,0 +1,2301 @@
+CMA-ES with LHS + Normalized Space on CUDA
+  Loss: L1_STFT_512
+  Available losses: MSS, SC+LogMag, CQT_L1, CQT+LogDec, Mel, LSD, L1_STFT, L1_STFT_1024, MultiResCQT, VQT, Gammatone, Envelope, ESR, FreqDecay, Subband, ModalDensity, Dispersion, CentroidTraj, OnsetDisp, NullPattern, GroupDelay, ComplexSTFT, InstFreq, Scattering1D, SoftDTW_Mel, L1, L2, L1_STFT_512, L1_STFT_2048, L1_STFT_8192, L1_STFT_multi, L1_STFT_log, L1_STFT_sc, L1_STFT_log_multi, L1_STFT_sc_multi, L1_STFT_log_sc
+  Trials: 20
+  Duration: 0.25s
+  Search: normalized [-1, 1] space; expanded to physical bounds for synthesis
+  sigma0: 0.6
+  tolfun: 1e-05
+  tolfunhist: 1e-05
+  pruner_min_resource: 15
+  pruner_reduction_factor: 3
+
+============================================================
+[1/50] random_IR_0001.npz
+  GT loss: 0.000006
+  terrain_mean=0.434494  early_threshold=0.004133  (alpha=0.0095)
+    --> Trial 0 | pop=60 seed=24554 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1200  best=0.2411
+        [Trial 0] gen   40  evals= 2400  best=0.2411
+        [Trial 0] gen   60  evals= 3600  best=0.2411
+        [Trial 0] gen   80  evals= 4800  best=0.2411
+        [Done] Trial 0 best=0.2411
+    --> Trial 1 | pop=38 seed=34218 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.2625)
+    --> Trial 2 | pop=59 seed=67630 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals= 1180  best=0.1377
+        [Trial 2] gen   40  evals= 2360  best=0.0230
+        [Trial 2] gen   60  evals= 3540  best=0.0020
+        [Trial 2] gen   80  evals= 4720  best=0.0001
+        [Trial 2] gen  100  evals= 5900  best=0.0000
+NOTE (module=cma, iteration=103):  
+condition in coordinate system exceeded 1.2e+08, rescaled to 1.0e+00, 
+condition changed from 1.8e+08 to 1.7e+07
+        [Done] Trial 2 best=0.0000
+    --> Early stop triggered: trial 2 reached loss=0.000005 < 0.004133
+
+  Winner: Trial 2, loss=0.000005 (157s)
+    Restarts run: 3
+    mu: 80.279241
+    D_mu: 13.780471
+    T0_mu: 12.318845
+    Ly: 2.691559
+    op_x: 0.826488
+    op_y: 0.724418
+    NMSE: 0.015225
+  [Saved] random_IR_0001
+
+============================================================
+[2/50] random_IR_0002.npz
+  GT loss: 0.000008
+  terrain_mean=0.450005  early_threshold=0.004283  (alpha=0.0095)
+    --> Trial 0 | pop=47 seed=89854 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  940  best=0.2479
+        [Trial 0] gen   40  evals= 1880  best=0.2479
+        [Trial 0] gen   60  evals= 2820  best=0.2479
+        [Trial 0] gen   80  evals= 3760  best=0.2479
+        [Done] Trial 0 best=0.2479
+    --> Trial 1 | pop=44 seed=3397 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.3068)
+    --> Trial 2 | pop=33 seed=49115 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.2520)
+    --> Trial 3 | pop=35 seed=48142 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2972)
+    --> Trial 4 | pop=42 seed=41242 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.2988)
+    --> Trial 5 | pop=59 seed=54162 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.2778)
+    --> Trial 6 | pop=56 seed=72350 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.2837)
+    --> Trial 7 | pop=37 seed=19082 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.3176)
+    --> Trial 8 | pop=57 seed=67220 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.3139)
+    --> Trial 9 | pop=31 seed=43887 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.3067)
+    --> Trial 10 | pop=50 seed=98339 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Pruned] Trial 10 at gen 15 (loss=0.2989)
+    --> Trial 11 | pop=45 seed=97166 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Pruned] Trial 11 at gen 15 (loss=0.3074)
+    --> Trial 12 | pop=51 seed=81125 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Trial 12] gen   20  evals= 1020  best=0.2088
+        [Trial 12] gen   40  evals= 2040  best=0.1085
+        [Trial 12] gen   60  evals= 3060  best=0.0584
+        [Trial 12] gen   80  evals= 4080  best=0.0060
+        [Trial 12] gen  100  evals= 5100  best=0.0001
+        [Trial 12] gen  120  evals= 6120  best=0.0000
+NOTE (module=cma, iteration=128):  
+condition in coordinate system exceeded 1.3e+08, rescaled to 1.0e+00, 
+condition changed from 3.2e+08 to 6.9e+07
+        [Done] Trial 12 best=0.0000
+    --> Early stop triggered: trial 12 reached loss=0.000008 < 0.004283
+
+  Winner: Trial 12, loss=0.000008 (216s)
+    Restarts run: 13
+    mu: 97.223831
+    D_mu: 17.897194
+    T0_mu: 4.561770
+    Ly: 3.686142
+    op_x: 0.788342
+    op_y: 0.963542
+    NMSE: 0.002686
+  [Saved] random_IR_0002
+
+============================================================
+[3/50] random_IR_0003.npz
+  GT loss: 0.000017
+  terrain_mean=0.628121  early_threshold=0.005984  (alpha=0.0095)
+    --> Trial 0 | pop=40 seed=57815 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  800  best=0.3009
+        [Trial 0] gen   40  evals= 1600  best=0.3009
+        [Trial 0] gen   60  evals= 2400  best=0.2645
+        [Trial 0] gen   80  evals= 3200  best=0.2368
+        [Trial 0] gen  100  evals= 4000  best=0.2347
+        [Done] Trial 0 best=0.2347
+    --> Trial 1 | pop=52 seed=34924 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.3569)
+    --> Trial 2 | pop=35 seed=94547 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.3213)
+    --> Trial 3 | pop=34 seed=74017 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.3543)
+    --> Trial 4 | pop=55 seed=26363 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.3709)
+    --> Trial 5 | pop=34 seed=46986 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.3682)
+    --> Trial 6 | pop=39 seed=59806 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.3499)
+    --> Trial 7 | pop=34 seed=1737 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.3497)
+    --> Trial 8 | pop=57 seed=36664 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Trial 8] gen   20  evals= 1140  best=0.3319
+        [Trial 8] gen   40  evals= 2280  best=0.3319
+        [Pruned] Trial 8 at gen 45 (loss=0.3319)
+    --> Trial 9 | pop=35 seed=28773 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.3558)
+    --> Trial 10 | pop=47 seed=95336 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Trial 10] gen   20  evals=  940  best=0.3344
+        [Trial 10] gen   40  evals= 1880  best=0.3069
+        [Pruned] Trial 10 at gen 45 (loss=0.2937)
+    --> Trial 11 | pop=46 seed=97137 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Pruned] Trial 11 at gen 15 (loss=0.3605)
+    --> Trial 12 | pop=45 seed=77211 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Pruned] Trial 12 at gen 15 (loss=0.3589)
+    --> Trial 13 | pop=44 seed=78996 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Trial 13] gen   20  evals=  880  best=0.3254
+        [Trial 13] gen   40  evals= 1760  best=0.3135
+        [Trial 13] gen   60  evals= 2640  best=0.2739
+        [Trial 13] gen   80  evals= 3520  best=0.2422
+        [Trial 13] gen  100  evals= 4400  best=0.2355
+        [Trial 13] gen  120  evals= 5280  best=0.2347
+        [Done] Trial 13 best=0.2347
+    --> Trial 14 | pop=41 seed=68326 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Pruned] Trial 14 at gen 15 (loss=0.3451)
+    --> Trial 15 | pop=41 seed=57730 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Trial 15] gen   20  evals=  820  best=0.3234
+        [Trial 15] gen   40  evals= 1640  best=0.3234
+        [Pruned] Trial 15 at gen 45 (loss=0.3234)
+    --> Trial 16 | pop=30 seed=83290 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Trial 16] gen   20  evals=  600  best=0.3245
+        [Trial 16] gen   40  evals= 1200  best=0.3132
+        [Pruned] Trial 16 at gen 45 (loss=0.3132)
+    --> Trial 17 | pop=51 seed=53295 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Pruned] Trial 17 at gen 15 (loss=0.3601)
+    --> Trial 18 | pop=44 seed=83603 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Trial 18] gen   20  evals=  880  best=0.3148
+        [Trial 18] gen   40  evals= 1760  best=0.3148
+        [Pruned] Trial 18 at gen 45 (loss=0.2940)
+    --> Trial 19 | pop=49 seed=66443 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Pruned] Trial 19 at gen 15 (loss=0.3431)
+
+  Winner: Trial 0, loss=0.234707 (214s)
+    Restarts run: 20
+    mu: 42.874422
+    D_mu: 26.576099
+    T0_mu: 23.263639
+    Ly: 2.611561
+    op_x: 0.873142
+    op_y: 0.989509
+    NMSE: 0.044902
+  [Saved] random_IR_0003
+
+============================================================
+[4/50] random_IR_0004.npz
+  GT loss: 0.000010
+  terrain_mean=0.470603  early_threshold=0.004480  (alpha=0.0095)
+    --> Trial 0 | pop=46 seed=51001 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  920  best=0.3016
+        [Trial 0] gen   40  evals= 1840  best=0.2845
+        [Trial 0] gen   60  evals= 2760  best=0.2329
+        [Trial 0] gen   80  evals= 3680  best=0.1105
+        [Trial 0] gen  100  evals= 4600  best=0.0109
+        [Trial 0] gen  120  evals= 5520  best=0.0004
+        [Trial 0] gen  140  evals= 6440  best=0.0000
+NOTE (module=cma, iteration=153):  
+condition in coordinate system exceeded 1.1e+08, rescaled to 1.0e+00, 
+condition changed from 1.7e+08 to 1.4e+07
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000009 < 0.004480
+
+  Winner: Trial 0, loss=0.000009 (66s)
+    Restarts run: 1
+    mu: 16.328024
+    D_mu: 25.512222
+    T0_mu: 58.936519
+    Ly: 3.417560
+    op_x: 0.580243
+    op_y: 0.972888
+    NMSE: 0.000147
+  [Saved] random_IR_0004
+
+============================================================
+[5/50] random_IR_0005.npz
+  GT loss: 0.000003
+  terrain_mean=0.485510  early_threshold=0.004616  (alpha=0.0095)
+    --> Trial 0 | pop=34 seed=5373 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  680  best=0.1793
+        [Trial 0] gen   40  evals= 1360  best=0.0397
+        [Trial 0] gen   60  evals= 2040  best=0.0040
+        [Trial 0] gen   80  evals= 2720  best=0.0002
+        [Trial 0] gen  100  evals= 3400  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000003 < 0.004616
+
+  Winner: Trial 0, loss=0.000003 (62s)
+    Restarts run: 1
+    mu: 41.195535
+    D_mu: 5.059945
+    T0_mu: 5.858509
+    Ly: 2.613360
+    op_x: 0.788533
+    op_y: 0.519207
+    NMSE: 0.000243
+  [Saved] random_IR_0005
+
+============================================================
+[6/50] random_IR_0006.npz
+  GT loss: 0.000005
+  terrain_mean=0.457340  early_threshold=0.004350  (alpha=0.0095)
+    --> Trial 0 | pop=37 seed=87962 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  740  best=0.1949
+        [Trial 0] gen   40  evals= 1480  best=0.0955
+        [Trial 0] gen   60  evals= 2220  best=0.0110
+        [Trial 0] gen   80  evals= 2960  best=0.0008
+        [Trial 0] gen  100  evals= 3700  best=0.0000
+NOTE (module=cma, iteration=116):  
+condition in coordinate system exceeded 1.1e+08, rescaled to 1.0e+00, 
+condition changed from 1.8e+08 to 9.4e+06
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000004 < 0.004350
+
+  Winner: Trial 0, loss=0.000004 (57s)
+    Restarts run: 1
+    mu: 86.818792
+    D_mu: 8.976845
+    T0_mu: 8.868798
+    Ly: 2.891143
+    op_x: 0.686159
+    op_y: 0.724146
+    NMSE: 0.004613
+  [Saved] random_IR_0006
+
+============================================================
+[7/50] random_IR_0007.npz
+  GT loss: 0.000004
+  terrain_mean=0.483494  early_threshold=0.004598  (alpha=0.0095)
+    --> Trial 0 | pop=30 seed=48733 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  600  best=0.1866
+        [Trial 0] gen   40  evals= 1200  best=0.1587
+        [Trial 0] gen   60  evals= 1800  best=0.1480
+        [Trial 0] gen   80  evals= 2400  best=0.1460
+        [Trial 0] gen  100  evals= 3000  best=0.1458
+        [Done] Trial 0 best=0.1458
+    --> Trial 1 | pop=31 seed=49336 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  620  best=0.1765
+        [Trial 1] gen   40  evals= 1240  best=0.1656
+        [Pruned] Trial 1 at gen 45 (loss=0.1656)
+    --> Trial 2 | pop=43 seed=69280 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.2292)
+    --> Trial 3 | pop=45 seed=77888 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2056)
+    --> Trial 4 | pop=39 seed=22317 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.2312)
+    --> Trial 5 | pop=49 seed=37349 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Trial 5] gen   20  evals=  980  best=0.1931
+        [Trial 5] gen   40  evals= 1960  best=0.1654
+        [Pruned] Trial 5 at gen 45 (loss=0.1568)
+    --> Trial 6 | pop=43 seed=97329 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Trial 6] gen   20  evals=  860  best=0.1859
+        [Trial 6] gen   40  evals= 1720  best=0.1597
+        [Pruned] Trial 6 at gen 45 (loss=0.1558)
+    --> Trial 7 | pop=33 seed=50279 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.2077)
+    --> Trial 8 | pop=33 seed=36502 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.2005)
+    --> Trial 9 | pop=43 seed=81767 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.2117)
+    --> Trial 10 | pop=59 seed=8890 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Pruned] Trial 10 at gen 15 (loss=0.2057)
+    --> Trial 11 | pop=54 seed=97097 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Pruned] Trial 11 at gen 15 (loss=0.2098)
+    --> Trial 12 | pop=37 seed=63254 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Trial 12] gen   20  evals=  740  best=0.1493
+        [Trial 12] gen   40  evals= 1480  best=0.1493
+        [Trial 12] gen   60  evals= 2220  best=0.1463
+        [Trial 12] gen   80  evals= 2960  best=0.1459
+        [Done] Trial 12 best=0.1458
+    --> Trial 13 | pop=37 seed=60440 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Pruned] Trial 13 at gen 15 (loss=0.2910)
+    --> Trial 14 | pop=37 seed=53935 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Pruned] Trial 14 at gen 15 (loss=0.2312)
+    --> Trial 15 | pop=35 seed=34283 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Pruned] Trial 15 at gen 15 (loss=0.2083)
+    --> Trial 16 | pop=30 seed=69263 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Pruned] Trial 16 at gen 15 (loss=0.2071)
+    --> Trial 17 | pop=39 seed=5477 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Pruned] Trial 17 at gen 15 (loss=0.2311)
+    --> Trial 18 | pop=30 seed=27652 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Trial 18] gen   20  evals=  600  best=0.2037
+        [Trial 18] gen   40  evals= 1200  best=0.1598
+        [Pruned] Trial 18 at gen 45 (loss=0.1555)
+    --> Trial 19 | pop=47 seed=62440 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Trial 19] gen   20  evals=  940  best=0.1941
+        [Trial 19] gen   40  evals= 1880  best=0.1654
+        [Pruned] Trial 19 at gen 45 (loss=0.1588)
+
+  Winner: Trial 0, loss=0.145831 (1027s)
+    Restarts run: 20
+    mu: 17.971080
+    D_mu: 0.898209
+    T0_mu: 42.302549
+    Ly: 3.956360
+    op_x: 0.561216
+    op_y: 0.632504
+    NMSE: 0.014621
+  [Saved] random_IR_0007
+
+============================================================
+[8/50] random_IR_0008.npz
+  GT loss: 0.000003
+  terrain_mean=0.530965  early_threshold=0.005047  (alpha=0.0095)
+    --> Trial 0 | pop=39 seed=30042 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  780  best=0.1926
+        [Trial 0] gen   40  evals= 1560  best=0.0443
+        [Trial 0] gen   60  evals= 2340  best=0.0027
+        [Trial 0] gen   80  evals= 3120  best=0.0001
+        [Trial 0] gen  100  evals= 3900  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000003 < 0.005047
+
+  Winner: Trial 0, loss=0.000003 (63s)
+    Restarts run: 1
+    mu: 37.943790
+    D_mu: 3.761798
+    T0_mu: 6.362748
+    Ly: 2.154761
+    op_x: 0.612350
+    op_y: 0.589042
+    NMSE: 0.014879
+  [Saved] random_IR_0008
+
+============================================================
+[9/50] random_IR_0009.npz
+  GT loss: 0.000004
+  terrain_mean=0.486930  early_threshold=0.004630  (alpha=0.0095)
+    --> Trial 0 | pop=34 seed=84708 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  680  best=0.2326
+        [Trial 0] gen   40  evals= 1360  best=0.1984
+        [Trial 0] gen   60  evals= 2040  best=0.1532
+        [Trial 0] gen   80  evals= 2720  best=0.1218
+        [Trial 0] gen  100  evals= 3400  best=0.1200
+        [Done] Trial 0 best=0.1199
+    --> Trial 1 | pop=44 seed=15038 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  880  best=0.1616
+        [Trial 1] gen   40  evals= 1760  best=0.1592
+        [Trial 1] gen   60  evals= 2640  best=0.1592
+        [Trial 1] gen   80  evals= 3520  best=0.1592
+        [Done] Trial 1 best=0.1592
+    --> Trial 2 | pop=32 seed=46631 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals=  640  best=0.2413
+        [Trial 2] gen   40  evals= 1280  best=0.2413
+        [Pruned] Trial 2 at gen 45 (loss=0.1940)
+    --> Trial 3 | pop=33 seed=99854 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Trial 3] gen   20  evals=  660  best=0.1589
+        [Trial 3] gen   40  evals= 1320  best=0.1226
+        [Trial 3] gen   60  evals= 1980  best=0.1202
+        [Trial 3] gen   80  evals= 2640  best=0.1199
+        [Done] Trial 3 best=0.1199
+    --> Trial 4 | pop=57 seed=79890 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.2447)
+    --> Trial 5 | pop=50 seed=97011 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Trial 5] gen   20  evals= 1000  best=0.1530
+        [Trial 5] gen   40  evals= 2000  best=0.1426
+        [Pruned] Trial 5 at gen 45 (loss=0.1278)
+    --> Trial 6 | pop=58 seed=59578 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Trial 6] gen   20  evals= 1160  best=0.1912
+        [Trial 6] gen   40  evals= 2320  best=0.1912
+        [Pruned] Trial 6 at gen 45 (loss=0.1492)
+    --> Trial 7 | pop=37 seed=99651 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.2384)
+    --> Trial 8 | pop=58 seed=68615 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.2395)
+    --> Trial 9 | pop=31 seed=66767 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Trial 9] gen   20  evals=  620  best=0.2164
+        [Trial 9] gen   40  evals= 1240  best=0.1334
+        [Trial 9] gen   60  evals= 1860  best=0.0290
+        [Trial 9] gen   80  evals= 2480  best=0.0012
+        [Trial 9] gen  100  evals= 3100  best=0.0001
+        [Trial 9] gen  120  evals= 3720  best=0.0000
+        [Done] Trial 9 best=0.0000
+    --> Early stop triggered: trial 9 reached loss=0.000004 < 0.004630
+
+  Winner: Trial 9, loss=0.000004 (536s)
+    Restarts run: 10
+    mu: 22.911819
+    D_mu: 4.683011
+    T0_mu: 32.971719
+    Ly: 2.994014
+    op_x: 0.564084
+    op_y: 0.831601
+    NMSE: 0.001191
+  [Saved] random_IR_0009
+
+============================================================
+[10/50] random_IR_0010.npz
+  GT loss: 0.000005
+  terrain_mean=0.427938  early_threshold=0.004071  (alpha=0.0095)
+    --> Trial 0 | pop=34 seed=87248 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  680  best=0.2619
+        [Trial 0] gen   40  evals= 1360  best=0.2269
+        [Trial 0] gen   60  evals= 2040  best=0.2187
+        [Trial 0] gen   80  evals= 2720  best=0.2182
+        [Trial 0] gen  100  evals= 3400  best=0.2182
+        [Done] Trial 0 best=0.2182
+    --> Trial 1 | pop=52 seed=57268 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals= 1040  best=0.2564
+        [Trial 1] gen   40  evals= 2080  best=0.2347
+        [Pruned] Trial 1 at gen 45 (loss=0.2347)
+    --> Trial 2 | pop=39 seed=94291 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals=  780  best=0.2439
+        [Trial 2] gen   40  evals= 1560  best=0.2230
+        [Trial 2] gen   60  evals= 2340  best=0.2181
+        [Trial 2] gen   80  evals= 3120  best=0.2179
+        [Done] Trial 2 best=0.2179
+    --> Trial 3 | pop=43 seed=14426 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2686)
+    --> Trial 4 | pop=30 seed=63411 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.2874)
+    --> Trial 5 | pop=47 seed=17926 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Trial 5] gen   20  evals=  940  best=0.2541
+        [Trial 5] gen   40  evals= 1880  best=0.2228
+        [Pruned] Trial 5 at gen 45 (loss=0.2228)
+    --> Trial 6 | pop=34 seed=14771 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.2727)
+    --> Trial 7 | pop=59 seed=4950 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.2762)
+    --> Trial 8 | pop=34 seed=98554 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.2643)
+    --> Trial 9 | pop=30 seed=51772 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.2714)
+    --> Trial 10 | pop=43 seed=36030 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Pruned] Trial 10 at gen 15 (loss=0.2842)
+    --> Trial 11 | pop=39 seed=96501 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Pruned] Trial 11 at gen 15 (loss=0.2716)
+    --> Trial 12 | pop=38 seed=79797 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Trial 12] gen   20  evals=  760  best=0.2424
+        [Trial 12] gen   40  evals= 1520  best=0.2204
+        [Trial 12] gen   60  evals= 2280  best=0.2181
+        [Trial 12] gen   80  evals= 3040  best=0.2175
+        [Done] Trial 12 best=0.2175
+    --> Trial 13 | pop=40 seed=77457 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Pruned] Trial 13 at gen 15 (loss=0.2764)
+    --> Trial 14 | pop=49 seed=75049 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Pruned] Trial 14 at gen 15 (loss=0.2776)
+    --> Trial 15 | pop=38 seed=77372 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Pruned] Trial 15 at gen 15 (loss=0.2644)
+    --> Trial 16 | pop=44 seed=87186 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Trial 16] gen   20  evals=  880  best=0.2257
+        [Trial 16] gen   40  evals= 1760  best=0.2182
+        [Trial 16] gen   60  evals= 2640  best=0.2179
+        [Trial 16] gen   80  evals= 3520  best=0.2179
+        [Done] Trial 16 best=0.2179
+    --> Trial 17 | pop=56 seed=44718 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Pruned] Trial 17 at gen 15 (loss=0.2721)
+    --> Trial 18 | pop=46 seed=68017 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Trial 18] gen   20  evals=  920  best=0.2521
+        [Trial 18] gen   40  evals= 1840  best=0.2497
+        [Pruned] Trial 18 at gen 45 (loss=0.2497)
+    --> Trial 19 | pop=52 seed=84560 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Trial 19] gen   20  evals= 1040  best=0.2307
+        [Trial 19] gen   40  evals= 2080  best=0.2201
+        [Pruned] Trial 19 at gen 45 (loss=0.2189)
+
+  Winner: Trial 12, loss=0.217493 (463s)
+    Restarts run: 20
+    mu: 73.096206
+    D_mu: 19.442771
+    T0_mu: 12.509040
+    Ly: 3.483562
+    op_x: 0.721343
+    op_y: 0.785120
+    NMSE: 0.169206
+  [Saved] random_IR_0010
+
+============================================================
+[11/50] random_IR_0011.npz
+  GT loss: 0.000004
+  terrain_mean=0.465288  early_threshold=0.004425  (alpha=0.0095)
+    --> Trial 0 | pop=51 seed=82251 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1020  best=0.2061
+        [Trial 0] gen   40  evals= 2040  best=0.2025
+        [Trial 0] gen   60  evals= 3060  best=0.1997
+        [Trial 0] gen   80  evals= 4080  best=0.1988
+        [Done] Trial 0 best=0.1987
+    --> Trial 1 | pop=44 seed=35324 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.2286)
+    --> Trial 2 | pop=40 seed=88453 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals=  800  best=0.1418
+        [Trial 2] gen   40  evals= 1600  best=0.0665
+        [Trial 2] gen   60  evals= 2400  best=0.0073
+        [Trial 2] gen   80  evals= 3200  best=0.0003
+        [Trial 2] gen  100  evals= 4000  best=0.0000
+        [Done] Trial 2 best=0.0000
+    --> Early stop triggered: trial 2 reached loss=0.000004 < 0.004425
+
+  Winner: Trial 2, loss=0.000004 (294s)
+    Restarts run: 3
+    mu: 39.841319
+    D_mu: 9.585653
+    T0_mu: 24.620496
+    Ly: 3.931733
+    op_x: 0.529202
+    op_y: 0.648575
+    NMSE: 0.000000
+  [Saved] random_IR_0011
+
+============================================================
+[12/50] random_IR_0012.npz
+  GT loss: 0.000003
+  terrain_mean=0.433721  early_threshold=0.004124  (alpha=0.0095)
+    --> Trial 0 | pop=37 seed=22191 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  740  best=0.2122
+        [Trial 0] gen   40  evals= 1480  best=0.1966
+        [Trial 0] gen   60  evals= 2220  best=0.1952
+        [Trial 0] gen   80  evals= 2960  best=0.1951
+        [Done] Trial 0 best=0.1951
+    --> Trial 1 | pop=37 seed=40724 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  740  best=0.1763
+        [Trial 1] gen   40  evals= 1480  best=0.1677
+        [Trial 1] gen   60  evals= 2220  best=0.1670
+        [Done] Trial 1 best=0.1670
+    --> Trial 2 | pop=32 seed=94095 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.2124)
+    --> Trial 3 | pop=57 seed=93249 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2373)
+    --> Trial 4 | pop=37 seed=87293 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.2494)
+    --> Trial 5 | pop=34 seed=31083 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.2164)
+    --> Trial 6 | pop=54 seed=30344 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Trial 6] gen   20  evals= 1080  best=0.2102
+        [Trial 6] gen   40  evals= 2160  best=0.1954
+        [Pruned] Trial 6 at gen 45 (loss=0.1952)
+    --> Trial 7 | pop=38 seed=43128 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.2195)
+    --> Trial 8 | pop=48 seed=95253 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.2128)
+    --> Trial 9 | pop=30 seed=18311 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.2544)
+    --> Trial 10 | pop=47 seed=63102 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Trial 10] gen   20  evals=  940  best=0.2000
+        [Trial 10] gen   40  evals= 1880  best=0.1718
+        [Pruned] Trial 10 at gen 45 (loss=0.1688)
+    --> Trial 11 | pop=41 seed=2592 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Trial 11] gen   20  evals=  820  best=0.1831
+        [Trial 11] gen   40  evals= 1640  best=0.1681
+        [Trial 11] gen   60  evals= 2460  best=0.1670
+        [Done] Trial 11 best=0.1670
+    --> Trial 12 | pop=43 seed=819 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Pruned] Trial 12 at gen 15 (loss=0.2209)
+    --> Trial 13 | pop=42 seed=55920 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Trial 13] gen   20  evals=  840  best=0.1780
+        [Trial 13] gen   40  evals= 1680  best=0.1705
+        [Pruned] Trial 13 at gen 45 (loss=0.1685)
+    --> Trial 14 | pop=42 seed=293 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Trial 14] gen   20  evals=  840  best=0.1916
+        [Trial 14] gen   40  evals= 1680  best=0.1683
+        [Pruned] Trial 14 at gen 45 (loss=0.1675)
+    --> Trial 15 | pop=46 seed=75928 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Pruned] Trial 15 at gen 15 (loss=0.2283)
+    --> Trial 16 | pop=52 seed=49834 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Trial 16] gen   20  evals= 1040  best=0.1801
+        [Trial 16] gen   40  evals= 2080  best=0.1754
+        [Pruned] Trial 16 at gen 45 (loss=0.1713)
+    --> Trial 17 | pop=41 seed=13199 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Trial 17] gen   20  evals=  820  best=0.1837
+        [Trial 17] gen   40  evals= 1640  best=0.1689
+        [Pruned] Trial 17 at gen 45 (loss=0.1689)
+    --> Trial 18 | pop=35 seed=38745 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Pruned] Trial 18 at gen 15 (loss=0.2250)
+    --> Trial 19 | pop=60 seed=67780 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Trial 19] gen   20  evals= 1200  best=0.1439
+        [Trial 19] gen   40  evals= 2400  best=0.1439
+        [Trial 19] gen   60  evals= 3600  best=0.1439
+        [Trial 19] gen   80  evals= 4800  best=0.1439
+        [Done] Trial 19 best=0.1439
+
+  Winner: Trial 19, loss=0.143929 (342s)
+    Restarts run: 20
+    mu: 89.198300
+    D_mu: 7.820766
+    T0_mu: 0.510636
+    Ly: 1.513410
+    op_x: 0.585489
+    op_y: 0.830371
+    NMSE: 0.079446
+  [Saved] random_IR_0012
+
+============================================================
+[13/50] random_IR_0013.npz
+  GT loss: 0.000013
+  terrain_mean=0.556007  early_threshold=0.005295  (alpha=0.0095)
+    --> Trial 0 | pop=36 seed=93068 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  720  best=0.3411
+        [Trial 0] gen   40  evals= 1440  best=0.3132
+        [Trial 0] gen   60  evals= 2160  best=0.3109
+        [Trial 0] gen   80  evals= 2880  best=0.3100
+        [Trial 0] gen  100  evals= 3600  best=0.3099
+        [Trial 0] gen  120  evals= 4320  best=0.3099
+        [Done] Trial 0 best=0.3099
+    --> Trial 1 | pop=44 seed=79380 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  880  best=0.3270
+        [Trial 1] gen   40  evals= 1760  best=0.3001
+        [Trial 1] gen   60  evals= 2640  best=0.2900
+        [Trial 1] gen   80  evals= 3520  best=0.2900
+        [Trial 1] gen  100  evals= 4400  best=0.2900
+        [Done] Trial 1 best=0.2900
+    --> Trial 2 | pop=38 seed=73903 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.3639)
+    --> Trial 3 | pop=37 seed=24611 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.3924)
+    --> Trial 4 | pop=56 seed=42780 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Trial 4] gen   20  evals= 1120  best=0.3157
+        [Trial 4] gen   40  evals= 2240  best=0.2921
+        [Trial 4] gen   60  evals= 3360  best=0.2777
+        [Trial 4] gen   80  evals= 4480  best=0.2761
+        [Trial 4] gen  100  evals= 5600  best=0.2760
+        [Done] Trial 4 best=0.2760
+    --> Trial 5 | pop=52 seed=13723 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Trial 5] gen   20  evals= 1040  best=0.3560
+        [Trial 5] gen   40  evals= 2080  best=0.3308
+        [Pruned] Trial 5 at gen 45 (loss=0.3090)
+    --> Trial 6 | pop=33 seed=86581 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.3871)
+    --> Trial 7 | pop=53 seed=44791 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.3705)
+    --> Trial 8 | pop=53 seed=34516 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.3733)
+    --> Trial 9 | pop=37 seed=153 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Trial 9] gen   20  evals=  740  best=0.3572
+        [Trial 9] gen   40  evals= 1480  best=0.3221
+        [Pruned] Trial 9 at gen 45 (loss=0.3012)
+    --> Trial 10 | pop=59 seed=55668 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Trial 10] gen   20  evals= 1180  best=0.3265
+        [Trial 10] gen   40  evals= 2360  best=0.2900
+        [Trial 10] gen   60  evals= 3540  best=0.2765
+        [Trial 10] gen   80  evals= 4720  best=0.2761
+        [Done] Trial 10 best=0.2760
+    --> Trial 11 | pop=59 seed=56885 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Pruned] Trial 11 at gen 15 (loss=0.3842)
+    --> Trial 12 | pop=60 seed=51642 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Trial 12] gen   20  evals= 1200  best=0.3365
+        [Trial 12] gen   40  evals= 2400  best=0.2609
+        [Trial 12] gen   60  evals= 3600  best=0.1493
+        [Trial 12] gen   80  evals= 4800  best=0.0256
+        [Trial 12] gen  100  evals= 6000  best=0.0009
+        [Trial 12] gen  120  evals= 7200  best=0.0000
+        [Done] Trial 12 best=0.0000
+    --> Early stop triggered: trial 12 reached loss=0.000013 < 0.005295
+
+  Winner: Trial 12, loss=0.000013 (317s)
+    Restarts run: 13
+    mu: 10.720819
+    D_mu: 13.965672
+    T0_mu: 60.488405
+    Ly: 2.743144
+    op_x: 0.965355
+    op_y: 0.666099
+    NMSE: 0.000066
+  [Saved] random_IR_0013
+
+============================================================
+[14/50] random_IR_0014.npz
+  GT loss: 0.000004
+  terrain_mean=0.421499  early_threshold=0.004008  (alpha=0.0095)
+    --> Trial 0 | pop=31 seed=91704 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  620  best=0.1857
+        [Trial 0] gen   40  evals= 1240  best=0.0485
+        [Trial 0] gen   60  evals= 1860  best=0.0038
+        [Trial 0] gen   80  evals= 2480  best=0.0001
+        [Trial 0] gen  100  evals= 3100  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000003 < 0.004008
+
+  Winner: Trial 0, loss=0.000003 (89s)
+    Restarts run: 1
+    mu: 16.335118
+    D_mu: 2.503032
+    T0_mu: 59.593459
+    Ly: 3.035490
+    op_x: 0.797391
+    op_y: 0.519853
+    NMSE: 0.000288
+  [Saved] random_IR_0014
+
+============================================================
+[15/50] random_IR_0015.npz
+  GT loss: 0.000015
+  terrain_mean=0.576938  early_threshold=0.005496  (alpha=0.0095)
+    --> Trial 0 | pop=45 seed=67360 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  900  best=0.3710
+        [Trial 0] gen   40  evals= 1800  best=0.3710
+        [Trial 0] gen   60  evals= 2700  best=0.3664
+        [Trial 0] gen   80  evals= 3600  best=0.3615
+        [Trial 0] gen  100  evals= 4500  best=0.3611
+        [Trial 0] gen  120  evals= 5400  best=0.3610
+        [Done] Trial 0 best=0.3610
+    --> Trial 1 | pop=30 seed=51116 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.3986)
+    --> Trial 2 | pop=30 seed=77003 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.3846)
+    --> Trial 3 | pop=44 seed=62399 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.3827)
+    --> Trial 4 | pop=41 seed=25713 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.3765)
+    --> Trial 5 | pop=50 seed=39444 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Trial 5] gen   20  evals= 1000  best=0.3688
+        [Trial 5] gen   40  evals= 2000  best=0.3294
+        [Trial 5] gen   60  evals= 3000  best=0.3128
+        [Trial 5] gen   80  evals= 4000  best=0.3050
+        [Trial 5] gen  100  evals= 5000  best=0.3045
+        [Done] Trial 5 best=0.3045
+    --> Trial 6 | pop=31 seed=46035 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.3743)
+    --> Trial 7 | pop=41 seed=4213 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.3804)
+    --> Trial 8 | pop=57 seed=14786 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Trial 8] gen   20  evals= 1140  best=0.3590
+        [Trial 8] gen   40  evals= 2280  best=0.3386
+        [Pruned] Trial 8 at gen 45 (loss=0.3386)
+    --> Trial 9 | pop=42 seed=17397 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Trial 9] gen   20  evals=  840  best=0.2967
+        [Trial 9] gen   40  evals= 1680  best=0.2033
+        [Trial 9] gen   60  evals= 2520  best=0.0188
+        [Trial 9] gen   80  evals= 3360  best=0.0031
+        [Trial 9] gen  100  evals= 4200  best=0.0001
+        [Trial 9] gen  120  evals= 5040  best=0.0000
+        [Done] Trial 9 best=0.0000
+    --> Early stop triggered: trial 9 reached loss=0.000015 < 0.005496
+
+  Winner: Trial 9, loss=0.000015 (314s)
+    Restarts run: 10
+    mu: 9.645111
+    D_mu: 2.206074
+    T0_mu: 88.637228
+    Ly: 3.503926
+    op_x: 0.981473
+    op_y: 0.631889
+    NMSE: 0.000062
+  [Saved] random_IR_0015
+
+============================================================
+[16/50] random_IR_0016.npz
+  GT loss: 0.000006
+  terrain_mean=0.449511  early_threshold=0.004276  (alpha=0.0095)
+    --> Trial 0 | pop=48 seed=77951 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  960  best=0.2372
+        [Trial 0] gen   40  evals= 1920  best=0.2372
+        [Trial 0] gen   60  evals= 2880  best=0.2372
+        [Trial 0] gen   80  evals= 3840  best=0.2372
+        [Trial 0] gen  100  evals= 4800  best=0.2372
+        [Done] Trial 0 best=0.2372
+    --> Trial 1 | pop=44 seed=87669 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.2901)
+    --> Trial 2 | pop=31 seed=63135 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.2480)
+    --> Trial 3 | pop=58 seed=51829 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Trial 3] gen   20  evals= 1160  best=0.1846
+        [Trial 3] gen   40  evals= 2320  best=0.1718
+        [Trial 3] gen   60  evals= 3480  best=0.0483
+        [Trial 3] gen   80  evals= 4640  best=0.0023
+        [Trial 3] gen  100  evals= 5800  best=0.0001
+        [Trial 3] gen  120  evals= 6960  best=0.0000
+        [Done] Trial 3 best=0.0000
+    --> Early stop triggered: trial 3 reached loss=0.000006 < 0.004276
+
+  Winner: Trial 3, loss=0.000006 (113s)
+    Restarts run: 4
+    mu: 15.540945
+    D_mu: 32.391445
+    T0_mu: 25.649723
+    Ly: 2.770856
+    op_x: 0.729091
+    op_y: 0.924740
+    NMSE: 0.000710
+  [Saved] random_IR_0016
+
+============================================================
+[17/50] random_IR_0017.npz
+  GT loss: 0.000007
+  terrain_mean=0.437180  early_threshold=0.004160  (alpha=0.0095)
+    --> Trial 0 | pop=43 seed=72620 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  860  best=0.3013
+        [Trial 0] gen   40  evals= 1720  best=0.2385
+        [Trial 0] gen   60  evals= 2580  best=0.1083
+        [Trial 0] gen   80  evals= 3440  best=0.0082
+        [Trial 0] gen  100  evals= 4300  best=0.0003
+        [Trial 0] gen  120  evals= 5160  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000007 < 0.004160
+
+  Winner: Trial 0, loss=0.000007 (79s)
+    Restarts run: 1
+    mu: 23.327831
+    D_mu: 8.702208
+    T0_mu: 37.599026
+    Ly: 3.128490
+    op_x: 0.794824
+    op_y: 0.942050
+    NMSE: 0.000044
+  [Saved] random_IR_0017
+
+============================================================
+[18/50] random_IR_0018.npz
+  GT loss: 0.000005
+  terrain_mean=0.468516  early_threshold=0.004456  (alpha=0.0095)
+    --> Trial 0 | pop=44 seed=38189 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  880  best=0.2194
+        [Trial 0] gen   40  evals= 1760  best=0.1130
+        [Trial 0] gen   60  evals= 2640  best=0.0090
+        [Trial 0] gen   80  evals= 3520  best=0.0005
+        [Trial 0] gen  100  evals= 4400  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000005 < 0.004456
+
+  Winner: Trial 0, loss=0.000005 (64s)
+    Restarts run: 1
+    mu: 95.708987
+    D_mu: 10.973823
+    T0_mu: 6.298276
+    Ly: 3.108342
+    op_x: 0.717689
+    op_y: 0.807133
+    NMSE: 0.004021
+  [Saved] random_IR_0018
+
+============================================================
+[19/50] random_IR_0019.npz
+  GT loss: 0.000003
+  terrain_mean=0.438512  early_threshold=0.004169  (alpha=0.0095)
+    --> Trial 0 | pop=58 seed=44757 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1160  best=0.2201
+        [Trial 0] gen   40  evals= 2320  best=0.1830
+        [Trial 0] gen   60  evals= 3480  best=0.1778
+        [Trial 0] gen   80  evals= 4640  best=0.1777
+        [Done] Trial 0 best=0.1777
+    --> Trial 1 | pop=38 seed=57393 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  760  best=0.2118
+        [Trial 1] gen   40  evals= 1520  best=0.1826
+        [Trial 1] gen   60  evals= 2280  best=0.1780
+        [Trial 1] gen   80  evals= 3040  best=0.1777
+        [Done] Trial 1 best=0.1777
+    --> Trial 2 | pop=32 seed=63676 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.2485)
+    --> Trial 3 | pop=47 seed=5577 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2537)
+    --> Trial 4 | pop=46 seed=71725 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Trial 4] gen   20  evals=  920  best=0.2203
+        [Trial 4] gen   40  evals= 1840  best=0.2010
+        [Pruned] Trial 4 at gen 45 (loss=0.2010)
+    --> Trial 5 | pop=59 seed=33446 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Trial 5] gen   20  evals= 1180  best=0.2191
+        [Trial 5] gen   40  evals= 2360  best=0.1800
+        [Pruned] Trial 5 at gen 45 (loss=0.1800)
+    --> Trial 6 | pop=31 seed=51001 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Trial 6] gen   20  evals=  620  best=0.1987
+        [Trial 6] gen   40  evals= 1240  best=0.1987
+        [Pruned] Trial 6 at gen 45 (loss=0.1987)
+    --> Trial 7 | pop=53 seed=43240 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.2206)
+    --> Trial 8 | pop=34 seed=18196 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.2924)
+    --> Trial 9 | pop=36 seed=54788 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.2423)
+    --> Trial 10 | pop=42 seed=95469 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Trial 10] gen   20  evals=  840  best=0.1949
+        [Trial 10] gen   40  evals= 1680  best=0.1125
+        [Trial 10] gen   60  evals= 2520  best=0.0557
+        [Trial 10] gen   80  evals= 3360  best=0.0019
+        [Trial 10] gen  100  evals= 4200  best=0.0001
+        [Trial 10] gen  120  evals= 5040  best=0.0000
+        [Done] Trial 10 best=0.0000
+    --> Early stop triggered: trial 10 reached loss=0.000003 < 0.004169
+
+  Winner: Trial 10, loss=0.000003 (261s)
+    Restarts run: 11
+    mu: 13.107602
+    D_mu: 8.867138
+    T0_mu: 37.956029
+    Ly: 1.155660
+    op_x: 0.720097
+    op_y: 0.576382
+    NMSE: 0.000285
+  [Saved] random_IR_0019
+
+============================================================
+[20/50] random_IR_0020.npz
+  GT loss: 0.000004
+  terrain_mean=0.428686  early_threshold=0.004077  (alpha=0.0095)
+    --> Trial 0 | pop=53 seed=94226 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1060  best=0.2301
+        [Trial 0] gen   40  evals= 2120  best=0.1616
+        [Trial 0] gen   60  evals= 3180  best=0.0242
+        [Trial 0] gen   80  evals= 4240  best=0.0010
+        [Trial 0] gen  100  evals= 5300  best=0.0000
+NOTE (module=cma, iteration=119):  
+condition in coordinate system exceeded 1.1e+08, rescaled to 1.0e+00, 
+condition changed from 2.4e+08 to 4.8e+07
+        [Trial 0] gen  120  evals= 6360  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000004 < 0.004077
+
+  Winner: Trial 0, loss=0.000004 (55s)
+    Restarts run: 1
+    mu: 49.064325
+    D_mu: 12.068296
+    T0_mu: 13.619831
+    Ly: 1.965019
+    op_x: 0.829531
+    op_y: 0.721395
+    NMSE: 0.000500
+  [Saved] random_IR_0020
+
+============================================================
+[21/50] random_IR_0021.npz
+  GT loss: 0.000004
+  terrain_mean=0.453875  early_threshold=0.004316  (alpha=0.0095)
+    --> Trial 0 | pop=40 seed=57403 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  800  best=0.1960
+        [Trial 0] gen   40  evals= 1600  best=0.0943
+        [Trial 0] gen   60  evals= 2400  best=0.0142
+        [Trial 0] gen   80  evals= 3200  best=0.0005
+        [Trial 0] gen  100  evals= 4000  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000004 < 0.004316
+
+  Winner: Trial 0, loss=0.000004 (98s)
+    Restarts run: 1
+    mu: 39.347200
+    D_mu: 5.377945
+    T0_mu: 9.190893
+    Ly: 3.699986
+    op_x: 0.854905
+    op_y: 0.559111
+    NMSE: 0.001011
+  [Saved] random_IR_0021
+
+============================================================
+[22/50] random_IR_0022.npz
+  GT loss: 0.000005
+  terrain_mean=0.431950  early_threshold=0.004109  (alpha=0.0095)
+    --> Trial 0 | pop=34 seed=14695 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  680  best=0.2795
+        [Trial 0] gen   40  evals= 1360  best=0.2209
+        [Trial 0] gen   60  evals= 2040  best=0.0910
+        [Trial 0] gen   80  evals= 2720  best=0.0082
+        [Trial 0] gen  100  evals= 3400  best=0.0006
+        [Trial 0] gen  120  evals= 4080  best=0.0000
+        [Trial 0] gen  140  evals= 4760  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000005 < 0.004109
+
+  Winner: Trial 0, loss=0.000005 (42s)
+    Restarts run: 1
+    mu: 11.289094
+    D_mu: 50.429483
+    T0_mu: 49.425852
+    Ly: 3.766500
+    op_x: 0.589621
+    op_y: 0.811624
+    NMSE: 0.001233
+  [Saved] random_IR_0022
+
+============================================================
+[23/50] random_IR_0023.npz
+  GT loss: 0.000005
+  terrain_mean=0.435351  early_threshold=0.004141  (alpha=0.0095)
+    --> Trial 0 | pop=34 seed=11925 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  680  best=0.2480
+        [Trial 0] gen   40  evals= 1360  best=0.1918
+        [Trial 0] gen   60  evals= 2040  best=0.1852
+        [Trial 0] gen   80  evals= 2720  best=0.1845
+        [Trial 0] gen  100  evals= 3400  best=0.1844
+        [Done] Trial 0 best=0.1844
+    --> Trial 1 | pop=30 seed=5395 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  600  best=0.1890
+        [Trial 1] gen   40  evals= 1200  best=0.1774
+        [Trial 1] gen   60  evals= 1800  best=0.1758
+        [Trial 1] gen   80  evals= 2400  best=0.1758
+        [Done] Trial 1 best=0.1758
+    --> Trial 2 | pop=52 seed=95443 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals= 1040  best=0.1840
+        [Trial 2] gen   40  evals= 2080  best=0.1778
+        [Pruned] Trial 2 at gen 45 (loss=0.1770)
+    --> Trial 3 | pop=31 seed=80253 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2413)
+    --> Trial 4 | pop=31 seed=16906 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.1977)
+    --> Trial 5 | pop=41 seed=42572 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.1984)
+    --> Trial 6 | pop=54 seed=10247 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.2332)
+    --> Trial 7 | pop=34 seed=25315 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Trial 7] gen   20  evals=  680  best=0.1288
+        [Trial 7] gen   40  evals= 1360  best=0.1288
+        [Trial 7] gen   60  evals= 2040  best=0.1288
+        [Trial 7] gen   80  evals= 2720  best=0.1288
+        [Trial 7] gen  100  evals= 3400  best=0.1288
+        [Done] Trial 7 best=0.1288
+    --> Trial 8 | pop=44 seed=30674 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.2426)
+    --> Trial 9 | pop=31 seed=11280 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.2484)
+    --> Trial 10 | pop=58 seed=58195 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Pruned] Trial 10 at gen 15 (loss=0.2175)
+    --> Trial 11 | pop=38 seed=32206 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Trial 11] gen   20  evals=  760  best=0.1877
+        [Trial 11] gen   40  evals= 1520  best=0.1790
+        [Pruned] Trial 11 at gen 45 (loss=0.1788)
+    --> Trial 12 | pop=36 seed=3025 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Pruned] Trial 12 at gen 15 (loss=0.2543)
+    --> Trial 13 | pop=45 seed=28273 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Pruned] Trial 13 at gen 15 (loss=0.2030)
+    --> Trial 14 | pop=37 seed=52616 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Pruned] Trial 14 at gen 15 (loss=0.2014)
+    --> Trial 15 | pop=30 seed=22829 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Pruned] Trial 15 at gen 15 (loss=0.2429)
+    --> Trial 16 | pop=41 seed=758 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Pruned] Trial 16 at gen 15 (loss=0.2028)
+    --> Trial 17 | pop=34 seed=44202 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Pruned] Trial 17 at gen 15 (loss=0.2473)
+    --> Trial 18 | pop=48 seed=67061 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Pruned] Trial 18 at gen 15 (loss=0.2695)
+    --> Trial 19 | pop=34 seed=39375 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Pruned] Trial 19 at gen 15 (loss=0.2704)
+
+  Winner: Trial 7, loss=0.128756 (163s)
+    Restarts run: 20
+    mu: 63.008208
+    D_mu: 18.030717
+    T0_mu: 2.470297
+    Ly: 1.484034
+    op_x: 0.602564
+    op_y: 0.825250
+    NMSE: 0.003468
+  [Saved] random_IR_0023
+
+============================================================
+[24/50] random_IR_0024.npz
+  GT loss: 0.000004
+  terrain_mean=0.547037  early_threshold=0.005201  (alpha=0.0095)
+    --> Trial 0 | pop=53 seed=57114 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1060  best=0.2484
+        [Trial 0] gen   40  evals= 2120  best=0.0951
+        [Trial 0] gen   60  evals= 3180  best=0.0115
+        [Trial 0] gen   80  evals= 4240  best=0.0016
+        [Trial 0] gen  100  evals= 5300  best=0.0001
+        [Trial 0] gen  120  evals= 6360  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000004 < 0.005201
+
+  Winner: Trial 0, loss=0.000004 (62s)
+    Restarts run: 1
+    mu: 70.318859
+    D_mu: 12.806962
+    T0_mu: 10.728227
+    Ly: 2.415274
+    op_x: 0.515740
+    op_y: 0.686389
+    NMSE: 0.001688
+  [Saved] random_IR_0024
+
+============================================================
+[25/50] random_IR_0025.npz
+  GT loss: 0.000005
+  terrain_mean=0.472991  early_threshold=0.004498  (alpha=0.0095)
+    --> Trial 0 | pop=33 seed=29637 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  660  best=0.2673
+        [Trial 0] gen   40  evals= 1320  best=0.2556
+        [Trial 0] gen   60  evals= 1980  best=0.2445
+        [Trial 0] gen   80  evals= 2640  best=0.2443
+        [Done] Trial 0 best=0.2443
+    --> Trial 1 | pop=39 seed=55174 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.2747)
+    --> Trial 2 | pop=35 seed=75214 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals=  700  best=0.2371
+        [Trial 2] gen   40  evals= 1400  best=0.2142
+        [Trial 2] gen   60  evals= 2100  best=0.2142
+        [Trial 2] gen   80  evals= 2800  best=0.2142
+        [Trial 2] gen  100  evals= 3500  best=0.2142
+        [Trial 2] gen  120  evals= 4200  best=0.2142
+        [Trial 2] gen  140  evals= 4900  best=0.2142
+        [Done] Trial 2 best=0.2142
+    --> Trial 3 | pop=44 seed=804 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Trial 3] gen   20  evals=  880  best=0.1789
+        [Trial 3] gen   40  evals= 1760  best=0.1789
+        [Trial 3] gen   60  evals= 2640  best=0.1789
+        [Trial 3] gen   80  evals= 3520  best=0.1789
+        [Done] Trial 3 best=0.1789
+    --> Trial 4 | pop=56 seed=75872 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.2939)
+    --> Trial 5 | pop=38 seed=18112 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.2817)
+    --> Trial 6 | pop=48 seed=70443 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.2441)
+    --> Trial 7 | pop=43 seed=69865 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.2921)
+    --> Trial 8 | pop=47 seed=68984 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.2718)
+    --> Trial 9 | pop=56 seed=43902 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.2773)
+    --> Trial 10 | pop=60 seed=99867 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Trial 10] gen   20  evals= 1200  best=0.2104
+        [Trial 10] gen   40  evals= 2400  best=0.1957
+        [Pruned] Trial 10 at gen 45 (loss=0.1886)
+    --> Trial 11 | pop=32 seed=78 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Trial 11] gen   20  evals=  640  best=0.1903
+        [Trial 11] gen   40  evals= 1280  best=0.1903
+        [Pruned] Trial 11 at gen 45 (loss=0.1903)
+    --> Trial 12 | pop=38 seed=99703 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Trial 12] gen   20  evals=  760  best=0.1571
+        [Trial 12] gen   40  evals= 1520  best=0.1212
+        [Trial 12] gen   60  evals= 2280  best=0.1031
+        [Trial 12] gen   80  evals= 3040  best=0.1030
+        [Done] Trial 12 best=0.1030
+    --> Trial 13 | pop=44 seed=97110 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Trial 13] gen   20  evals=  880  best=0.1884
+        [Trial 13] gen   40  evals= 1760  best=0.1145
+        [Trial 13] gen   60  evals= 2640  best=0.1108
+        [Trial 13] gen   80  evals= 3520  best=0.1106
+        [Done] Trial 13 best=0.1106
+    --> Trial 14 | pop=39 seed=99432 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Pruned] Trial 14 at gen 15 (loss=0.2702)
+    --> Trial 15 | pop=51 seed=88288 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Pruned] Trial 15 at gen 15 (loss=0.2857)
+    --> Trial 16 | pop=43 seed=87632 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Pruned] Trial 16 at gen 15 (loss=0.2893)
+    --> Trial 17 | pop=36 seed=87127 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Pruned] Trial 17 at gen 15 (loss=0.2576)
+    --> Trial 18 | pop=30 seed=91437 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Pruned] Trial 18 at gen 15 (loss=0.2817)
+    --> Trial 19 | pop=41 seed=59289 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Pruned] Trial 19 at gen 15 (loss=0.2847)
+
+  Winner: Trial 12, loss=0.102963 (677s)
+    Restarts run: 20
+    mu: 36.735610
+    D_mu: 15.102199
+    T0_mu: 19.403870
+    Ly: 3.866054
+    op_x: 0.511597
+    op_y: 0.898245
+    NMSE: 0.028293
+  [Saved] random_IR_0025
+
+============================================================
+[26/50] random_IR_0026.npz
+  GT loss: 0.000003
+  terrain_mean=0.439834  early_threshold=0.004181  (alpha=0.0095)
+    --> Trial 0 | pop=39 seed=50885 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  780  best=0.1891
+        [Trial 0] gen   40  evals= 1560  best=0.1634
+        [Trial 0] gen   60  evals= 2340  best=0.1524
+        [Trial 0] gen   80  evals= 3120  best=0.1507
+        [Done] Trial 0 best=0.1507
+    --> Trial 1 | pop=58 seed=48756 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals= 1160  best=0.1578
+        [Trial 1] gen   40  evals= 2320  best=0.1557
+        [Trial 1] gen   60  evals= 3480  best=0.1458
+        [Trial 1] gen   80  evals= 4640  best=0.1455
+        [Done] Trial 1 best=0.1455
+    --> Trial 2 | pop=33 seed=73381 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.2044)
+    --> Trial 3 | pop=36 seed=67879 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.1902)
+    --> Trial 4 | pop=41 seed=46158 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.1779)
+    --> Trial 5 | pop=51 seed=4336 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.1876)
+    --> Trial 6 | pop=43 seed=88838 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.1956)
+    --> Trial 7 | pop=54 seed=3004 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.1823)
+    --> Trial 8 | pop=48 seed=63532 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Trial 8] gen   20  evals=  960  best=0.1652
+        [Trial 8] gen   40  evals= 1920  best=0.1303
+        [Trial 8] gen   60  evals= 2880  best=0.1203
+        [Trial 8] gen   80  evals= 3840  best=0.1191
+        [Trial 8] gen  100  evals= 4800  best=0.1191
+        [Done] Trial 8 best=0.1191
+    --> Trial 9 | pop=55 seed=38894 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Trial 9] gen   20  evals= 1100  best=0.1634
+        [Trial 9] gen   40  evals= 2200  best=0.1523
+        [Pruned] Trial 9 at gen 45 (loss=0.1495)
+    --> Trial 10 | pop=47 seed=99607 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Trial 10] gen   20  evals=  940  best=0.1535
+        [Trial 10] gen   40  evals= 1880  best=0.1382
+        [Trial 10] gen   60  evals= 2820  best=0.1202
+        [Trial 10] gen   80  evals= 3760  best=0.1191
+        [Trial 10] gen  100  evals= 4700  best=0.1191
+        [Done] Trial 10 best=0.1191
+    --> Trial 11 | pop=47 seed=92180 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Pruned] Trial 11 at gen 15 (loss=0.2019)
+    --> Trial 12 | pop=47 seed=97989 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Trial 12] gen   20  evals=  940  best=0.1526
+        [Trial 12] gen   40  evals= 1880  best=0.0907
+        [Trial 12] gen   60  evals= 2820  best=0.0507
+        [Trial 12] gen   80  evals= 3760  best=0.0031
+        [Trial 12] gen  100  evals= 4700  best=0.0002
+        [Trial 12] gen  120  evals= 5640  best=0.0000
+NOTE (module=cma, iteration=128):  
+condition in coordinate system exceeded 1.1e+08, rescaled to 1.0e+00, 
+condition changed from 2.0e+08 to 8.3e+06
+        [Done] Trial 12 best=0.0000
+    --> Early stop triggered: trial 12 reached loss=0.000003 < 0.004181
+
+  Winner: Trial 12, loss=0.000003 (664s)
+    Restarts run: 13
+    mu: 32.154780
+    D_mu: 2.311632
+    T0_mu: 24.865692
+    Ly: 1.749382
+    op_x: 0.590700
+    op_y: 0.814524
+    NMSE: 0.000414
+  [Saved] random_IR_0026
+
+============================================================
+[27/50] random_IR_0027.npz
+  GT loss: 0.000005
+  terrain_mean=0.443088  early_threshold=0.004214  (alpha=0.0095)
+    --> Trial 0 | pop=38 seed=73185 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  760  best=0.2250
+        [Trial 0] gen   40  evals= 1520  best=0.2250
+        [Trial 0] gen   60  evals= 2280  best=0.2250
+        [Trial 0] gen   80  evals= 3040  best=0.2182
+        [Trial 0] gen  100  evals= 3800  best=0.2181
+        [Done] Trial 0 best=0.2181
+    --> Trial 1 | pop=47 seed=31261 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  940  best=0.2150
+        [Trial 1] gen   40  evals= 1880  best=0.0987
+        [Trial 1] gen   60  evals= 2820  best=0.0069
+        [Trial 1] gen   80  evals= 3760  best=0.0003
+        [Trial 1] gen  100  evals= 4700  best=0.0000
+        [Done] Trial 1 best=0.0000
+    --> Early stop triggered: trial 1 reached loss=0.000004 < 0.004214
+
+  Winner: Trial 1, loss=0.000004 (186s)
+    Restarts run: 2
+    mu: 29.023631
+    D_mu: 3.608992
+    T0_mu: 34.259950
+    Ly: 2.773963
+    op_x: 0.799056
+    op_y: 0.867760
+    NMSE: 0.000048
+  [Saved] random_IR_0027
+
+============================================================
+[28/50] random_IR_0028.npz
+  GT loss: 0.000007
+  terrain_mean=0.450395  early_threshold=0.004285  (alpha=0.0095)
+    --> Trial 0 | pop=57 seed=76199 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1140  best=0.2834
+        [Trial 0] gen   40  evals= 2280  best=0.2491
+        [Trial 0] gen   60  evals= 3420  best=0.2408
+        [Trial 0] gen   80  evals= 4560  best=0.2357
+        [Trial 0] gen  100  evals= 5700  best=0.2355
+        [Done] Trial 0 best=0.2355
+    --> Trial 1 | pop=37 seed=85784 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  740  best=0.2202
+        [Trial 1] gen   40  evals= 1480  best=0.2202
+        [Trial 1] gen   60  evals= 2220  best=0.2202
+        [Trial 1] gen   80  evals= 2960  best=0.2202
+        [Done] Trial 1 best=0.2202
+    --> Trial 2 | pop=52 seed=72305 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.2762)
+    --> Trial 3 | pop=30 seed=75646 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.3174)
+    --> Trial 4 | pop=30 seed=47519 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.3148)
+    --> Trial 5 | pop=45 seed=84136 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.2822)
+    --> Trial 6 | pop=40 seed=66588 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.3226)
+    --> Trial 7 | pop=43 seed=90632 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.2827)
+    --> Trial 8 | pop=40 seed=35156 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.3137)
+    --> Trial 9 | pop=39 seed=27730 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.3136)
+    --> Trial 10 | pop=60 seed=1552 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Trial 10] gen   20  evals= 1200  best=0.2139
+        [Trial 10] gen   40  evals= 2400  best=0.2139
+        [Trial 10] gen   60  evals= 3600  best=0.2139
+        [Trial 10] gen   80  evals= 4800  best=0.2139
+        [Done] Trial 10 best=0.2139
+    --> Trial 11 | pop=60 seed=1363 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Trial 11] gen   20  evals= 1200  best=0.2281
+        [Trial 11] gen   40  evals= 2400  best=0.0422
+        [Trial 11] gen   60  evals= 3600  best=0.0125
+        [Trial 11] gen   80  evals= 4800  best=0.0008
+        [Trial 11] gen  100  evals= 6000  best=0.0000
+NOTE (module=cma, iteration=106):  
+condition in coordinate system exceeded 1.3e+08, rescaled to 1.0e+00, 
+condition changed from 1.3e+08 to 2.4e+05
+        [Done] Trial 11 best=0.0000
+    --> Early stop triggered: trial 11 reached loss=0.000007 < 0.004285
+
+  Winner: Trial 11, loss=0.000007 (210s)
+    Restarts run: 12
+    mu: 73.227318
+    D_mu: 21.311563
+    T0_mu: 13.647239
+    Ly: 2.004640
+    op_x: 0.872380
+    op_y: 0.750325
+    NMSE: 0.051849
+  [Saved] random_IR_0028
+
+============================================================
+[29/50] random_IR_0029.npz
+  GT loss: 0.000004
+  terrain_mean=0.460905  early_threshold=0.004382  (alpha=0.0095)
+    --> Trial 0 | pop=40 seed=41119 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  800  best=0.1904
+        [Trial 0] gen   40  evals= 1600  best=0.1625
+        [Trial 0] gen   60  evals= 2400  best=0.1466
+        [Trial 0] gen   80  evals= 3200  best=0.1459
+        [Trial 0] gen  100  evals= 4000  best=0.1458
+        [Done] Trial 0 best=0.1458
+    --> Trial 1 | pop=44 seed=80920 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.2084)
+    --> Trial 2 | pop=53 seed=73955 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals= 1060  best=0.1847
+        [Trial 2] gen   40  evals= 2120  best=0.1633
+        [Trial 2] gen   60  evals= 3180  best=0.1460
+        [Trial 2] gen   80  evals= 4240  best=0.1458
+        [Done] Trial 2 best=0.1458
+    --> Trial 3 | pop=47 seed=32967 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2069)
+    --> Trial 4 | pop=59 seed=99229 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.1949)
+    --> Trial 5 | pop=50 seed=37793 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Trial 5] gen   20  evals= 1000  best=0.1838
+        [Trial 5] gen   40  evals= 2000  best=0.1786
+        [Pruned] Trial 5 at gen 45 (loss=0.1763)
+    --> Trial 6 | pop=47 seed=79332 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.2146)
+    --> Trial 7 | pop=36 seed=59571 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.1888)
+    --> Trial 8 | pop=50 seed=27158 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Trial 8] gen   20  evals= 1000  best=0.1773
+        [Trial 8] gen   40  evals= 2000  best=0.1432
+        [Trial 8] gen   60  evals= 3000  best=0.1381
+        [Trial 8] gen   80  evals= 4000  best=0.1379
+        [Done] Trial 8 best=0.1379
+    --> Trial 9 | pop=47 seed=39418 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.2021)
+    --> Trial 10 | pop=32 seed=1062 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Trial 10] gen   20  evals=  640  best=0.1745
+        [Trial 10] gen   40  evals= 1280  best=0.1521
+        [Pruned] Trial 10 at gen 45 (loss=0.1493)
+    --> Trial 11 | pop=55 seed=1396 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Trial 11] gen   20  evals= 1100  best=0.1765
+        [Trial 11] gen   40  evals= 2200  best=0.1699
+        [Pruned] Trial 11 at gen 45 (loss=0.1699)
+    --> Trial 12 | pop=54 seed=19906 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Pruned] Trial 12 at gen 15 (loss=0.1851)
+    --> Trial 13 | pop=53 seed=62094 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Trial 13] gen   20  evals= 1060  best=0.1504
+        [Trial 13] gen   40  evals= 2120  best=0.0595
+        [Trial 13] gen   60  evals= 3180  best=0.0025
+        [Trial 13] gen   80  evals= 4240  best=0.0001
+        [Trial 13] gen  100  evals= 5300  best=0.0000
+        [Done] Trial 13 best=0.0000
+    --> Early stop triggered: trial 13 reached loss=0.000005 < 0.004382
+
+  Winner: Trial 13, loss=0.000005 (541s)
+    Restarts run: 14
+    mu: 41.762366
+    D_mu: 3.915973
+    T0_mu: 2.714747
+    Ly: 1.759502
+    op_x: 0.851208
+    op_y: 0.695098
+    NMSE: 0.006437
+  [Saved] random_IR_0029
+
+============================================================
+[30/50] random_IR_0030.npz
+  GT loss: 0.000005
+  terrain_mean=0.456719  early_threshold=0.004344  (alpha=0.0095)
+    --> Trial 0 | pop=43 seed=44466 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  860  best=0.2531
+        [Trial 0] gen   40  evals= 1720  best=0.2408
+        [Trial 0] gen   60  evals= 2580  best=0.2404
+        [Done] Trial 0 best=0.2403
+    --> Trial 1 | pop=47 seed=38933 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  940  best=0.2565
+        [Trial 1] gen   40  evals= 1880  best=0.2478
+        [Trial 1] gen   60  evals= 2820  best=0.2088
+        [Trial 1] gen   80  evals= 3760  best=0.2031
+        [Trial 1] gen  100  evals= 4700  best=0.2029
+        [Done] Trial 1 best=0.2029
+    --> Trial 2 | pop=45 seed=3567 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals=  900  best=0.2242
+        [Trial 2] gen   40  evals= 1800  best=0.1039
+        [Trial 2] gen   60  evals= 2700  best=0.0157
+        [Trial 2] gen   80  evals= 3600  best=0.0007
+        [Trial 2] gen  100  evals= 4500  best=0.0000
+        [Done] Trial 2 best=0.0000
+    --> Early stop triggered: trial 2 reached loss=0.000005 < 0.004344
+
+  Winner: Trial 2, loss=0.000005 (303s)
+    Restarts run: 3
+    mu: 29.469420
+    D_mu: 0.962862
+    T0_mu: 4.026728
+    Ly: 1.620851
+    op_x: 0.772924
+    op_y: 0.949369
+    NMSE: 0.002525
+  [Saved] random_IR_0030
+
+============================================================
+[31/50] random_IR_0031.npz
+  GT loss: 0.000006
+  terrain_mean=0.454374  early_threshold=0.004322  (alpha=0.0095)
+    --> Trial 0 | pop=37 seed=16437 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  740  best=0.1581
+        [Trial 0] gen   40  evals= 1480  best=0.1581
+        [Trial 0] gen   60  evals= 2220  best=0.0296
+        [Trial 0] gen   80  evals= 2960  best=0.0015
+        [Trial 0] gen  100  evals= 3700  best=0.0001
+        [Trial 0] gen  120  evals= 4440  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000006 < 0.004322
+
+  Winner: Trial 0, loss=0.000006 (131s)
+    Restarts run: 1
+    mu: 19.492289
+    D_mu: 2.947225
+    T0_mu: 48.106406
+    Ly: 3.971983
+    op_x: 0.881605
+    op_y: 0.666808
+    NMSE: 0.000505
+  [Saved] random_IR_0031
+
+============================================================
+[32/50] random_IR_0032.npz
+  GT loss: 0.000006
+  terrain_mean=0.435874  early_threshold=0.004147  (alpha=0.0095)
+    --> Trial 0 | pop=31 seed=44420 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  620  best=0.2627
+        [Trial 0] gen   40  evals= 1240  best=0.2627
+        [Trial 0] gen   60  evals= 1860  best=0.2627
+        [Trial 0] gen   80  evals= 2480  best=0.2609
+        [Trial 0] gen  100  evals= 3100  best=0.2517
+        [Trial 0] gen  120  evals= 3720  best=0.2514
+        [Done] Trial 0 best=0.2514
+    --> Trial 1 | pop=37 seed=69055 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.3106)
+    --> Trial 2 | pop=57 seed=32681 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals= 1140  best=0.1954
+        [Trial 2] gen   40  evals= 2280  best=0.0938
+        [Trial 2] gen   60  evals= 3420  best=0.0087
+        [Trial 2] gen   80  evals= 4560  best=0.0004
+        [Trial 2] gen  100  evals= 5700  best=0.0000
+        [Done] Trial 2 best=0.0000
+    --> Early stop triggered: trial 2 reached loss=0.000006 < 0.004147
+
+  Winner: Trial 2, loss=0.000006 (161s)
+    Restarts run: 3
+    mu: 43.733702
+    D_mu: 14.059473
+    T0_mu: 17.385903
+    Ly: 2.212045
+    op_x: 0.644036
+    op_y: 0.901043
+    NMSE: 0.000256
+  [Saved] random_IR_0032
+
+============================================================
+[33/50] random_IR_0033.npz
+  GT loss: 0.000010
+  terrain_mean=0.490795  early_threshold=0.004672  (alpha=0.0095)
+    --> Trial 0 | pop=39 seed=47920 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  780  best=0.3017
+        [Trial 0] gen   40  evals= 1560  best=0.2260
+        [Trial 0] gen   60  evals= 2340  best=0.0664
+        [Trial 0] gen   80  evals= 3120  best=0.0043
+        [Trial 0] gen  100  evals= 3900  best=0.0001
+        [Trial 0] gen  120  evals= 4680  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000008 < 0.004672
+
+  Winner: Trial 0, loss=0.000008 (16s)
+    Restarts run: 1
+    mu: 24.858308
+    D_mu: 67.281905
+    T0_mu: 22.046507
+    Ly: 1.638344
+    op_x: 0.868119
+    op_y: 0.634431
+    NMSE: 0.000620
+  [Saved] random_IR_0033
+
+============================================================
+[34/50] random_IR_0034.npz
+  GT loss: 0.000004
+  terrain_mean=0.416501  early_threshold=0.003961  (alpha=0.0095)
+    --> Trial 0 | pop=58 seed=84890 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1160  best=0.2010
+        [Trial 0] gen   40  evals= 2320  best=0.1807
+        [Trial 0] gen   60  evals= 3480  best=0.1755
+        [Trial 0] gen   80  evals= 4640  best=0.1753
+        [Done] Trial 0 best=0.1753
+    --> Trial 1 | pop=59 seed=57176 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals= 1180  best=0.1380
+        [Trial 1] gen   40  evals= 2360  best=0.1287
+        [Trial 1] gen   60  evals= 3540  best=0.1269
+        [Trial 1] gen   80  evals= 4720  best=0.1268
+        [Done] Trial 1 best=0.1268
+    --> Trial 2 | pop=50 seed=51519 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.1509)
+    --> Trial 3 | pop=57 seed=7931 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2223)
+    --> Trial 4 | pop=55 seed=64277 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.1830)
+    --> Trial 5 | pop=48 seed=85210 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.2114)
+    --> Trial 6 | pop=52 seed=74223 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.1681)
+    --> Trial 7 | pop=35 seed=97597 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.1814)
+    --> Trial 8 | pop=57 seed=57150 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.2704)
+    --> Trial 9 | pop=59 seed=25272 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.1781)
+    --> Trial 10 | pop=33 seed=34360 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Pruned] Trial 10 at gen 15 (loss=0.1886)
+    --> Trial 11 | pop=43 seed=82170 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Trial 11] gen   20  evals=  860  best=0.1436
+        [Trial 11] gen   40  evals= 1720  best=0.0365
+        [Trial 11] gen   60  evals= 2580  best=0.0043
+        [Trial 11] gen   80  evals= 3440  best=0.0004
+NOTE (module=cma, iteration=98):  
+condition in coordinate system exceeded 1.1e+08, rescaled to 1.0e+00, 
+condition changed from 2.1e+08 to 1.8e+07
+        [Trial 11] gen  100  evals= 4300  best=0.0000
+        [Done] Trial 11 best=0.0000
+    --> Early stop triggered: trial 11 reached loss=0.000004 < 0.003961
+
+  Winner: Trial 11, loss=0.000004 (211s)
+    Restarts run: 12
+    mu: 84.404153
+    D_mu: 17.497696
+    T0_mu: 1.319741
+    Ly: 1.718605
+    op_x: 0.693344
+    op_y: 0.737152
+    NMSE: 0.065359
+  [Saved] random_IR_0034
+
+============================================================
+[35/50] random_IR_0035.npz
+  GT loss: 0.000006
+  terrain_mean=0.474431  early_threshold=0.004513  (alpha=0.0095)
+    --> Trial 0 | pop=35 seed=15213 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  700  best=0.2800
+        [Trial 0] gen   40  evals= 1400  best=0.2518
+        [Trial 0] gen   60  evals= 2100  best=0.2453
+        [Trial 0] gen   80  evals= 2800  best=0.2424
+        [Trial 0] gen  100  evals= 3500  best=0.2422
+        [Trial 0] gen  120  evals= 4200  best=0.2422
+        [Done] Trial 0 best=0.2422
+    --> Trial 1 | pop=31 seed=89161 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  620  best=0.2464
+        [Trial 1] gen   40  evals= 1240  best=0.2464
+        [Trial 1] gen   60  evals= 1860  best=0.2313
+        [Trial 1] gen   80  evals= 2480  best=0.2231
+        [Trial 1] gen  100  evals= 3100  best=0.2202
+        [Trial 1] gen  120  evals= 3720  best=0.2192
+        [Trial 1] gen  140  evals= 4340  best=0.2191
+        [Done] Trial 1 best=0.2191
+    --> Trial 2 | pop=37 seed=29597 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.2574)
+    --> Trial 3 | pop=45 seed=23377 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2780)
+    --> Trial 4 | pop=30 seed=12075 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.3023)
+    --> Trial 5 | pop=30 seed=33073 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.2774)
+    --> Trial 6 | pop=42 seed=14889 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.3116)
+    --> Trial 7 | pop=49 seed=45988 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.2691)
+    --> Trial 8 | pop=35 seed=96053 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.2900)
+    --> Trial 9 | pop=32 seed=48366 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.3098)
+    --> Trial 10 | pop=60 seed=99046 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Trial 10] gen   20  evals= 1200  best=0.2466
+        [Trial 10] gen   40  evals= 2400  best=0.2229
+        [Trial 10] gen   60  evals= 3600  best=0.2193
+        [Trial 10] gen   80  evals= 4800  best=0.2191
+        [Done] Trial 10 best=0.2191
+    --> Trial 11 | pop=60 seed=98146 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Trial 11] gen   20  evals= 1200  best=0.2490
+        [Trial 11] gen   40  evals= 2400  best=0.2242
+        [Pruned] Trial 11 at gen 45 (loss=0.2242)
+    --> Trial 12 | pop=60 seed=78650 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Trial 12] gen   20  evals= 1200  best=0.2551
+        [Trial 12] gen   40  evals= 2400  best=0.2270
+        [Pruned] Trial 12 at gen 45 (loss=0.2242)
+    --> Trial 13 | pop=53 seed=77372 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Trial 13] gen   20  evals= 1060  best=0.2494
+        [Trial 13] gen   40  evals= 2120  best=0.2243
+        [Trial 13] gen   60  evals= 3180  best=0.2197
+        [Trial 13] gen   80  evals= 4240  best=0.2191
+        [Done] Trial 13 best=0.2191
+    --> Trial 14 | pop=53 seed=73856 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Pruned] Trial 14 at gen 15 (loss=0.2653)
+    --> Trial 15 | pop=54 seed=74564 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Pruned] Trial 15 at gen 15 (loss=0.2746)
+    --> Trial 16 | pop=40 seed=63586 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Pruned] Trial 16 at gen 15 (loss=0.2684)
+    --> Trial 17 | pop=46 seed=86493 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Pruned] Trial 17 at gen 15 (loss=0.2750)
+    --> Trial 18 | pop=52 seed=59190 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Pruned] Trial 18 at gen 15 (loss=0.3134)
+    --> Trial 19 | pop=40 seed=85480 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Pruned] Trial 19 at gen 15 (loss=0.3128)
+
+  Winner: Trial 1, loss=0.219071 (217s)
+    Restarts run: 20
+    mu: 56.993243
+    D_mu: 16.861387
+    T0_mu: 17.494721
+    Ly: 1.109380
+    op_x: 0.803520
+    op_y: 0.635030
+    NMSE: 0.113353
+  [Saved] random_IR_0035
+
+============================================================
+[36/50] random_IR_0036.npz
+  GT loss: 0.000011
+  terrain_mean=0.478707  early_threshold=0.004558  (alpha=0.0095)
+    --> Trial 0 | pop=42 seed=99715 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  840  best=0.2487
+        [Trial 0] gen   40  evals= 1680  best=0.2487
+        [Trial 0] gen   60  evals= 2520  best=0.1094
+        [Trial 0] gen   80  evals= 3360  best=0.0851
+        [Trial 0] gen  100  evals= 4200  best=0.0190
+        [Trial 0] gen  120  evals= 5040  best=0.0016
+        [Trial 0] gen  140  evals= 5880  best=0.0001
+        [Trial 0] gen  160  evals= 6720  best=0.0000
+NOTE (module=cma, iteration=164):  
+condition in coordinate system exceeded 1.3e+08, rescaled to 1.0e+00, 
+condition changed from 3.5e+08 to 1.6e+08
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000010 < 0.004558
+
+  Winner: Trial 0, loss=0.000010 (44s)
+    Restarts run: 1
+    mu: 26.129879
+    D_mu: 25.998340
+    T0_mu: 10.904867
+    Ly: 2.248573
+    op_x: 0.684250
+    op_y: 0.970812
+    NMSE: 0.001346
+  [Saved] random_IR_0036
+
+============================================================
+[37/50] random_IR_0037.npz
+  GT loss: 0.000014
+  terrain_mean=0.577354  early_threshold=0.005498  (alpha=0.0095)
+    --> Trial 0 | pop=56 seed=52140 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1120  best=0.3756
+        [Trial 0] gen   40  evals= 2240  best=0.2484
+        [Trial 0] gen   60  evals= 3360  best=0.2484
+        [Trial 0] gen   80  evals= 4480  best=0.2484
+        [Trial 0] gen  100  evals= 5600  best=0.2484
+        [Trial 0] gen  120  evals= 6720  best=0.2484
+        [Trial 0] gen  140  evals= 7840  best=0.2484
+        [Done] Trial 0 best=0.2484
+    --> Trial 1 | pop=43 seed=9225 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  860  best=0.3807
+        [Trial 1] gen   40  evals= 1720  best=0.3467
+        [Pruned] Trial 1 at gen 45 (loss=0.3467)
+    --> Trial 2 | pop=58 seed=73835 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals= 1160  best=0.2352
+        [Trial 2] gen   40  evals= 2320  best=0.2352
+        [Trial 2] gen   60  evals= 3480  best=0.2110
+        [Trial 2] gen   80  evals= 4640  best=0.0677
+        [Trial 2] gen  100  evals= 5800  best=0.0419
+        [Trial 2] gen  120  evals= 6960  best=0.0044
+        [Trial 2] gen  140  evals= 8120  best=0.0001
+NOTE (module=cma, iteration=154):  
+condition in coordinate system exceeded 1.1e+08, rescaled to 1.0e+00, 
+condition changed from 1.6e+08 to 5.9e+06
+        [Trial 2] gen  160  evals= 9280  best=0.0000
+        [Done] Trial 2 best=0.0000
+    --> Early stop triggered: trial 2 reached loss=0.000014 < 0.005498
+
+  Winner: Trial 2, loss=0.000014 (101s)
+    Restarts run: 3
+    mu: 17.389494
+    D_mu: 53.739896
+    T0_mu: 56.582448
+    Ly: 3.319443
+    op_x: 0.796393
+    op_y: 0.981349
+    NMSE: 0.000031
+  [Saved] random_IR_0037
+
+============================================================
+[38/50] random_IR_0038.npz
+  GT loss: 0.000007
+  terrain_mean=0.464510  early_threshold=0.004419  (alpha=0.0095)
+    --> Trial 0 | pop=31 seed=25472 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  620  best=0.3134
+        [Trial 0] gen   40  evals= 1240  best=0.2081
+        [Trial 0] gen   60  evals= 1860  best=0.1446
+        [Trial 0] gen   80  evals= 2480  best=0.0469
+        [Trial 0] gen  100  evals= 3100  best=0.0072
+        [Trial 0] gen  120  evals= 3720  best=0.0005
+        [Trial 0] gen  140  evals= 4340  best=0.0000
+NOTE (module=cma, iteration=158):  
+condition in coordinate system exceeded 1.2e+08, rescaled to 1.0e+00, 
+condition changed from 1.7e+08 to 2.2e+07
+        [Trial 0] gen  160  evals= 4960  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000007 < 0.004419
+
+  Winner: Trial 0, loss=0.000007 (31s)
+    Restarts run: 1
+    mu: 34.078259
+    D_mu: 26.173027
+    T0_mu: 18.652920
+    Ly: 1.947228
+    op_x: 0.838259
+    op_y: 0.894725
+    NMSE: 0.012762
+  [Saved] random_IR_0038
+
+============================================================
+[39/50] random_IR_0039.npz
+  GT loss: 0.000011
+  terrain_mean=0.491652  early_threshold=0.004682  (alpha=0.0095)
+    --> Trial 0 | pop=48 seed=7372 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  960  best=0.2635
+        [Trial 0] gen   40  evals= 1920  best=0.1281
+        [Trial 0] gen   60  evals= 2880  best=0.0292
+        [Trial 0] gen   80  evals= 3840  best=0.0010
+        [Trial 0] gen  100  evals= 4800  best=0.0001
+        [Trial 0] gen  120  evals= 5760  best=0.0000
+NOTE (module=cma, iteration=120):  
+condition in coordinate system exceeded 1.4e+08, rescaled to 1.0e+00, 
+condition changed from 1.8e+08 to 2.3e+07
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000011 < 0.004682
+
+  Winner: Trial 0, loss=0.000011 (37s)
+    Restarts run: 1
+    mu: 91.673682
+    D_mu: 18.639207
+    T0_mu: 1.654070
+    Ly: 1.917017
+    op_x: 0.939487
+    op_y: 0.675698
+    NMSE: 0.043517
+  [Saved] random_IR_0039
+
+============================================================
+[40/50] random_IR_0040.npz
+  GT loss: 0.000007
+  terrain_mean=0.487577  early_threshold=0.004638  (alpha=0.0095)
+    --> Trial 0 | pop=31 seed=27060 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  620  best=0.2766
+        [Trial 0] gen   40  evals= 1240  best=0.2748
+        [Trial 0] gen   60  evals= 1860  best=0.2548
+        [Trial 0] gen   80  evals= 2480  best=0.2435
+        [Trial 0] gen  100  evals= 3100  best=0.2429
+        [Trial 0] gen  120  evals= 3720  best=0.2428
+        [Done] Trial 0 best=0.2428
+    --> Trial 1 | pop=50 seed=6211 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.2941)
+    --> Trial 2 | pop=47 seed=91423 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.3349)
+    --> Trial 3 | pop=35 seed=35676 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Trial 3] gen   20  evals=  700  best=0.2553
+        [Trial 3] gen   40  evals= 1400  best=0.1552
+        [Trial 3] gen   60  evals= 2100  best=0.0388
+        [Trial 3] gen   80  evals= 2800  best=0.0019
+        [Trial 3] gen  100  evals= 3500  best=0.0001
+        [Trial 3] gen  120  evals= 4200  best=0.0000
+        [Done] Trial 3 best=0.0000
+    --> Early stop triggered: trial 3 reached loss=0.000006 < 0.004638
+
+  Winner: Trial 3, loss=0.000006 (323s)
+    Restarts run: 4
+    mu: 21.550372
+    D_mu: 3.103311
+    T0_mu: 24.477945
+    Ly: 3.888553
+    op_x: 0.818920
+    op_y: 0.938401
+    NMSE: 0.004601
+  [Saved] random_IR_0040
+
+============================================================
+[41/50] random_IR_0041.npz
+  GT loss: 0.000013
+  terrain_mean=0.572659  early_threshold=0.005453  (alpha=0.0095)
+    --> Trial 0 | pop=49 seed=69011 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  980  best=0.3355
+        [Trial 0] gen   40  evals= 1960  best=0.3173
+        [Trial 0] gen   60  evals= 2940  best=0.3173
+        [Trial 0] gen   80  evals= 3920  best=0.3126
+        [Trial 0] gen  100  evals= 4900  best=0.3071
+        [Trial 0] gen  120  evals= 5880  best=0.3064
+        [Trial 0] gen  140  evals= 6860  best=0.3063
+        [Done] Trial 0 best=0.3063
+    --> Trial 1 | pop=43 seed=26063 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  860  best=0.2957
+        [Trial 1] gen   40  evals= 1720  best=0.2957
+        [Trial 1] gen   60  evals= 2580  best=0.2957
+        [Trial 1] gen   80  evals= 3440  best=0.2957
+        [Trial 1] gen  100  evals= 4300  best=0.2957
+        [Trial 1] gen  120  evals= 5160  best=0.2957
+        [Trial 1] gen  140  evals= 6020  best=0.2957
+        [Done] Trial 1 best=0.2957
+    --> Trial 2 | pop=34 seed=24862 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.3047)
+    --> Trial 3 | pop=35 seed=82348 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.3514)
+    --> Trial 4 | pop=38 seed=54950 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.3491)
+    --> Trial 5 | pop=49 seed=74459 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.3427)
+    --> Trial 6 | pop=49 seed=47213 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.3183)
+    --> Trial 7 | pop=56 seed=94772 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Trial 7] gen   20  evals= 1120  best=0.2237
+        [Trial 7] gen   40  evals= 2240  best=0.2237
+        [Trial 7] gen   60  evals= 3360  best=0.2237
+        [Trial 7] gen   80  evals= 4480  best=0.2237
+        [Trial 7] gen  100  evals= 5600  best=0.2237
+        [Trial 7] gen  120  evals= 6720  best=0.2237
+        [Trial 7] gen  140  evals= 7840  best=0.2237
+        [Trial 7] gen  160  evals= 8960  best=0.2237
+        [Trial 7] gen  180  evals=10080  best=0.2237
+        [Trial 7] gen  200  evals=11200  best=0.2237
+        [Trial 7] gen  220  evals=12320  best=0.2237
+        [Trial 7] gen  240  evals=13440  best=0.2237
+        [Done] Trial 7 best=0.2237
+    --> Trial 8 | pop=50 seed=381 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Pruned] Trial 8 at gen 15 (loss=0.3599)
+    --> Trial 9 | pop=41 seed=7500 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.3725)
+    --> Trial 10 | pop=59 seed=98122 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Pruned] Trial 10 at gen 15 (loss=0.3168)
+    --> Trial 11 | pop=60 seed=32423 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Pruned] Trial 11 at gen 15 (loss=0.3228)
+    --> Trial 12 | pop=44 seed=99247 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Trial 12] gen   20  evals=  880  best=0.2410
+        [Trial 12] gen   40  evals= 1760  best=0.2410
+        [Pruned] Trial 12 at gen 45 (loss=0.2410)
+    --> Trial 13 | pop=54 seed=26637 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Trial 13] gen   20  evals= 1080  best=0.2886
+        [Trial 13] gen   40  evals= 2160  best=0.2886
+        [Pruned] Trial 13 at gen 45 (loss=0.2886)
+    --> Trial 14 | pop=31 seed=50284 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Trial 14] gen   20  evals=  620  best=0.3022
+        [Trial 14] gen   40  evals= 1240  best=0.3022
+        [Pruned] Trial 14 at gen 45 (loss=0.3022)
+    --> Trial 15 | pop=55 seed=12482 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Pruned] Trial 15 at gen 15 (loss=0.3420)
+    --> Trial 16 | pop=44 seed=37567 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Pruned] Trial 16 at gen 15 (loss=0.3363)
+    --> Trial 17 | pop=54 seed=63424 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Pruned] Trial 17 at gen 15 (loss=0.3386)
+    --> Trial 18 | pop=44 seed=85379 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Pruned] Trial 18 at gen 15 (loss=0.3764)
+    --> Trial 19 | pop=40 seed=19284 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Pruned] Trial 19 at gen 15 (loss=0.3224)
+
+  Winner: Trial 7, loss=0.223732 (179s)
+    Restarts run: 20
+    mu: 19.175174
+    D_mu: 82.907138
+    T0_mu: 27.293198
+    Ly: 1.995385
+    op_x: 0.592482
+    op_y: 0.986457
+    NMSE: 0.001739
+  [Saved] random_IR_0041
+
+============================================================
+[42/50] random_IR_0042.npz
+  GT loss: 0.000007
+  terrain_mean=0.466229  early_threshold=0.004436  (alpha=0.0095)
+    --> Trial 0 | pop=31 seed=81931 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  620  best=0.2563
+        [Trial 0] gen   40  evals= 1240  best=0.1223
+        [Trial 0] gen   60  evals= 1860  best=0.0100
+        [Trial 0] gen   80  evals= 2480  best=0.0005
+        [Trial 0] gen  100  evals= 3100  best=0.0000
+        [Trial 0] gen  120  evals= 3720  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000007 < 0.004436
+
+  Winner: Trial 0, loss=0.000007 (49s)
+    Restarts run: 1
+    mu: 20.324947
+    D_mu: 7.465017
+    T0_mu: 22.854278
+    Ly: 2.487274
+    op_x: 0.912838
+    op_y: 0.603025
+    NMSE: 0.000908
+  [Saved] random_IR_0042
+
+============================================================
+[43/50] random_IR_0043.npz
+  GT loss: 0.000015
+  terrain_mean=0.597152  early_threshold=0.005688  (alpha=0.0095)
+    --> Trial 0 | pop=32 seed=89352 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  640  best=0.3761
+        [Trial 0] gen   40  evals= 1280  best=0.3490
+        [Trial 0] gen   60  evals= 1920  best=0.3490
+        [Trial 0] gen   80  evals= 2560  best=0.3490
+        [Trial 0] gen  100  evals= 3200  best=0.3490
+        [Trial 0] gen  120  evals= 3840  best=0.3463
+        [Trial 0] gen  140  evals= 4480  best=0.3451
+        [Trial 0] gen  160  evals= 5120  best=0.3451
+        [Done] Trial 0 best=0.3451
+    --> Trial 1 | pop=35 seed=73848 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  700  best=0.3497
+        [Trial 1] gen   40  evals= 1400  best=0.3497
+        [Pruned] Trial 1 at gen 45 (loss=0.3497)
+    --> Trial 2 | pop=42 seed=58994 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Trial 2] gen   20  evals=  840  best=0.3523
+        [Trial 2] gen   40  evals= 1680  best=0.3523
+        [Pruned] Trial 2 at gen 45 (loss=0.3523)
+    --> Trial 3 | pop=36 seed=60509 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Trial 3] gen   20  evals=  720  best=0.3172
+        [Trial 3] gen   40  evals= 1440  best=0.3079
+        [Trial 3] gen   60  evals= 2160  best=0.1437
+        [Trial 3] gen   80  evals= 2880  best=0.1002
+        [Trial 3] gen  100  evals= 3600  best=0.0959
+        [Trial 3] gen  120  evals= 4320  best=0.0911
+        [Trial 3] gen  140  evals= 5040  best=0.0911
+        [Done] Trial 3 best=0.0911
+    --> Trial 4 | pop=49 seed=17737 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.3797)
+    --> Trial 5 | pop=49 seed=93122 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Trial 5] gen   20  evals=  980  best=0.3089
+        [Trial 5] gen   40  evals= 1960  best=0.2891
+        [Trial 5] gen   60  evals= 2940  best=0.2841
+        [Trial 5] gen   80  evals= 3920  best=0.2841
+        [Trial 5] gen  100  evals= 4900  best=0.2841
+        [Trial 5] gen  120  evals= 5880  best=0.2841
+        [Pruned] Trial 5 at gen 135 (loss=0.2841)
+    --> Trial 6 | pop=53 seed=50656 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.3600)
+    --> Trial 7 | pop=55 seed=42936 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.3585)
+    --> Trial 8 | pop=53 seed=46609 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Trial 8] gen   20  evals= 1060  best=0.3517
+        [Trial 8] gen   40  evals= 2120  best=0.3234
+        [Pruned] Trial 8 at gen 45 (loss=0.3234)
+    --> Trial 9 | pop=59 seed=6120 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Trial 9] gen   20  evals= 1180  best=0.3498
+        [Trial 9] gen   40  evals= 2360  best=0.3316
+        [Pruned] Trial 9 at gen 45 (loss=0.3316)
+    --> Trial 10 | pop=40 seed=27500 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Pruned] Trial 10 at gen 15 (loss=0.3592)
+    --> Trial 11 | pop=31 seed=97158 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Pruned] Trial 11 at gen 15 (loss=0.3817)
+    --> Trial 12 | pop=30 seed=75566 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Pruned] Trial 12 at gen 15 (loss=0.3647)
+    --> Trial 13 | pop=37 seed=77401 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Pruned] Trial 13 at gen 15 (loss=0.3727)
+    --> Trial 14 | pop=35 seed=66665 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Pruned] Trial 14 at gen 15 (loss=0.3798)
+    --> Trial 15 | pop=42 seed=86431 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Pruned] Trial 15 at gen 15 (loss=0.3832)
+    --> Trial 16 | pop=33 seed=32324 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Pruned] Trial 16 at gen 15 (loss=0.3724)
+    --> Trial 17 | pop=39 seed=61044 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Pruned] Trial 17 at gen 15 (loss=0.3883)
+    --> Trial 18 | pop=45 seed=84976 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Trial 18] gen   20  evals=  900  best=0.3463
+        [Trial 18] gen   40  evals= 1800  best=0.3224
+        [Pruned] Trial 18 at gen 45 (loss=0.3224)
+    --> Trial 19 | pop=33 seed=99140 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Trial 19] gen   20  evals=  660  best=0.3283
+        [Trial 19] gen   40  evals= 1320  best=0.3283
+        [Pruned] Trial 19 at gen 45 (loss=0.3283)
+
+  Winner: Trial 3, loss=0.091066 (499s)
+    Restarts run: 20
+    mu: 19.011443
+    D_mu: 3.704804
+    T0_mu: 52.581245
+    Ly: 2.582883
+    op_x: 0.979977
+    op_y: 0.954254
+    NMSE: 0.006585
+  [Saved] random_IR_0043
+
+============================================================
+[44/50] random_IR_0044.npz
+  GT loss: 0.000003
+  terrain_mean=0.474541  early_threshold=0.004511  (alpha=0.0095)
+    --> Trial 0 | pop=60 seed=35862 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1200  best=0.1391
+        [Trial 0] gen   40  evals= 2400  best=0.0603
+        [Trial 0] gen   60  evals= 3600  best=0.0035
+        [Trial 0] gen   80  evals= 4800  best=0.0001
+        [Trial 0] gen  100  evals= 6000  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000003 < 0.004511
+
+  Winner: Trial 0, loss=0.000003 (130s)
+    Restarts run: 1
+    mu: 42.277413
+    D_mu: 4.916485
+    T0_mu: 3.447594
+    Ly: 3.344737
+    op_x: 0.574919
+    op_y: 0.536179
+    NMSE: 0.005447
+  [Saved] random_IR_0044
+
+============================================================
+[45/50] random_IR_0045.npz
+  GT loss: 0.000006
+  terrain_mean=0.511120  early_threshold=0.004862  (alpha=0.0095)
+    --> Trial 0 | pop=38 seed=70296 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  760  best=0.2704
+        [Trial 0] gen   40  evals= 1520  best=0.2704
+        [Trial 0] gen   60  evals= 2280  best=0.2588
+        [Trial 0] gen   80  evals= 3040  best=0.2395
+        [Trial 0] gen  100  evals= 3800  best=0.2380
+        [Trial 0] gen  120  evals= 4560  best=0.2380
+        [Done] Trial 0 best=0.2380
+    --> Trial 1 | pop=35 seed=26081 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Pruned] Trial 1 at gen 15 (loss=0.3060)
+    --> Trial 2 | pop=35 seed=82658 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.2800)
+    --> Trial 3 | pop=58 seed=68669 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.2780)
+    --> Trial 4 | pop=31 seed=27385 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.3810)
+    --> Trial 5 | pop=47 seed=97736 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Trial 5] gen   20  evals=  940  best=0.2771
+        [Trial 5] gen   40  evals= 1880  best=0.2671
+        [Trial 5] gen   60  evals= 2820  best=0.2671
+        [Trial 5] gen   80  evals= 3760  best=0.2629
+        [Trial 5] gen  100  evals= 4700  best=0.2608
+        [Trial 5] gen  120  evals= 5640  best=0.2608
+        [Done] Trial 5 best=0.2608
+    --> Trial 6 | pop=34 seed=76138 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Pruned] Trial 6 at gen 15 (loss=0.2802)
+    --> Trial 7 | pop=57 seed=94823 x0_norm_min=-0.779 x0_norm_max=0.922
+        [Pruned] Trial 7 at gen 15 (loss=0.2825)
+    --> Trial 8 | pop=56 seed=70329 x0_norm_min=-0.814 x0_norm_max=0.843
+        [Trial 8] gen   20  evals= 1120  best=0.2535
+        [Trial 8] gen   40  evals= 2240  best=0.2426
+        [Trial 8] gen   60  evals= 3360  best=0.2314
+        [Trial 8] gen   80  evals= 4480  best=0.2291
+        [Trial 8] gen  100  evals= 5600  best=0.2290
+        [Done] Trial 8 best=0.2290
+    --> Trial 9 | pop=49 seed=19043 x0_norm_min=-0.955 x0_norm_max=0.770
+        [Pruned] Trial 9 at gen 15 (loss=0.2835)
+    --> Trial 10 | pop=43 seed=47132 x0_norm_min=-0.841 x0_norm_max=0.672
+        [Pruned] Trial 10 at gen 15 (loss=0.2824)
+    --> Trial 11 | pop=52 seed=59958 x0_norm_min=-0.781 x0_norm_max=0.859
+        [Pruned] Trial 11 at gen 15 (loss=0.2915)
+    --> Trial 12 | pop=42 seed=45188 x0_norm_min=-0.402 x0_norm_max=0.428
+        [Trial 12] gen   20  evals=  840  best=0.2652
+        [Trial 12] gen   40  evals= 1680  best=0.2652
+        [Pruned] Trial 12 at gen 45 (loss=0.2652)
+    --> Trial 13 | pop=41 seed=55053 x0_norm_min=-0.863 x0_norm_max=0.955
+        [Pruned] Trial 13 at gen 15 (loss=0.3008)
+    --> Trial 14 | pop=53 seed=4832 x0_norm_min=-0.897 x0_norm_max=-0.091
+        [Pruned] Trial 14 at gen 15 (loss=0.3147)
+    --> Trial 15 | pop=39 seed=84137 x0_norm_min=-0.690 x0_norm_max=0.990
+        [Pruned] Trial 15 at gen 15 (loss=0.2879)
+    --> Trial 16 | pop=60 seed=67289 x0_norm_min=-0.776 x0_norm_max=0.982
+        [Pruned] Trial 16 at gen 15 (loss=0.2811)
+    --> Trial 17 | pop=47 seed=40211 x0_norm_min=-0.863 x0_norm_max=0.835
+        [Pruned] Trial 17 at gen 15 (loss=0.3151)
+    --> Trial 18 | pop=54 seed=72393 x0_norm_min=-0.933 x0_norm_max=0.907
+        [Trial 18] gen   20  evals= 1080  best=0.2771
+        [Trial 18] gen   40  evals= 2160  best=0.2472
+        [Pruned] Trial 18 at gen 45 (loss=0.2439)
+    --> Trial 19 | pop=38 seed=58887 x0_norm_min=-0.948 x0_norm_max=0.822
+        [Pruned] Trial 19 at gen 15 (loss=0.2945)
+
+  Winner: Trial 8, loss=0.229027 (830s)
+    Restarts run: 20
+    mu: 35.649545
+    D_mu: 3.601843
+    T0_mu: 5.031883
+    Ly: 3.116146
+    op_x: 0.795131
+    op_y: 0.819271
+    NMSE: 0.073431
+  [Saved] random_IR_0045
+
+============================================================
+[46/50] random_IR_0046.npz
+  GT loss: 0.000003
+  terrain_mean=0.474457  early_threshold=0.004510  (alpha=0.0095)
+    --> Trial 0 | pop=45 seed=25667 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  900  best=0.1603
+        [Trial 0] gen   40  evals= 1800  best=0.1158
+        [Trial 0] gen   60  evals= 2700  best=0.0564
+        [Trial 0] gen   80  evals= 3600  best=0.0062
+        [Trial 0] gen  100  evals= 4500  best=0.0002
+        [Trial 0] gen  120  evals= 5400  best=0.0000
+NOTE (module=cma, iteration=120):  
+condition in coordinate system exceeded 1.0e+08, rescaled to 1.0e+00, 
+condition changed from 2.8e+08 to 5.1e+06
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000005 < 0.004510
+
+  Winner: Trial 0, loss=0.000005 (61s)
+    Restarts run: 1
+    mu: 52.336389
+    D_mu: 6.125021
+    T0_mu: 11.167371
+    Ly: 1.811565
+    op_x: 0.642460
+    op_y: 0.574427
+    NMSE: 0.000091
+  [Saved] random_IR_0046
+
+============================================================
+[47/50] random_IR_0047.npz
+  GT loss: 0.000004
+  terrain_mean=0.430866  early_threshold=0.004097  (alpha=0.0095)
+    --> Trial 0 | pop=32 seed=3410 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  640  best=0.2159
+        [Trial 0] gen   40  evals= 1280  best=0.2020
+        [Trial 0] gen   60  evals= 1920  best=0.2005
+        [Trial 0] gen   80  evals= 2560  best=0.2002
+        [Done] Trial 0 best=0.2002
+    --> Trial 1 | pop=51 seed=83861 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals= 1020  best=0.1544
+        [Trial 1] gen   40  evals= 2040  best=0.0663
+        [Trial 1] gen   60  evals= 3060  best=0.0056
+        [Trial 1] gen   80  evals= 4080  best=0.0002
+        [Trial 1] gen  100  evals= 5100  best=0.0000
+NOTE (module=cma, iteration=107):  
+condition in coordinate system exceeded 1.1e+08, rescaled to 1.0e+00, 
+condition changed from 2.3e+08 to 1.8e+07
+        [Done] Trial 1 best=0.0000
+    --> Early stop triggered: trial 1 reached loss=0.000004 < 0.004097
+
+  Winner: Trial 1, loss=0.000004 (97s)
+    Restarts run: 2
+    mu: 45.018727
+    D_mu: 6.744922
+    T0_mu: 10.794900
+    Ly: 1.260586
+    op_x: 0.850857
+    op_y: 0.648924
+    NMSE: 0.006662
+  [Saved] random_IR_0047
+
+============================================================
+[48/50] random_IR_0048.npz
+  GT loss: 0.000007
+  terrain_mean=0.456936  early_threshold=0.004348  (alpha=0.0095)
+    --> Trial 0 | pop=39 seed=43102 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals=  780  best=0.2641
+        [Trial 0] gen   40  evals= 1560  best=0.2490
+        [Trial 0] gen   60  evals= 2340  best=0.1414
+        [Trial 0] gen   80  evals= 3120  best=0.0083
+        [Trial 0] gen  100  evals= 3900  best=0.0015
+        [Trial 0] gen  120  evals= 4680  best=0.0000
+        [Trial 0] gen  140  evals= 5460  best=0.0000
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000007 < 0.004348
+
+  Winner: Trial 0, loss=0.000007 (46s)
+    Restarts run: 1
+    mu: 7.596889
+    D_mu: 13.120949
+    T0_mu: 130.685285
+    Ly: 2.201788
+    op_x: 0.891561
+    op_y: 0.890930
+    NMSE: 0.000038
+  [Saved] random_IR_0048
+
+============================================================
+[49/50] random_IR_0049.npz
+  GT loss: 0.000004
+  terrain_mean=0.461402  early_threshold=0.004387  (alpha=0.0095)
+    --> Trial 0 | pop=58 seed=65744 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1160  best=0.1878
+        [Trial 0] gen   40  evals= 2320  best=0.0887
+        [Trial 0] gen   60  evals= 3480  best=0.0054
+        [Trial 0] gen   80  evals= 4640  best=0.0002
+        [Trial 0] gen  100  evals= 5800  best=0.0000
+NOTE (module=cma, iteration=105):  
+condition in coordinate system exceeded 1.0e+08, rescaled to 1.0e+00, 
+condition changed from 1.5e+08 to 7.7e+06
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000004 < 0.004387
+
+  Winner: Trial 0, loss=0.000004 (58s)
+    Restarts run: 1
+    mu: 29.725121
+    D_mu: 9.059846
+    T0_mu: 31.153218
+    Ly: 1.852325
+    op_x: 0.606557
+    op_y: 0.735329
+    NMSE: 0.001828
+  [Saved] random_IR_0049
+
+============================================================
+[50/50] random_IR_0050.npz
+  GT loss: 0.000015
+  terrain_mean=0.555295  early_threshold=0.005290  (alpha=0.0095)
+    --> Trial 0 | pop=58 seed=99559 x0_norm_min=-0.944 x0_norm_max=0.730
+        [Trial 0] gen   20  evals= 1160  best=0.3353
+        [Trial 0] gen   40  evals= 2320  best=0.3353
+        [Trial 0] gen   60  evals= 3480  best=0.3353
+        [Trial 0] gen   80  evals= 4640  best=0.3353
+        [Trial 0] gen  100  evals= 5800  best=0.3343
+        [Trial 0] gen  120  evals= 6960  best=0.3332
+        [Trial 0] gen  140  evals= 8120  best=0.3331
+        [Done] Trial 0 best=0.3331
+    --> Trial 1 | pop=49 seed=42916 x0_norm_min=-0.937 x0_norm_max=0.907
+        [Trial 1] gen   20  evals=  980  best=0.2665
+        [Trial 1] gen   40  evals= 1960  best=0.2339
+        [Trial 1] gen   60  evals= 2940  best=0.2339
+        [Trial 1] gen   80  evals= 3920  best=0.2339
+        [Done] Trial 1 best=0.2339
+    --> Trial 2 | pop=44 seed=77362 x0_norm_min=-0.344 x0_norm_max=0.824
+        [Pruned] Trial 2 at gen 15 (loss=0.3557)
+    --> Trial 3 | pop=40 seed=49143 x0_norm_min=-0.797 x0_norm_max=0.622
+        [Pruned] Trial 3 at gen 15 (loss=0.3752)
+    --> Trial 4 | pop=42 seed=69199 x0_norm_min=-0.947 x0_norm_max=0.785
+        [Pruned] Trial 4 at gen 15 (loss=0.3601)
+    --> Trial 5 | pop=42 seed=9111 x0_norm_min=-0.748 x0_norm_max=0.981
+        [Pruned] Trial 5 at gen 15 (loss=0.3717)
+    --> Trial 6 | pop=32 seed=30457 x0_norm_min=-0.929 x0_norm_max=0.732
+        [Trial 6] gen   20  evals=  640  best=0.2825
+        [Trial 6] gen   40  evals= 1280  best=0.2622
+        [Trial 6] gen   60  evals= 1920  best=0.0842
+        [Trial 6] gen   80  evals= 2560  best=0.0113
+        [Trial 6] gen  100  evals= 3200  best=0.0015
+        [Trial 6] gen  120  evals= 3840  best=0.0001
+NOTE (module=cma, iteration=131):  
+condition in coordinate system exceeded 1.1e+08, rescaled to 1.0e+00, 
+condition changed from 1.6e+08 to 1.1e+06
+        [Trial 6] gen  140  evals= 4480  best=0.0000
+        [Done] Trial 6 best=0.0000
+    --> Early stop triggered: trial 6 reached loss=0.000014 < 0.005290
+
+  Winner: Trial 6, loss=0.000014 (115s)
+    Restarts run: 7
+    mu: 66.922033
+    D_mu: 14.657746
+    T0_mu: 1.504283
+    Ly: 1.229376
+    op_x: 0.792996
+    op_y: 0.980122
+    NMSE: 0.003847
+  [Saved] random_IR_0050

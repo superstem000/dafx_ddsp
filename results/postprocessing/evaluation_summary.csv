@@ -1,0 +1,9 @@
+metric,value
+parameter_nmse_mean,3.892182831483314e-13
+parameter_nmse_std,2.050117095169461e-12
+parameter_nmse_min,1.1679756300850174e-15
+parameter_nmse_max,1.9523434783320177e-11
+spectral_mse_mean,2.4881471664228434e-05
+spectral_mse_std,6.598883303095905e-05
+spectral_mse_min,5.222163094115144e-08
+spectral_mse_max,0.0005098463672686325
