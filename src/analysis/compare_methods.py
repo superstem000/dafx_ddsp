@@ -114,25 +114,31 @@ def load_ddsp(ckpt_path: Path, batch_size: int, chunk_elems: int, n_val, fit_mu:
     return est, [to6(r) for r in gt], ("post-mu" if fit_mu else "encoder mu")
 
 
-def score(est, gt, stat):
-    """Per-composite error as % of bound range, plus geomean NMSE_6d."""
-    per, sq = {}, []
+def score(est, gt):
+    """Per-composite error as % of bound range, both ways, plus the NMSE_6d spread.
+
+    Geomean and RMS are both reported because the gap between them is a
+    property of the method, not of the metric. 1-restart CMA-ES is bimodal --
+    it either lands in the basin and recovers ground truth, or misses and fails
+    outright -- so its mean sits ~3600x above its geomean. The encoder has no
+    basin to miss and degrades gracefully, at ~12x. Reporting either alone
+    tells half the story: on the typical IR CMA-ES wins by 19x, on the average
+    IR the encoder wins by 4x.
+    """
+    geo, rms, sq = {}, {}, []
     for k in KEYS:
         lo, hi = COMPOSITE_BOUNDS[k]
         err = np.array([abs(e[k] - g[k]) / (hi - lo) for e, g in zip(est, gt)])
         sq.append(err ** 2)
-        per[k] = 100.0 * (np.exp(np.mean(np.log(np.maximum(err, FLOOR)))) if stat == "geo"
-                          else math.sqrt(float(np.mean(err ** 2))))
+        geo[k] = 100.0 * float(np.exp(np.mean(np.log(np.maximum(err, FLOOR)))))
+        rms[k] = 100.0 * math.sqrt(float(np.mean(err ** 2)))
     n6 = np.mean(np.stack(sq), axis=0)
-    per["NMSE_6d"] = float(np.exp(np.mean(np.log(np.maximum(n6, FLOOR)))))
-    return per, len(est)
+    return geo, rms, n6
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--results", type=Path, default=Path("results"))
-    p.add_argument("--stat", choices=["geo", "rms"], default="geo",
-                   help="How to aggregate |error| across IRs per composite")
     p.add_argument("--ddsp-ckpt", type=Path, action="append", default=None,
                    help="Encoder checkpoint(s) to include; repeatable")
     p.add_argument("--no-fit-mu", action="store_true",
@@ -146,30 +152,45 @@ def main() -> None:
     full = args.results / "standard_sweep/l1_stft"
     est, gt, stage = load_cmaes(full)
     if est:
-        rows.append(("CMA-ES full   L1_STFT", stage, *score(est, gt, args.stat)))
+        rows.append(("CMA-ES full   L1_STFT", stage, *score(est, gt)))
     ladder = args.results / "ladder_1restart"
     for d in sorted(x for x in ladder.glob("*") if x.is_dir()) if ladder.exists() else []:
         est, gt, stage = load_cmaes(d)
         if est:
-            rows.append((f"CMA-ES 1rst   {d.name}", stage, *score(est, gt, args.stat)))
+            rows.append((f"CMA-ES 1rst   {d.name}", stage, *score(est, gt)))
     for ck in args.ddsp_ckpt or []:
         est, gt, stage = load_ddsp(ck, args.batch_size, args.chunk_elems,
                                    args.n_val, not args.no_fit_mu)
-        rows.append((f"DDSP  {ck.parent.name}", stage, *score(est, gt, args.stat)))
+        rows.append((f"DDSP  {ck.parent.name}", stage, *score(est, gt)))
 
-    label = "geometric mean" if args.stat == "geo" else "RMS"
-    print(f"\n|error| per composite, {label} across IRs, as % of that parameter's bound range")
-    print(f"{'method':26s} {'stage':>8s} {'n':>5s} " +
-          " ".join(f"{k:>10s}" for k in KEYS) + f" {'NMSE_6d':>10s}")
-    print("-" * 26 + " " + "-" * 8 + " " + "-" * 5 + " " +
-          " ".join("-" * 10 for _ in KEYS) + " " + "-" * 10)
-    for name, stage, per, n in sorted(rows, key=lambda r: r[2]["NMSE_6d"]):
-        print(f"{name:26s} {stage:>8s} {n:>5d} " +
-              " ".join(f"{per[k]:10.3f}" for k in KEYS) + f" {per['NMSE_6d']:10.3e}")
-    print("\nNMSE_6d is the geometric mean across IRs of the per-IR mean-of-squares over")
-    print("the six composites -- the statistic CMA-ES is quoted in. The per-composite")
-    print("columns aggregate |error| directly, so they answer a different question and")
-    print("will not reproduce it.")
+    rows.sort(key=lambda r: float(np.exp(np.mean(np.log(np.maximum(r[4], FLOOR))))))
+    hdr = (f"{'method':26s} {'stage':>8s} {'n':>5s} " + " ".join(f"{k:>10s}" for k in KEYS))
+    rule = "-" * 26 + " " + "-" * 8 + " " + "-" * 5 + " " + " ".join("-" * 10 for _ in KEYS)
+
+    for title, idx in (("geometric mean across IRs -- the typical IR", 2),
+                       ("RMS across IRs -- tail-weighted", 3)):
+        print(f"\n|error| per composite, {title}, as % of that parameter's bound range")
+        print(hdr); print(rule)
+        for name, stage, geo, rms, _ in rows:
+            per = geo if idx == 2 else rms
+            print(f"{name:26s} {stage:>8s} {len(_):5d} " +
+                  " ".join(f"{per[k]:10.3f}" for k in KEYS))
+
+    print(f"\nNMSE_6d distribution across IRs -- how the two above come apart")
+    print(f"{'method':26s} {'n':>5s} {'geo':>10s} {'med':>10s} {'p90':>10s} "
+          f"{'mean':>10s} {'mean/geo':>9s} {'>1e-2':>7s} {'>1e-1':>7s}")
+    print("-" * 26 + " " + "-" * 5 + " " + " ".join("-" * 10 for _ in range(4)) +
+          " " + "-" * 9 + " " + "-" * 7 + " " + "-" * 7)
+    for name, stage, geo, rms, n6 in rows:
+        g = float(np.exp(np.mean(np.log(np.maximum(n6, FLOOR)))))
+        print(f"{name:26s} {len(n6):5d} {g:10.3e} {np.median(n6):10.3e} "
+              f"{np.percentile(n6, 90):10.3e} {n6.mean():10.3e} {n6.mean()/max(g,FLOOR):9.1f} "
+              f"{100*(n6 > 1e-2).mean():6.1f}% {100*(n6 > 1e-1).mean():6.1f}%")
+
+    print("\nmean/geo is the tail: a bimodal method that either lands in the basin or")
+    print("misses it entirely runs into the thousands, while one that never fails but")
+    print("is never exact stays near ten. That is why the two tables above disagree on")
+    print("who wins -- geomean scores the typical IR, RMS scores the failures.")
     print("Rows are not on the same IRs: CMA-ES arms use their own evaluation sets and")
     print("the encoder uses its validation split. Compare within a column with care.\n")
 
