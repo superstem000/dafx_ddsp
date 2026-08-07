@@ -14,12 +14,12 @@ computed from the encoder's own mu and is therefore pre-ternary while its other
 five composites are not.
 
 No single scalar summarises these runs, so three views are printed. Per
-composite, geomean across IRs and RMS across IRs -- the first describes the
+composite, median across IRs and RMS across IRs -- the first describes the
 typical IR, the second is set by the failures, and for one CMA-ES restart they
-disagree about who wins by a factor of 130. Then the NMSE_6d quantiles, which
-show why: with one restart the distribution has no middle, so any measure of
-the middle is reporting a value no IR actually has. Its geomean sits 100x below
-its own median.
+disagree about which method wins. Then the NMSE_6d quantiles, which show why:
+with one restart the distribution has no middle, and any summary of the middle
+reports a value no IR actually has. Its geomean sits 100x below its own median,
+which is why the per-composite tables use the median instead.
 
     python -m src.analysis.compare_methods
     python -m src.analysis.compare_methods --ddsp-ckpt results/ddsp/sweep_L1_STFT/encoder_best.pt
@@ -117,25 +117,29 @@ def load_ddsp(ckpt_path: Path, batch_size: int, chunk_elems: int, n_val, fit_mu:
 
 
 def score(est, gt):
-    """Per-composite error as % of bound range, both ways, plus the NMSE_6d spread.
+    """Per-composite error as % of bound range, two ways, plus the NMSE_6d spread.
 
-    Geomean and RMS are both reported because the gap between them is a
-    property of the method, not of the metric. 1-restart CMA-ES is bimodal --
-    it either lands in the basin and recovers ground truth, or misses and fails
-    outright -- so its mean sits ~3600x above its geomean. The encoder has no
-    basin to miss and degrades gracefully, at ~12x. Reporting either alone
-    tells half the story: on the typical IR CMA-ES wins by 19x, on the average
-    IR the encoder wins by 4x.
+    Median, not geometric mean. The geomean is as distorted by the successes as
+    the arithmetic mean is by the failures: with roughly half of one restart's
+    IRs landing near 1e-12 and half near 1e-1, its geomean lands around 1e-6 --
+    a value no IR has, and 100x below its own median. Median reports the
+    typical IR whatever the shape of the distribution.
+
+    RMS is kept alongside because the gap between them is a property of the
+    method rather than of the metric, and because the two disagree about who
+    wins: on the typical IR one CMA-ES restart beats the encoder, on the
+    average IR the encoder beats it. Both are true, which is why the quantiles
+    below exist.
     """
-    geo, rms, sq = {}, {}, []
+    med, rms, sq = {}, {}, []
     for k in KEYS:
         lo, hi = COMPOSITE_BOUNDS[k]
         err = np.array([abs(e[k] - g[k]) / (hi - lo) for e, g in zip(est, gt)])
         sq.append(err ** 2)
-        geo[k] = 100.0 * float(np.exp(np.mean(np.log(np.maximum(err, FLOOR)))))
+        med[k] = 100.0 * float(np.median(err))
         rms[k] = 100.0 * math.sqrt(float(np.mean(err ** 2)))
     n6 = np.mean(np.stack(sq), axis=0)
-    return geo, rms, n6
+    return med, rms, n6
 
 
 # Categorical slots 1-6 of the reference palette, in fixed order. Validated for
@@ -235,11 +239,11 @@ def main() -> None:
                                    args.n_val, not args.no_fit_mu)
         rows.append((f"DDSP  {ck.parent.name}", stage, *score(est, gt)))
 
-    rows.sort(key=lambda r: float(np.exp(np.mean(np.log(np.maximum(r[4], FLOOR))))))
+    rows.sort(key=lambda r: float(np.median(r[4])))
     hdr = (f"{'method':26s} {'stage':>8s} {'n':>5s} " + " ".join(f"{k:>10s}" for k in KEYS))
     rule = "-" * 26 + " " + "-" * 8 + " " + "-" * 5 + " " + " ".join("-" * 10 for _ in KEYS)
 
-    for title, idx in (("geometric mean across IRs -- the typical IR", 2),
+    for title, idx in (("median across IRs -- the typical IR", 2),
                        ("RMS across IRs -- tail-weighted", 3)):
         print(f"\n|error| per composite, {title}, as % of that parameter's bound range")
         print(hdr); print(rule)
