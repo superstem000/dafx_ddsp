@@ -13,13 +13,15 @@ running the scale stage here, since history.json's per-coordinate nmse_{k} is
 computed from the encoder's own mu and is therefore pre-ternary while its other
 five composites are not.
 
-Worth knowing when reading the output: --stat geo reports the geometric mean of
-|error| per coordinate, which is a typical-case figure, while NMSE_6d is a mean
-of squares across coordinates first and then a geomean across IRs. They answer
-different questions and will not agree; both are printed.
+No single scalar summarises these runs, so three views are printed. Per
+composite, geomean across IRs and RMS across IRs -- the first describes the
+typical IR, the second is set by the failures, and for one CMA-ES restart they
+disagree about who wins by a factor of 130. Then the NMSE_6d quantiles, which
+show why: with one restart the distribution has no middle, so any measure of
+the middle is reporting a value no IR actually has. Its geomean sits 100x below
+its own median.
 
     python -m src.analysis.compare_methods
-    python -m src.analysis.compare_methods --stat rms
     python -m src.analysis.compare_methods --ddsp-ckpt results/ddsp/sweep_L1_STFT/encoder_best.pt
 """
 
@@ -176,21 +178,30 @@ def main() -> None:
             print(f"{name:26s} {stage:>8s} {len(_):5d} " +
                   " ".join(f"{per[k]:10.3f}" for k in KEYS))
 
-    print(f"\nNMSE_6d distribution across IRs -- how the two above come apart")
-    print(f"{'method':26s} {'n':>5s} {'geo':>10s} {'med':>10s} {'p90':>10s} "
-          f"{'mean':>10s} {'mean/geo':>9s} {'>1e-2':>7s} {'>1e-1':>7s}")
-    print("-" * 26 + " " + "-" * 5 + " " + " ".join("-" * 10 for _ in range(4)) +
-          " " + "-" * 9 + " " + "-" * 7 + " " + "-" * 7)
+    # Quantiles rather than a pass/fail count: a threshold both picks an
+    # arbitrary cut and says nothing about quality within a mode -- two losses
+    # that never fail, one landing at 1e-14 and one at 1e-3, would score
+    # identically. The quantile function carries the same information with no
+    # cut to choose, and "spread" (decades from p10 to p90) is the
+    # threshold-free bimodality measure: an optimizer that either recovers
+    # ground truth or misses the basin entirely spans ten decades, one that is
+    # uniformly mediocre spans two.
+    print(f"\nNMSE_6d quantiles across IRs -- what the best 10%, 25%, ... achieve")
+    print(f"{'method':26s} {'n':>5s} {'geo':>10s} " +
+          " ".join(f"{q:>10s}" for q in ("p10", "p25", "p50", "p75", "p90")) +
+          f" {'spread':>8s}")
+    print("-" * 26 + " " + "-" * 5 + " " + " ".join("-" * 10 for _ in range(6)) + " " + "-" * 8)
     for name, stage, geo, rms, n6 in rows:
         g = float(np.exp(np.mean(np.log(np.maximum(n6, FLOOR)))))
-        print(f"{name:26s} {len(n6):5d} {g:10.3e} {np.median(n6):10.3e} "
-              f"{np.percentile(n6, 90):10.3e} {n6.mean():10.3e} {n6.mean()/max(g,FLOOR):9.1f} "
-              f"{100*(n6 > 1e-2).mean():6.1f}% {100*(n6 > 1e-1).mean():6.1f}%")
+        qs = np.percentile(n6, [10, 25, 50, 75, 90])
+        dec = math.log10(max(qs[4], FLOOR) / max(qs[0], FLOOR))
+        print(f"{name:26s} {len(n6):5d} {g:10.3e} " +
+              " ".join(f"{q:10.3e}" for q in qs) + f" {dec:7.1f}d")
 
-    print("\nmean/geo is the tail: a bimodal method that either lands in the basin or")
-    print("misses it entirely runs into the thousands, while one that never fails but")
-    print("is never exact stays near ten. That is why the two tables above disagree on")
-    print("who wins -- geomean scores the typical IR, RMS scores the failures.")
+    print("\nspread is log10(p90/p10), in decades. It separates 'never fails, never")
+    print("exact' from 'exact or nothing' without picking a threshold, and it is why")
+    print("the two tables above disagree about who wins: geomean and median describe")
+    print("the middle of a distribution that, for one restart, has no middle.")
     print("Rows are not on the same IRs: CMA-ES arms use their own evaluation sets and")
     print("the encoder uses its validation split. Compare within a column with care.\n")
 
