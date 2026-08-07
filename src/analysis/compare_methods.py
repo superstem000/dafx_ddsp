@@ -138,6 +138,72 @@ def score(est, gt):
     return geo, rms, n6
 
 
+# Categorical slots 1-6 of the reference palette, in fixed order. Validated for
+# the adjacent pairlist a line chart uses: worst adjacent CVD dE 9.1, worst
+# adjacent normal-vision dE 19.6. Three slots sit under 3:1 on the light
+# surface, so the relief rule applies -- hence the legend, the direct labels on
+# the right-hand panel, and the printed tables above the figure.
+PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
+LADDER = ["l1_stft", "mss", "smoothmss", "l1_stft_c2", "l1_stft_pow", "l1_stft_log"]
+
+
+def plot(data, out_path: Path):
+    """Log-x ECDF: the quantile function drawn, so no threshold has to be picked.
+
+    Two panels because there are two claims. Left, the compression ladder at one
+    CMA-ES restart -- the curves separate cleanly and monotonically. Right, the
+    methods, where the shapes differ in kind rather than degree: one restart is
+    a near-vertical rise at 1e-12 and a second at 1e-1 with nothing between,
+    while the encoder is a single narrow band. That shape is exactly what makes
+    a scalar summary of either misleading.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    def ecdf(ax, v, color, label):
+        v = np.sort(np.maximum(v, 1e-16))
+        ax.step(v, np.arange(1, v.size + 1) / v.size, where="post",
+                color=color, lw=2, label=label, solid_joinstyle="round")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.5, 4.6), sharey=True)
+
+    for i, name in enumerate(LADDER):
+        key = next((k for k in data if k.endswith(name) and "1rst" in k), None)
+        if key:
+            ecdf(ax1, data[key], PALETTE[i], name)
+    ax1.set_title("CMA-ES, one restart: the compression ladder", loc="left", fontsize=11)
+    ax1.legend(fontsize=8.5, loc="lower right", frameon=False)
+
+    panel2 = [(k, v) for k, v in data.items()
+              if k.startswith("DDSP") or k.startswith("CMA-ES full")
+              or k == "CMA-ES 1rst   l1_stft"]
+    for i, (k, v) in enumerate(panel2):
+        ecdf(ax2, v, PALETTE[i], k)
+        vs = np.sort(np.maximum(v, 1e-16))
+        ax2.annotate(k.replace("CMA-ES", "CMA-ES").strip(), (vs[-1], 1.0),
+                     xytext=(4, -2 - 11 * i), textcoords="offset points",
+                     fontsize=8.5, color="#52514e", va="top")
+    ax2.set_title("Methods: shape, not just level", loc="left", fontsize=11)
+
+    for ax in (ax1, ax2):
+        ax.set_xscale("log")
+        ax.grid(True, which="both", lw=0.5, alpha=0.25)
+        ax.set_axisbelow(True)
+        ax.set_xlabel("NMSE$_{6d}$  (log scale)")
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    ax1.set_ylabel("fraction of IRs at or below")
+    ax1.set_ylim(0, 1.02)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, bbox_inches="tight", facecolor="#fcfcfb")
+    fig.savefig(out_path.with_suffix(".pdf"), bbox_inches="tight", facecolor="#fcfcfb")
+    plt.close(fig)
+    print(f"\nwrote {out_path} and {out_path.with_suffix('.pdf')}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--results", type=Path, default=Path("results"))
@@ -148,6 +214,10 @@ def main() -> None:
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--chunk-elems", type=int, default=20_000_000)
     p.add_argument("--n-val", type=int, default=None)
+    p.add_argument("--plot", type=Path, default=None,
+                   help="Write a log-x ECDF of NMSE_6d here (PNG, plus a PDF alongside)")
+    p.add_argument("--dump-csv", type=Path, default=None,
+                   help="Write the raw per-IR NMSE_6d values, one column per method")
     args = p.parse_args()
 
     rows = []
@@ -197,6 +267,19 @@ def main() -> None:
         dec = math.log10(max(qs[4], FLOOR) / max(qs[0], FLOOR))
         print(f"{name:26s} {len(n6):5d} {g:10.3e} " +
               " ".join(f"{q:10.3e}" for q in qs) + f" {dec:7.1f}d")
+
+    if args.plot:
+        plot({name: n6 for name, _, _, _, n6 in rows}, args.plot)
+    if args.dump_csv:
+        args.dump_csv.parent.mkdir(parents=True, exist_ok=True)
+        names = [r[0] for r in rows]
+        cols = [r[4] for r in rows]
+        with args.dump_csv.open("w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(names)
+            for i in range(max(len(c) for c in cols)):
+                w.writerow(["" if i >= len(c) else f"{c[i]:.9e}" for c in cols])
+        print(f"wrote {args.dump_csv}")
 
     print("\nspread is log10(p90/p10), in decades. It separates 'never fails, never")
     print("exact' from 'exact or nothing' without picking a threshold, and it is why")
