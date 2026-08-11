@@ -42,4 +42,4 @@ synth:
   added_noise_std: 0.0001
 
 logging:
-  n_images_to_log: 5
+  n_images_to_log: 0
