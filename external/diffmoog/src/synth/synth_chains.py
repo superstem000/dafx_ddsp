@@ -131,6 +131,31 @@ REDUCED_SIMPLE_OSC = [
     {'index': (0, 3), 'operation': 'lowpass_filter', 'audio_input': [[0, 2]], 'control_input': None, 'outputs': None},
 ]
 
+# Two minimal chains, for establishing whether a spectral loss can recover
+# parameters here at all. REDUCED_SIMPLE_FILTER carries degeneracies that make
+# a null result ambiguous -- the saw/square amplitude split, sustain_level
+# trading against oscillator amplitude, and filter_freq being unidentifiable
+# once it sits above the harmonic content. These have none of that.
+#
+# Built from osc_saw_no_activeness rather than 'osc', deliberately: 'osc'
+# carries 'waveform', 'active' and 'phase', and phase is very close to
+# unobservable through a magnitude spectrogram, so including it would build a
+# degeneracy into the very experiment meant to rule degeneracy out.
+
+# amp and freq (discrete, piano notes). The smallest task the encoder can be
+# asked to do.
+SAW_ONLY = [
+    {'index': (0, 0), 'operation': 'osc_saw_no_activeness', 'default_connection': True},
+]
+
+# amp, freq, and filter_freq. filter_freq is smooth in spectral terms, so this
+# adds a parameter a spectral loss ought to be good at, without adding any
+# ambiguity about which module a change belongs to.
+SAW_FILTER = [
+    {'index': (0, 0), 'operation': 'osc_saw_no_activeness', 'audio_input': None, 'control_input': None, 'outputs': [[0, 1]]},
+    {'index': (0, 1), 'operation': 'lowpass_filter', 'audio_input': [[0, 0]], 'control_input': None, 'outputs': None},
+]
+
 SAW_SQUARE_MIX = [
     {'index': (0, 0), 'operation': 'saw_square_osc', 'default_connection': True},
 ]
@@ -339,5 +364,7 @@ synth_chains_dict = {'BASIC_FLOW': BASIC_FLOW,
                       'OSC_TREMOLO': OSC_TREMOLO,
                       'FM_DX7': FM_DX7,
                       'REDUCED_SIMPLE_FILTER': REDUCED_SIMPLE_FILTER,
-                      'REDUCED_SIMPLE_OSC': REDUCED_SIMPLE_OSC
+                      'REDUCED_SIMPLE_OSC': REDUCED_SIMPLE_OSC,
+                      'SAW_ONLY': SAW_ONLY,
+                      'SAW_FILTER': SAW_FILTER
                       }
