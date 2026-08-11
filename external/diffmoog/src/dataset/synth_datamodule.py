@@ -40,7 +40,10 @@ class ModularSynthDataModule(pl.LightningDataModule):
             self.in_domain_val_dataset = AiSynthDataset(val_dir)
 
             nsynth_val_dir = os.path.join(self.data_dir, 'val_nsynth')
-            self.out_of_domain_val_dataset = NSynthDataset(nsynth_val_dir)
+            if os.path.isdir(nsynth_val_dir):
+                self.out_of_domain_val_dataset = NSynthDataset(nsynth_val_dir)
+            else:
+                print("No OOD validation data found. Validating in-domain only...")
 
     def train_dataloader(self):
         if 0 < self.switch_to_ood_after_n_epochs < self.trainer.current_epoch + 1:
@@ -56,6 +59,11 @@ class ModularSynthDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         id_loader = DataLoader(self.in_domain_val_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
                                persistent_workers=(self.num_workers != 0), pin_memory=True)
+
+        if self.out_of_domain_val_dataset is None:
+            # Still a list, so Lightning keeps passing dataloader_idx to
+            # validation_step -- which declares it as a required positional.
+            return [id_loader]
 
         ood_loader = DataLoader(self.out_of_domain_val_dataset, batch_size=self.batch_size,
                                 num_workers=self.num_workers, persistent_workers=(self.num_workers != 0),

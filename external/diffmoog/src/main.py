@@ -96,7 +96,7 @@ def run(run_args):
                       callbacks=callbacks,
                       max_epochs=cfg.model.num_epochs,
                       accelerator="gpu",
-                      detect_anomaly=True,
+                      detect_anomaly=False,
                       log_every_n_steps=log_every_n_steps,
                       check_val_every_n_epoch=1,
                       accumulate_grad_batches=4,

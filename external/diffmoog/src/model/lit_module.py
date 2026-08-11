@@ -266,7 +266,7 @@ class LitModularSynth(LightningModule):
         return step_losses
 
     @torch.no_grad()
-    def validation_step(self, batch, batch_idx, dataloader_idx) -> Optional[STEP_OUTPUT]:
+    def validation_step(self, batch, batch_idx, dataloader_idx=0) -> Optional[STEP_OUTPUT]:
         val_name = 'in_domain_validation' if dataloader_idx == 0 else 'nsynth_validation'
 
         if batch_idx == 0:
