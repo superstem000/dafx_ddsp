@@ -219,7 +219,44 @@ MAG_LOGMAG_LOSS = {'fft_sizes': (2048,),
                    'normalize_loss_by_nfft': False,
                    'multi_spectral_mag_gradual': False,}
 
+# ---------------------------------------------------------------------------
+# Loss study: a 2x2 over resolution x compression, single-factor throughout.
+#
+# The two shipped presets that look like they would serve do not. Weights are
+# read with .get(name, 0), so a missing key is a zero weight, and on that
+# reading SPECTROGRAM_LOG_MAGNITUDE_LOSS is mag_weight 1 with no logmag_weight
+# under L2 -- L2 on linear magnitude, despite the name -- while MAG_LOGMAG_LOSS
+# is mag_weight 0 / logmag_weight 1 under L2, i.e. log only, also despite the
+# name. The two appear to have been swapped. Either would silently answer a
+# different question than the one being asked, so the study defines its own.
+# ---------------------------------------------------------------------------
+
+# The single-factor flip from SPECTROGRAM_MAGNITUDE_LOSS: same resolution,
+# same L1 norm, same overlap, mag_weight moved to logmag_weight.
+SPECTROGRAM_LOGMAG_L1_LOSS = {'fft_sizes': (2048,),
+                              'transform': 'SPECTROGRAM',
+                              'frame_overlap': 0.75,
+                              'multi_spectral_loss_norm': 'L1',
+                              'multi_spectral_mag_weight': 0,
+                              'multi_spectral_logmag_weight': 1,
+                              'normalize_loss_by_nfft': False}
+
+# DDSP's original multi-scale spectral loss (Engel et al., 2020): linear
+# magnitude L1 plus log magnitude L1 at equal weight, summed over six
+# resolutions. There is no spectral-convergence term to omit -- SpectralLoss
+# implements only mag, logmag, cumsum_time and cumsum_freq -- so this is the
+# whole objective, not a reduced form of one.
+MSS_DDSP_LOSS = {'fft_sizes': (2048, 1024, 512, 256, 128, 64),
+                 'transform': 'SPECTROGRAM',
+                 'frame_overlap': 0.75,
+                 'multi_spectral_loss_norm': 'L1',
+                 'multi_spectral_mag_weight': 1,
+                 'multi_spectral_logmag_weight': 1,
+                 'normalize_loss_by_nfft': False}
+
 loss_presets = {'mss_cumsum_time': MSS_CUMSUM_TIME_LOSS,
+                'spectrogram_logmag_l1': SPECTROGRAM_LOGMAG_L1_LOSS,
+                'mss_ddsp': MSS_DDSP_LOSS,
                 'mss_cumsum_freq': MSS_CUMSUM_FREQ_LOSS,
                 'mss_cumsum_time_freq': MSS_CUMSUM_TIME_FREQ_LOSS,
                 'cumsum_time': CUMSUM_TIME_LOSS,
