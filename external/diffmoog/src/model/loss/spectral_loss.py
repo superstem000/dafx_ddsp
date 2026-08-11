@@ -12,7 +12,16 @@ loss_type_to_function = {'mag': lambda x: x,
                          'delta_freq': lambda x: torch.diff(x, n=1, dim=2),
                          'cumsum_time': lambda x: torch.cumsum(x, dim=2),
                          'cumsum_freq': lambda x: torch.cumsum(x, dim=1),
-                         'logmag': lambda x: torch.log(x + 1)}
+                         'logmag': lambda x: torch.log(x + 1),
+                         # log(x + eps), the unbounded log used by the standard
+                         # multi-scale spectral loss. 'logmag' above is log(x+1),
+                         # which is ~linear near zero and only compresses large
+                         # values, so it cannot stand in for this: the two differ
+                         # exactly where a quiet bin sits, which is where the
+                         # compression question lives. calc_loss reads weights as
+                         # multi_spectral_{loss_type}_weight, so adding the entry
+                         # here is all that is needed to make it selectable.
+                         'logmag_eps': lambda x: torch.log(x + 1e-7)}
 
 class BaseSpectralLoss(nn.Module):
     """ Base class for spectral loss"""

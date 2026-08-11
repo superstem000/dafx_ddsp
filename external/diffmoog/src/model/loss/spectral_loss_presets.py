@@ -254,8 +254,24 @@ MSS_DDSP_LOSS = {'fft_sizes': (2048, 1024, 512, 256, 128, 64),
                  'multi_spectral_logmag_weight': 1,
                  'normalize_loss_by_nfft': False}
 
+# The unbounded end of the ladder: log(x + 1e-7) rather than log(x + 1).
+# Identical to SPECTROGRAM_LOGMAG_L1_LOSS in every other respect, so the pair
+# isolates where the compression knee sits and nothing else. Note x here is a
+# power spectrogram (the Spectrogram transform is built with power=2.0), so the
+# knee falls at a different point relative to the magnitude distribution than
+# the plate's log(|X| + 1e-7) does -- a parameter of the experiment, not an
+# accident, and worth stating wherever the two are compared.
+SPECTROGRAM_LOGMAG_EPS_L1_LOSS = {'fft_sizes': (2048,),
+                                  'transform': 'SPECTROGRAM',
+                                  'frame_overlap': 0.75,
+                                  'multi_spectral_loss_norm': 'L1',
+                                  'multi_spectral_mag_weight': 0,
+                                  'multi_spectral_logmag_eps_weight': 1,
+                                  'normalize_loss_by_nfft': False}
+
 loss_presets = {'mss_cumsum_time': MSS_CUMSUM_TIME_LOSS,
                 'spectrogram_logmag_l1': SPECTROGRAM_LOGMAG_L1_LOSS,
+                'spectrogram_logmag_eps_l1': SPECTROGRAM_LOGMAG_EPS_L1_LOSS,
                 'mss_ddsp': MSS_DDSP_LOSS,
                 'mss_cumsum_freq': MSS_CUMSUM_FREQ_LOSS,
                 'mss_cumsum_time_freq': MSS_CUMSUM_TIME_FREQ_LOSS,
