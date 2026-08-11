@@ -446,6 +446,10 @@ def fit_one_ir(target_np, args, space, loss_fn, device, dtype, loss_dtype):
     spent, wave = 0, 0
     best = None  # (loss, z_row, mu_row)
     all_hist: List[List[float]] = []
+    # Every start's endpoint, not just the winner's. The winner alone cannot say
+    # whether reaching the loss floor is what recovers the parameters; sixteen
+    # (final loss, final parameters) pairs can.
+    all_finals: List[Tuple[float, np.ndarray, float]] = []
 
     while spent < budget and wave < args.max_waves:
         epochs = min(args.n_epochs, (budget - spent) // max(1, batch))
@@ -472,6 +476,8 @@ def fit_one_ir(target_np, args, space, loss_fn, device, dtype, loss_dtype):
 
         spent += batch * ran
         all_hist.extend(hist_b)
+        for k in range(len(loss_b)):
+            all_finals.append((float(loss_b[k]), z_b[k].copy(), float(mu_b[k])))
         w = int(np.argmin(loss_b))
         if best is None or loss_b[w] < best[0]:
             best = (float(loss_b[w]), z_b[w].copy(), float(mu_b[w]))
@@ -487,7 +493,7 @@ def fit_one_ir(target_np, args, space, loss_fn, device, dtype, loss_dtype):
     est6 = space.to_six(best[1])
     if space.profiles_mu:
         est6["mu"] = best[2]
-    return est6, space.to_raw7(best[1]), best[0], all_hist, spent, wave
+    return est6, space.to_raw7(best[1]), best[0], all_hist, all_finals, spent, wave
 
 
 def loss_at_ground_truth(gt7, gt6, target, duration, space, loss_fn, device, dtype, loss_dtype):
@@ -506,11 +512,28 @@ def loss_at_ground_truth(gt7, gt6, target, duration, space, loss_fn, device, dty
     return float(lv[0])
 
 
-def _plot_per_ir(rid, hist, gt6, est6, elapsed, out_path):
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+def _plot_per_ir(rid, hist, gt6, est6, elapsed, out_path, gt_loss=None, per_restart=None):
+    """Per-restart convergence, the parameter fit, and how the two relate.
+
+    The third panel is the one that carries an argument rather than a summary.
+    A restart's final loss is observable without ground truth; its final
+    NMSE_6d is not. Plotting them against each other over every start says
+    whether driving the loss to its floor is what recovers the parameters, or
+    whether the loss bottoms out somewhere the parameters do not follow -- and
+    a single best-restart number cannot distinguish those.
+    """
+    ncol = 3 if per_restart else 2
+    fig, axes = plt.subplots(1, ncol, figsize=(6.5 * ncol, 5))
     ax = axes[0]
     for h in hist:
         ax.plot(np.arange(len(h)), h, linewidth=0.6, alpha=0.35)
+    if gt_loss is not None and gt_loss > 0:
+        # Without this line the reader cannot tell a converged run from a stalled
+        # one: both are just curves that flatten. This is the floor they are
+        # flattening against.
+        ax.axhline(gt_loss, color="k", ls="--", lw=1.0,
+                   label=f"loss at true params ({gt_loss:.2e})")
+        ax.legend(fontsize=8, loc="upper right")
     ax.set_yscale("log")
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Loss")
@@ -536,6 +559,22 @@ def _plot_per_ir(rid, hist, gt6, est6, elapsed, out_path):
     ax.set_title(f"NMSE_6d={nmse_6d(est6, gt6):.3e}")
     ax.grid(True, axis="y", alpha=0.3)
     ax.legend()
+    if per_restart:
+        ax = axes[2]
+        fl = np.array([max(p[0], 1e-300) for p in per_restart])
+        fn = np.array([max(p[1], 1e-300) for p in per_restart])
+        ax.scatter(fl, fn, s=46, color="steelblue", edgecolor="k",
+                   linewidth=0.5, zorder=3)
+        if gt_loss is not None and gt_loss > 0:
+            ax.axvline(gt_loss, color="k", ls="--", lw=1.0, label="loss at true params")
+            ax.legend(fontsize=8, loc="lower right")
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("final loss")
+        ax.set_ylabel("final NMSE_6d")
+        ax.set_title(f"{len(per_restart)} restarts: loss reached vs parameters recovered")
+        ax.grid(True, alpha=0.3, which="both")
+
     plt.suptitle(f"random_IR_{rid} ({elapsed:.0f}s)", fontweight="bold")
     plt.tight_layout()
     plt.savefig(out_path, dpi=140)
@@ -602,7 +641,7 @@ def run(args) -> None:
         print(f"[{i}/{len(param_files)}] random_IR_{rid}  ({target_np.shape[0]} samples)")
         t0 = time.time()
         try:
-            est6, est7, best_loss, hist, spent, waves = fit_one_ir(
+            est6, est7, best_loss, hist, finals, spent, waves = fit_one_ir(
                 target_np, args, space, loss_fn, device, dtype, loss_dtype
             )
         except RuntimeError as e:
@@ -666,8 +705,31 @@ def run(args) -> None:
             f"      NMSE_6d={row['nmse_6d']:.3e}  NMSE_7d={row['nmse_7d']:.3e}  "
             f"mu_rel_err={row['mu_rel_error']:.3e}  {elapsed:.1f}s"
         )
+        # Score every start, not just the winner, and keep the trace on disk.
+        # Without this the loss curves live only in memory, so any change to the
+        # figure costs a full refit -- 379s for one IR at 16x3000.
+        per_restart = []
+        for f_loss, f_z, f_mu in finals:
+            e6 = space.to_six(f_z)
+            if space.profiles_mu:
+                e6["mu"] = f_mu
+            per_restart.append((f_loss, nmse_6d(e6, gt6)))
+        if hist:
+            width = max(len(h) for h in hist)
+            curves = np.full((len(hist), width), np.nan)
+            for j, h in enumerate(hist):
+                curves[j, : len(h)] = h
+            np.savez_compressed(
+                out_dir / f"trace_random_IR_{rid}.npz",
+                curves=curves,
+                final_loss=np.array([p[0] for p in per_restart]),
+                final_nmse_6d=np.array([p[1] for p in per_restart]),
+                gt_loss=np.float64(gt_loss),
+            )
         if not args.no_plots:
-            _plot_per_ir(rid, hist, gt6, est6, elapsed, out_dir / f"random_IR_{rid}_diagnostic.png")
+            _plot_per_ir(rid, hist, gt6, est6, elapsed,
+                         out_dir / f"random_IR_{rid}_diagnostic.png",
+                         gt_loss=gt_loss, per_restart=per_restart)
 
     if rows:
         df = pd.DataFrame(rows)

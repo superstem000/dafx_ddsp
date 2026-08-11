@@ -1,0 +1,3 @@
+[submodule "external/diffmoog"]
+	path = external/diffmoog
+	url = https://github.com/aisynth/diffmoog
