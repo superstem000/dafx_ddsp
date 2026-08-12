@@ -40,12 +40,37 @@ mkdir -p "$OUT"
 echo "arms: ${ARM_ARR[*]}"
 echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  lr: $LR  out: $OUT"
 
+if [[ -z "$EXTRA" ]]; then
+  echo
+  echo "WARNING: EXTRA is empty, so every arm falls back to train_encoder's own"
+  echo "defaults -- in particular --n-train 8192 generated on the fly rather than"
+  echo "a dataset from data/. The ladder is still internally single-variable, but"
+  echo "it is NOT comparable to the 120k arms unless those defaults are what they"
+  echo "ran with. src.ddsp.diag_recover_recipe identifies the datasets they used."
+  echo
+fi
+
+# The 120k sweep's arguments were never written down, which is the whole reason
+# EXTRA has to be guessed at. Record this one's before it starts.
+{
+  echo "steps=$STEPS lr=$LR arms='$ARMS' gpus='$GPUS'"
+  echo "extra='$EXTRA'"
+  echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+  echo "python=$(command -v python)"
+  echo "torch=$(python -c 'import torch;print(torch.__version__, torch.version.cuda)' 2>/dev/null || echo unknown)"
+} > "$OUT/sweep_command.txt"
+cat "$OUT/sweep_command.txt"
+
 # Arms are handed to GPUs round-robin and run sequentially within a GPU, so a
 # ladder longer than the GPU count still completes without oversubscribing.
 for ((g = 0; g < NG; g++)); do
   (
     for ((i = g; i < ${#ARM_ARR[@]}; i += NG)); do
       arm=${ARM_ARR[$i]}
+      # `|| echo` rather than letting set -e take the subshell down: one arm
+      # failing should not silently cancel the arms queued behind it on the
+      # same GPU, which is how a six-hour sweep comes back with three results
+      # and no error.
       # shellcheck disable=SC2086
       CUDA_VISIBLE_DEVICES=${GPU_ARR[$g]} python -m src.ddsp.train_encoder \
         --loss "$arm" \
@@ -55,7 +80,8 @@ for ((g = 0; g < NG; g++)); do
         --lr "$LR" \
         --seed 0 \
         $EXTRA \
-        > "$OUT/$arm.log" 2>&1
+        > "$OUT/$arm.log" 2>&1 \
+        || echo "FAILED $arm (gpu ${GPU_ARR[$g]}) -- see $OUT/$arm.log" | tee -a "$OUT/failures.txt"
     done
   ) &
   echo "  gpu ${GPU_ARR[$g]} -> $(for ((i = g; i < ${#ARM_ARR[@]}; i += NG)); do printf '%s ' "${ARM_ARR[$i]}"; done)"
