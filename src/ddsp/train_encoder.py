@@ -91,6 +91,7 @@ class Encoder(nn.Module):
         input_mode: str = "norm_amp",
         in_ch: Optional[int] = None,
         n_extra: int = 0,
+        norm: str = "group",
     ):
         super().__init__()
         self.n_fft, self.hop = n_fft, hop
@@ -110,9 +111,22 @@ class Encoder(nn.Module):
             ch_out = min(width * (2 ** i), max_ch)
             # Stride time only while there are frames left to spend.
             stride = (2, 2) if i < 3 else (2, 1)
+            # GroupNorm normalizes across channels within one example, so it
+            # places no constraint at all on whether two different inputs give
+            # two different outputs -- "map everything to the same vector" is a
+            # solution it permits. BatchNorm normalizes across the batch, so
+            # that solution is not reachable: zero variance across examples is
+            # what its own denominator divides by. Given that collapse to a
+            # constant is this encoder's documented failure mode, that is the
+            # relevant property, and both diffsynth's MelEstimator and
+            # diffmoog's resnet backbone use BatchNorm here. GroupNorm's own
+            # advantage is small batches, which at batch 64 is not the regime.
+            # Kept as a flag rather than a replacement so the two can be
+            # compared as one variable.
             blocks += [
                 nn.Conv2d(ch_in, ch_out, 3, stride=stride, padding=1),
-                nn.GroupNorm(min(8, ch_out), ch_out),
+                nn.BatchNorm2d(ch_out) if norm == "batch"
+                else nn.GroupNorm(min(8, ch_out), ch_out),
                 nn.GELU(),
             ]
             ch_in, n_freq = ch_out, (n_freq + 1) // 2
@@ -651,6 +665,7 @@ def run(args) -> None:
     model = Encoder(
         n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
         n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
+        norm=args.norm,
     ).to(device)
     cond = CompositeConditioner(device)
     refiner = None
@@ -660,7 +675,7 @@ def run(args) -> None:
         refiner = Encoder(
             n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
             n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
-            in_ch=6, n_extra=len(CompositeConditioner.KEYS),
+            in_ch=6, n_extra=len(CompositeConditioner.KEYS), norm=args.norm,
         ).to(device)
 
     params = list(model.parameters()) + (list(refiner.parameters()) if refiner else [])
@@ -1011,6 +1026,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--grad-clip", type=float, default=10.0,
         help="Clip is on the objective *after* loss scaling; at 1.0 it bound on "
              "essentially every step, making it a constant rather than an outlier guard",
+    )
+    p.add_argument(
+        "--norm", type=str, default="group", choices=["group", "batch"],
+        help="Normalization inside the conv trunk. GroupNorm works within one "
+             "example and so permits an encoder that maps every input to the "
+             "same output -- this encoder's documented failure mode. BatchNorm "
+             "normalizes across the batch, which makes that solution "
+             "unreachable, and is what diffsynth's MelEstimator and diffmoog's "
+             "resnet backbone both use. Default stays group so existing runs "
+             "reproduce.",
     )
     p.add_argument("--width", type=int, default=32)
     p.add_argument("--n-blocks", type=int, default=5)

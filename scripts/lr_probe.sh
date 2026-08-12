@@ -37,6 +37,7 @@ CLIP=${CLIP:-5000.0}
 BATCH=${BATCH:-64}
 WARMUP=${WARMUP:-2000}
 DEEPSUP=${DEEPSUP:-0.5}
+NORM=${NORM:-group}
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 
@@ -61,7 +62,7 @@ echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  out: $OUT"
 {
   echo "steps=$STEPS losses='$LOSSES' lrs='$LRS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
-  echo "grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP constant_lr=yes"
+  echo "norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP constant_lr=yes"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -116,6 +117,7 @@ PY
         --batch-size "$BATCH" \
         --deep-supervision "$DEEPSUP" \
         --grad-clip "$CLIP" \
+        --norm "$NORM" \
         --seed 0 \
         $NUMERICS $EXTRA \
         > "$OUT/$name.log" 2>&1 || rc=$?

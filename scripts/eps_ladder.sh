@@ -64,6 +64,11 @@ WARMUP=${WARMUP:-2000}
 LR_FLOOR=${LR_FLOOR:-0.02}
 LR_HOLD=${LR_HOLD:-0.6}
 DEEPSUP=${DEEPSUP:-0.5}
+# group reproduces the 120k arms; batch is the cross-example normalization
+# both diffsynth and diffmoog use, and the one that makes a constant output
+# unreachable. Set NORM=batch to run the ladder under it -- every rung
+# including the L1_STFT anchor, so the comparison stays symmetric.
+NORM=${NORM:-group}
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7"}
@@ -100,7 +105,7 @@ echo
 {
   echo "steps=$STEPS lr=$LR arms='$ARMS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
-  echo "grad_clip=$CLIP batch=$BATCH warmup=$WARMUP lr_floor=$LR_FLOOR lr_hold_frac=$LR_HOLD deep_sup=$DEEPSUP"
+  echo "norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP lr_floor=$LR_FLOOR lr_hold_frac=$LR_HOLD deep_sup=$DEEPSUP"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -134,6 +139,7 @@ for ((g = 0; g < NG; g++)); do
         --batch-size "$BATCH" \
         --deep-supervision "$DEEPSUP" \
         --grad-clip "$CLIP" \
+        --norm "$NORM" \
         --seed 0 \
         $NUMERICS $EXTRA \
         > "$OUT/$arm.log" 2>&1 || rc=$?
