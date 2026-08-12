@@ -51,6 +51,11 @@ NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 -
 EXTRA=${EXTRA:-""}
 ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7"}
 
+# Ctrl-C should stop the sweep, not advance it. Without this the per-arm
+# failure handling below reads an interrupt as "that arm died, start the next
+# one", so interrupting a seven-arm ladder quietly launches three more.
+trap 'echo; echo "interrupted -- stopping all arms"; kill 0; exit 130' INT TERM
+
 read -r -a GPU_ARR <<< "$GPUS"
 read -r -a ARM_ARR <<< "$ARMS"
 NG=${#GPU_ARR[@]}
@@ -92,10 +97,11 @@ for ((g = 0; g < NG; g++)); do
   (
     for ((i = g; i < ${#ARM_ARR[@]}; i += NG)); do
       arm=${ARM_ARR[$i]}
-      # `|| echo` rather than letting set -e take the subshell down: one arm
-      # failing should not silently cancel the arms queued behind it on the
-      # same GPU, which is how a six-hour sweep comes back with three results
-      # and no error.
+      # One arm crashing should not cancel the arms queued behind it on the same
+      # GPU -- that is how a six-hour sweep comes back with three results and
+      # exit 0. An interrupt is different and must stop the queue, so the exit
+      # code is inspected rather than merely tested: 130 is SIGINT, 143 SIGTERM.
+      rc=0
       # shellcheck disable=SC2086
       CUDA_VISIBLE_DEVICES=${GPU_ARR[$g]} python -m src.ddsp.train_encoder \
         --loss "$arm" \
@@ -107,8 +113,15 @@ for ((g = 0; g < NG; g++)); do
         --lr "$LR" \
         --seed 0 \
         $NUMERICS $EXTRA \
-        > "$OUT/$arm.log" 2>&1 \
-        || echo "FAILED $arm (gpu ${GPU_ARR[$g]}) -- see $OUT/$arm.log" | tee -a "$OUT/failures.txt"
+        > "$OUT/$arm.log" 2>&1 || rc=$?
+
+      if [[ $rc -eq 130 || $rc -eq 143 ]]; then
+        echo "interrupted during $arm (gpu ${GPU_ARR[$g]}) -- not starting the rest"
+        break
+      elif [[ $rc -ne 0 ]]; then
+        echo "FAILED $arm rc=$rc (gpu ${GPU_ARR[$g]}) -- see $OUT/$arm.log" \
+          | tee -a "$OUT/failures.txt"
+      fi
     done
   ) &
   echo "  gpu ${GPU_ARR[$g]} -> $(for ((i = g; i < ${#ARM_ARR[@]}; i += NG)); do printf '%s ' "${ARM_ARR[$i]}"; done)"
