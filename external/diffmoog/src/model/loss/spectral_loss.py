@@ -32,6 +32,16 @@ class BaseSpectralLoss(nn.Module):
         self.device = device
         self.sample_rate = synth_constants.sample_rate
 
+        # log(x + eps) with eps read from the preset rather than baked into the
+        # module-level table. The knee position IS the compression axis: eps = 1
+        # is log1p exactly, so a sweep from 1e-7 up to 1 traces the whole ladder
+        # from unbounded log to the Schwaer-Mueller form as one parameter rather
+        # than as separately named losses.
+        self.loss_fns = dict(loss_type_to_function)
+        if 'logmag_eps_value' in self.loss_preset:
+            e = float(self.loss_preset['logmag_eps_value'])
+            self.loss_fns['logmag_eps'] = lambda x, _e=e: torch.log(x + _e)
+
         if self.loss_preset['multi_spectral_loss_norm'] == 'L1':
             self.criterion = nn.L1Loss()
         elif self.loss_preset['multi_spectral_loss_norm'] == 'L2':
@@ -138,7 +148,7 @@ class SpectralLoss(BaseSpectralLoss):
             value_mag = loss_op(predicted_audio.float())
 
             c_loss = torch.tensor(0.0, requires_grad=True).to(self.device)
-            for loss_type, pre_loss_fn in loss_type_to_function.items():
+            for loss_type, pre_loss_fn in self.loss_fns.items():
                 raw_loss, weighted_loss = self.calc_loss(loss_type, pre_loss_fn, target_mag, value_mag, n_fft, step)
 
                 if weighted_loss == 0:
@@ -201,7 +211,7 @@ class ControlSpectralLoss(BaseSpectralLoss):
         n_fft = 128
         loss_dict, weighted_loss_dict = {}, {}
         spectrograms_dict = {}
-        for loss_type, pre_loss_fn in loss_type_to_function.items():
+        for loss_type, pre_loss_fn in self.loss_fns.items():
             raw_loss, weighted_loss = self.calc_loss(loss_type, pre_loss_fn, target_mag, value_mag, n_fft, step)
 
             if weighted_loss == 0:

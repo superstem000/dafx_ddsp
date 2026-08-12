@@ -7,6 +7,7 @@ from collections import defaultdict
 from typing import Any, Tuple, Optional
 
 import numpy as np
+import math
 import torch
 import torchaudio
 import ast
@@ -712,9 +713,25 @@ class LitModularSynth(LightningModule):
             # Lowering base_lr treats the same symptom but pays for it on every
             # later step too, which is why 1e-4 stalled while 3e-4 died.
             w = int(optimizer_params.get('warmup_steps', 300))
+            floor = float(optimizer_params.get('lr_floor', 0.02))
+            total = int(optimizer_params.get('total_steps', 0)) or None
+
+            def _sched(step, _w=w, _f=floor, _t=total):
+                if step < _w:
+                    return (step + 1) / max(_w, 1)
+                if not _t or _t <= _w:
+                    return 1.0
+                # Cosine from full rate down to lr_floor. Without a decay tail
+                # the iterate sits in a noise ball whose radius scales with the
+                # step size: the constant-LR arms oscillated +-0.008 around 0.075
+                # for eighty epochs rather than settling, and the 1e-3 arm
+                # reached a LOWER floor than 1e-4, which is the signature of the
+                # smaller rate being slower rather than better-converged.
+                frac = min(1.0, (step - _w) / (_t - _w))
+                return _f + (1.0 - _f) * 0.5 * (1.0 + math.cos(math.pi * frac))
+
             scheduler_config = {"scheduler": torch.optim.lr_scheduler.LambdaLR(
-                optimizer, lr_lambda=lambda s: min(1.0, (s + 1) / max(w, 1))),
-                "interval": "step"}
+                optimizer, lr_lambda=_sched), "interval": "step"}
         else:
             raise NotImplementedError(f"Scheduler {self.optimizer_params['scheduler']} not implemented")
 

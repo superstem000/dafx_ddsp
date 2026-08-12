@@ -305,7 +305,28 @@ SPECTROGRAM_LOGMAG_EPS_L1_LOSS = {'fft_sizes': (2048,),
                                   'power': 1,
                                   'normalize_loss_by_nfft': False}
 
-loss_presets = {'mss_cumsum_time': MSS_CUMSUM_TIME_LOSS,
+# The compression ladder as one variable: log(|X| + eps), eps from 1e-7 to 1.
+# Identical in every other respect to SPECTROGRAM_MAG_L1_LOSS, so a step along
+# the ladder moves the knee and nothing else. eps = 1 is log1p, i.e. DiffMoog's
+# own 'logmag' and the plate's C2; eps = 1e-7 is the unbounded log the standard
+# multi-scale spectral loss uses.
+def _logmag_eps_preset(eps):
+    return {'fft_sizes': (2048,),
+            'transform': 'SPECTROGRAM',
+            'frame_overlap': 0.75,
+            'multi_spectral_loss_norm': 'L1',
+            'multi_spectral_mag_weight': 0,
+            'multi_spectral_logmag_eps_weight': 1,
+            'logmag_eps_value': eps,
+            'power': 1,
+            'normalize_loss_by_nfft': False}
+
+
+EPS_LADDER = {f'logmag_eps_{tag}': _logmag_eps_preset(v) for tag, v in
+              (('1', 1.0), ('1e1', 1e-1), ('1e3', 1e-3), ('1e5', 1e-5), ('1e7', 1e-7))}
+
+loss_presets = {**EPS_LADDER,
+                'mss_cumsum_time': MSS_CUMSUM_TIME_LOSS,
                 'mss_logmag_eps': MSS_LOGMAG_EPS_LOSS,
                 'spectrogram_mag_l1': SPECTROGRAM_MAG_L1_LOSS,
                 'spectrogram_logmag_l1': SPECTROGRAM_LOGMAG_L1_LOSS,
