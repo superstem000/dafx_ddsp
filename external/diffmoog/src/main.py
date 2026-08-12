@@ -68,12 +68,18 @@ def run(run_args):
     tb_logger = TensorBoardLogger(cfg.logs_dir, name=exp_name)
     lit_module.tb_logger = tb_logger.experiment
 
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    CHECKPOINT_DIR = os.path.join(BASE_DIR, 'my_checkpoints')
+    # configure_experiment already computes a per-experiment checkpoint path and
+    # nothing used it. The previous target was src/my_checkpoints, which does not
+    # exist in a fresh clone, is never created, and would write into the vendored
+    # source tree; the dirpath below was also relative to the working directory
+    # while the listing above was relative to this file, so they agreed only when
+    # run from src/.
+    CHECKPOINT_DIR = cfg.ckpts_dir
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
     next_version = get_next_version(CHECKPOINT_DIR)
     checkpoint_callback = ModelCheckpoint(
-        dirpath=f'./my_checkpoints/exp_{exp_name}_version_{next_version}',  # Use next version for versioning
+        dirpath=os.path.join(CHECKPOINT_DIR, f'exp_{exp_name}_version_{next_version}'),
         filename='{epoch}-{train_loss:.2f}',  # the filename includes epoch number and validation loss
         save_top_k=-1,  # set to save all checkpoints
         verbose=True,
@@ -96,7 +102,7 @@ def run(run_args):
                       callbacks=callbacks,
                       max_epochs=cfg.model.num_epochs,
                       accelerator="gpu",
-                      detect_anomaly=True,
+                      detect_anomaly=False,
                       log_every_n_steps=log_every_n_steps,
                       check_val_every_n_epoch=1,
                       accumulate_grad_batches=4,
@@ -151,15 +157,25 @@ def configure_experiment(exp_name: str, dataset_name: str, config_name: str, deb
 
 
 def get_next_version(base_dir):
+    if not os.path.isdir(base_dir):
+        return 0
+
     existing_versions = [d for d in os.listdir(base_dir) if
                          os.path.isdir(os.path.join(base_dir, d)) and "version_" in d]
-    existing_versions.sort(key=lambda x: int(x.split("_")[1]))
 
-    if not existing_versions:
-        return 0
-    else:
-        last_version = int(existing_versions[-1].split("_")[1])
-        return last_version + 1
+    # The directories this creates are exp_<exp_name>_version_<n>, and exp_name
+    # itself contains underscores, so splitting on "_" and taking field 1 reads
+    # part of the experiment name and raises ValueError as soon as one
+    # checkpoint directory exists -- i.e. on the second run, not the first.
+    # Take whatever follows the last "version_" instead.
+    versions = []
+    for d in existing_versions:
+        try:
+            versions.append(int(d.rsplit("version_", 1)[1]))
+        except (IndexError, ValueError):
+            continue
+
+    return max(versions) + 1 if versions else 0
 
 
 if __name__ == "__main__":

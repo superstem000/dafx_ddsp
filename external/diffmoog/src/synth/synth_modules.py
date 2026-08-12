@@ -180,8 +180,23 @@ class Oscillator(SynthModule):
         else:
             amp = self._standardize_input(params['amp'], requested_dtype=torch.float32, requested_dims=2,
                                           batch_size=batch_size)
-        freq = self._standardize_input(params['freq'], requested_dtype=torch.float32, requested_dims=2,
-                                       batch_size=batch_size)
+        if 'freq' not in params:
+            # Chains that pin the pitch declare no freq parameter, so the
+            # network builds no head for it and cannot predict it wrongly.
+            # Mirrors the amp fallback above.
+            #
+            # Pinning pitch in the data alone was not enough: the head
+            # still existed, nothing supervised it under a spectral-only
+            # objective, and it settled on the wrong constant -- 2031 Hz
+            # off in one arm. A wrong pitch puts the predicted harmonics
+            # in different bins from the target's, and an L1 over disjoint
+            # supports is minimised by going silent, which is what killed
+            # amplitude in every run so far.
+            freq = torch.full((batch_size, 1), self.synth_structure.middle_c_freq,
+                              dtype=torch.float32, device=self.device)
+        else:
+            freq = self._standardize_input(params['freq'], requested_dtype=torch.float32, requested_dims=2,
+                                           batch_size=batch_size)
 
         if 'phase' not in params:
             phase = torch.zeros((batch_size, 1), dtype=torch.float32, device=self.device)
@@ -1027,7 +1042,8 @@ def get_synth_module(op_name: str, device: str, synth_structure: SynthConstants)
                      'osc_sine_no_activeness', 'osc_square_no_activeness', 'osc_saw_no_activeness',
                      'osc_sine_no_activeness_cont_freq',
                      'osc_square_no_activeness_cont_freq',
-                     'osc_saw_no_activeness_cont_freq']:
+                     'osc_saw_no_activeness_cont_freq',
+                     'osc_saw_narrowfreq', 'osc_saw_fixedfreq']:
         waveform = op_name.split('_')[1]
         return Oscillator(op_name, device, synth_structure, waveform)
     elif op_name in ['surrogate_fm_sine', 'surrogate_fm_square', 'surrogate_fm_saw']:

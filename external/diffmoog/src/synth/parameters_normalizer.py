@@ -95,7 +95,7 @@ class Normalizer:
             normalized_params_dict[key] = {'operation': operation, 'parameters': {}}
             for param_name, param_val in params.items():
                 if ((operation in ['osc', 'saw_square_osc', 'osc_sine', 'osc_saw', 'osc_square',
-                                   'osc_sine_no_activeness', 'osc_square_no_activeness', 'osc_saw_no_activeness']
+                                   'osc_sine_no_activeness', 'osc_square_no_activeness', 'osc_saw_no_activeness', 'osc_saw_narrowfreq', 'osc_saw_fixedfreq']
                      and param_name in ['freq']) or (param_name == 'freq_c' and 'lfo' not in operation)):
                     normalized_params_dict[key]['parameters'][param_name] = \
                         self.oscillator_freq_log_normalizer.normalise(params[param_name])
@@ -135,7 +135,7 @@ class Normalizer:
             denormalized_params_dict[key] = {'operation': operation, 'parameters': {}}
             for param_name, param_val in params.items():
                 if ((operation in ['osc', 'saw_square_osc', 'osc_saw', 'osc_square',
-                                   'osc_sine_no_activeness', 'osc_square_no_activeness', 'osc_saw_no_activeness']
+                                   'osc_sine_no_activeness', 'osc_square_no_activeness', 'osc_saw_no_activeness', 'osc_saw_narrowfreq', 'osc_saw_fixedfreq']
                      and param_name in ['freq']) or (param_name == 'freq_c' and 'lfo' not in operation)):
                     denormalized_params_dict[key]['parameters'][param_name] = \
                         self.oscillator_freq_log_normalizer.denormalise(params[param_name])

@@ -12,7 +12,16 @@ loss_type_to_function = {'mag': lambda x: x,
                          'delta_freq': lambda x: torch.diff(x, n=1, dim=2),
                          'cumsum_time': lambda x: torch.cumsum(x, dim=2),
                          'cumsum_freq': lambda x: torch.cumsum(x, dim=1),
-                         'logmag': lambda x: torch.log(x + 1)}
+                         'logmag': lambda x: torch.log(x + 1),
+                         # log(x + eps), the unbounded log used by the standard
+                         # multi-scale spectral loss. 'logmag' above is log(x+1),
+                         # which is ~linear near zero and only compresses large
+                         # values, so it cannot stand in for this: the two differ
+                         # exactly where a quiet bin sits, which is where the
+                         # compression question lives. calc_loss reads weights as
+                         # multi_spectral_{loss_type}_weight, so adding the entry
+                         # here is all that is needed to make it selectable.
+                         'logmag_eps': lambda x: torch.log(x + 1e-7)}
 
 class BaseSpectralLoss(nn.Module):
     """ Base class for spectral loss"""
@@ -22,6 +31,16 @@ class BaseSpectralLoss(nn.Module):
         self.loss_preset = loss_presets[loss_preset] if isinstance(loss_preset, str) else loss_preset
         self.device = device
         self.sample_rate = synth_constants.sample_rate
+
+        # log(x + eps) with eps read from the preset rather than baked into the
+        # module-level table. The knee position IS the compression axis: eps = 1
+        # is log1p exactly, so a sweep from 1e-7 up to 1 traces the whole ladder
+        # from unbounded log to the Schwaer-Mueller form as one parameter rather
+        # than as separately named losses.
+        self.loss_fns = dict(loss_type_to_function)
+        if 'logmag_eps_value' in self.loss_preset:
+            e = float(self.loss_preset['logmag_eps_value'])
+            self.loss_fns['logmag_eps'] = lambda x, _e=e: torch.log(x + _e)
 
         if self.loss_preset['multi_spectral_loss_norm'] == 'L1':
             self.criterion = nn.L1Loss()
@@ -91,7 +110,7 @@ class SpectralLoss(BaseSpectralLoss):
         if self.loss_transform == 'BOTH' or self.loss_transform == 'SPECTROGRAM':
             spec_transform = torchaudio.transforms.Spectrogram(n_fft=fft_size,
                                                                hop_length=hop_size,
-                                                               power=2.0).to(self.device)
+                                                               power=self.loss_preset.get('power', 2.0)).to(self.device)
             self.spectrogram_ops[f'{fft_size}_spectrogram'] = spec_transform
 
         if self.loss_transform == 'BOTH' or self.loss_transform == 'MEL_SPECTROGRAM':
@@ -104,7 +123,7 @@ class SpectralLoss(BaseSpectralLoss):
                                                                       n_mels=n_mels,
                                                                       f_min=f_min,
                                                                       f_max=f_max,
-                                                                      power=2.0).to(self.device)
+                                                                      power=self.loss_preset.get('power', 2.0)).to(self.device)
             self.spectrogram_ops[f'{fft_size}_mel'] = mel_spec_transform
 
     def call(self, target_audio, predicted_audio, step: int, return_spectrogram: bool = False):
@@ -129,7 +148,7 @@ class SpectralLoss(BaseSpectralLoss):
             value_mag = loss_op(predicted_audio.float())
 
             c_loss = torch.tensor(0.0, requires_grad=True).to(self.device)
-            for loss_type, pre_loss_fn in loss_type_to_function.items():
+            for loss_type, pre_loss_fn in self.loss_fns.items():
                 raw_loss, weighted_loss = self.calc_loss(loss_type, pre_loss_fn, target_mag, value_mag, n_fft, step)
 
                 if weighted_loss == 0:
@@ -165,7 +184,7 @@ class ControlSpectralLoss(BaseSpectralLoss):
                                                              hop_length=512,
                                                              center=True,
                                                              pad_mode="reflect",
-                                                             power=2.0).to(self.device)
+                                                             power=self.loss_preset.get('power', 2.0)).to(self.device)
         self.db = torchaudio.transforms.AmplitudeToDB(stype='magnitude')
 
     def call(self, target_control_signal, predicted_control_signal, step: int, return_spectrogram: bool = False):
@@ -192,7 +211,7 @@ class ControlSpectralLoss(BaseSpectralLoss):
         n_fft = 128
         loss_dict, weighted_loss_dict = {}, {}
         spectrograms_dict = {}
-        for loss_type, pre_loss_fn in loss_type_to_function.items():
+        for loss_type, pre_loss_fn in self.loss_fns.items():
             raw_loss, weighted_loss = self.calc_loss(loss_type, pre_loss_fn, target_mag, value_mag, n_fft, step)
 
             if weighted_loss == 0:
