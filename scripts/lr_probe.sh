@@ -38,6 +38,18 @@ BATCH=${BATCH:-64}
 WARMUP=${WARMUP:-2000}
 DEEPSUP=${DEEPSUP:-0.5}
 NORM=${NORM:-group}
+# The rest of the encoder, also from the sweep120k_* saved args. These are NOT
+# train_encoder's defaults, and the gap is not cosmetic: --n-fft 4096 / --hop
+# 1024 is the encoder's *input* resolution, and the parameters are fixed by
+# where the modes sit, so halving it halves the precision with which a mode can
+# be located. It also matches the loss's own 4096, which the default 2048 does
+# not. --n-blocks 6 is a deeper trunk than the default 5, and the sweep ran
+# with gradient checkpointing off.
+N_FFT=${N_FFT:-4096}
+HOP=${HOP:-1024}
+N_BLOCKS=${N_BLOCKS:-6}
+EVAL_EVERY=${EVAL_EVERY:-2000}
+GRAD_CKPT=${GRAD_CKPT:---no-grad-checkpoint}
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 
@@ -66,6 +78,7 @@ echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  out: $OUT"
 {
   echo "steps=$STEPS losses='$LOSSES' lrs='$LRS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
+  echo "n_fft=$N_FFT hop=$HOP n_blocks=$N_BLOCKS grad_ckpt=$GRAD_CKPT"
   echo "norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP constant_lr=yes"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
@@ -122,8 +135,10 @@ PY
         --deep-supervision "$DEEPSUP" \
         --grad-clip "$CLIP" \
         --norm "$NORM" \
+        --n-fft "$N_FFT" --hop "$HOP" --n-blocks "$N_BLOCKS" \
+        --eval-every "$EVAL_EVERY" \
         --seed 0 \
-        $NUMERICS $EXTRA \
+        $NUMERICS $GRAD_CKPT $EXTRA \
         > "$OUT/$name.log" 2>&1 || rc=$?
 
       if [[ $rc -eq 130 || $rc -eq 143 ]]; then
