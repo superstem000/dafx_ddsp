@@ -31,7 +31,7 @@ import torch
 
 from src.ddsp.train_encoder import load_dataset, peak_normalized
 from src.gd.graddescent import Raw7Space
-from src.loss.losses import _EPS_LADDER
+from src.loss.losses import _EPS_LADDER, _stft_mag
 from src.loss.loss_selector import select_loss_function
 
 SAMPLE_RATE = 44100
@@ -46,11 +46,17 @@ def main() -> None:
     p.add_argument("--data-dir", type=Path, default=Path("data/val-1000-0.25s"))
     p.add_argument("--n-val", type=int, default=64)
     p.add_argument("--duration", type=float, default=0.25)
+    p.add_argument("--chunk-elems", type=int, default=20_000_000)
+    p.add_argument("--mode-bucket", type=int, default=1024)
     p.add_argument("--device", type=str, default="cuda")
     args = p.parse_args()
 
-    dev = torch.device(args.device)
-    space = Raw7Space()
+    dev = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    # Same construction as diag_gt_floor.build_space: load_dataset only needs
+    # the space to know the parameter bounds, but Raw7Space builds a plate in
+    # __init__ and that plate has to be configured before it is usable.
+    space = Raw7Space(dev, torch.float32, normalize=False)
+    space.configure_plate(args.chunk_elems, False, True, False, args.mode_bucket, None)
     _z, x = load_dataset(space, args.data_dir, args.duration, dev, args.n_val)
 
     # A perturbed second signal, so the losses are evaluated somewhere with a
@@ -80,10 +86,11 @@ def main() -> None:
     # Where each knee falls, on exactly the magnitudes the loss sees: STFT of
     # the target after the same target-peak normalization the loss applies.
     print("\n=== knee position in the val-set bin distribution ===")
+    # _stft_mag is what the loss itself calls, so the bins measured here are
+    # exactly the bins eps is compared against -- not a re-derivation that
+    # could drift from it.
     tp = x.abs().amax(dim=-1, keepdim=True).clamp(min=1e-30)
-    win = torch.hann_window(N_FFT, device=dev)
-    mag = torch.stft(x / tp, N_FFT, N_FFT // 4, window=win, return_complex=True).abs()
-    bins = mag.flatten().detach().cpu().numpy()
+    bins = _stft_mag(x / tp, N_FFT, N_FFT // 4).flatten().detach().cpu().numpy()
     bins = bins[np.isfinite(bins)]
     print(f"  {len(bins)} bins; median {np.median(bins):.3e}, "
           f"p1 {np.percentile(bins, 1):.3e}, p99 {np.percentile(bins, 99):.3e}")
