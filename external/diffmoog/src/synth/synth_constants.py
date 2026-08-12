@@ -74,7 +74,7 @@ class SynthConstants:
                             'osc_square_no_activeness': ['amp', 'freq'],
                             'osc_saw_no_activeness': ['amp', 'freq'],
                             'osc_saw_narrowfreq': ['amp', 'freq'],  # freq restricted to under an octave
-                            'osc_saw_fixedfreq': ['amp', 'freq'],   # freq pinned to middle C
+                            'osc_saw_fixedfreq': ['amp'],           # no freq head at all
                             'osc_sine_no_activeness_cont_freq': ['amp', 'freq'],  # 'freq' is continuous
                             'osc_square_no_activeness_cont_freq': ['amp', 'freq'],
                             'osc_saw_no_activeness_cont_freq': ['amp', 'freq'],
@@ -234,8 +234,7 @@ class SynthConstants:
                                       'freq': sampling_configurations['osc_freq']},
             'osc_saw_narrowfreq': {'amp': sampling_configurations['uniform_amp'],
                                    'freq': sampling_configurations['osc_freq_narrow']},
-            'osc_saw_fixedfreq': {'amp': sampling_configurations['uniform_amp'],
-                                  'freq': sampling_configurations['osc_freq_fixed']},
+            'osc_saw_fixedfreq': {'amp': sampling_configurations['uniform_amp']},
             'osc_sine_no_activeness_cont_freq': {'amp': sampling_configurations['uniform_amp'],
                                                  'freq': sampling_configurations['osc_cont_freq']},
             'osc_square_no_activeness_cont_freq': {'amp': sampling_configurations['uniform_amp'],
