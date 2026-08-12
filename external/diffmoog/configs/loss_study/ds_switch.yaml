@@ -53,7 +53,7 @@ synth:
   use_multi_spec_input: false
   signal_duration: 4.0
   note_off_time: 3.0
-  added_noise_std: 0.0001
+  added_noise_std: 0.0
   log_filter_freq: true
 
 logging:

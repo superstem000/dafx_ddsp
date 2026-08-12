@@ -327,12 +327,19 @@ EPS_LADDER = {f'logmag_eps_{tag}': _logmag_eps_preset(v) for tag, v in
 
 
 # Masuda & Saito's reconstruction loss, transcribed from diffsynth. Their
-# SpecWaveLoss runs mag_w = log_mag_w = 1.0 over six FFT sizes on |STFT| and
-# then divides by len(fft_sizes) * (mag_w + log_mag_w) = 12; there is no
-# equivalent divisor here, so the normalisation is folded into the weights
-# instead. log_eps is log(x + 1e-4) (diffsynth/util.py), a fixed point partway
-# up the eps ladder rather than either end of it, and torch.stft is called with
-# center=False.
+# SpecWaveLoss runs mag_w = log_mag_w = 1.0 over six FFT sizes and then divides
+# by len(fft_sizes) * (mag_w + log_mag_w) = 12; there is no equivalent divisor
+# here, so the normalisation is folded into the weights instead. log_eps is
+# log(x + 1e-4) (diffsynth/util.py), a fixed point partway up the eps ladder
+# rather than either end of it, and torch.stft is called with center=False.
+#
+# power is 2.0 because diffsynth's multiscale_fft ends in
+# `amp = lambda x: x[...,0]**2 + x[...,1]**2` -- real^2 + imag^2, with no
+# square root, so its "mag" term is on the power spectrogram. The name says
+# magnitude and the docstring says power; the code is power. This is not a
+# cosmetic distinction for us: eps = 1e-4 sits at a different height on the
+# compression ladder against power than against magnitude, and the knee
+# position is the variable under study.
 #
 # The point of transcribing it exactly is that this is the loss behind their
 # published table, and it is a hybrid: a linear term and a log term at equal
@@ -341,7 +348,7 @@ EPS_LADDER = {f'logmag_eps_{tag}': _logmag_eps_preset(v) for tag, v in
 _DIFFSYNTH_BASE = {'fft_sizes': (64, 128, 256, 512, 1024, 2048),
                    'transform': 'SPECTROGRAM',
                    'frame_overlap': 0.75,
-                   'power': 1.0,
+                   'power': 2.0,
                    'center': False,
                    'multi_spectral_loss_norm': 'L1',
                    'logmag_eps_value': 1e-4,
