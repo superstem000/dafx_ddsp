@@ -100,7 +100,7 @@ class SpectralLoss(BaseSpectralLoss):
         if self.loss_transform == 'BOTH' or self.loss_transform == 'SPECTROGRAM':
             spec_transform = torchaudio.transforms.Spectrogram(n_fft=fft_size,
                                                                hop_length=hop_size,
-                                                               power=2.0).to(self.device)
+                                                               power=self.loss_preset.get('power', 2.0)).to(self.device)
             self.spectrogram_ops[f'{fft_size}_spectrogram'] = spec_transform
 
         if self.loss_transform == 'BOTH' or self.loss_transform == 'MEL_SPECTROGRAM':
@@ -113,7 +113,7 @@ class SpectralLoss(BaseSpectralLoss):
                                                                       n_mels=n_mels,
                                                                       f_min=f_min,
                                                                       f_max=f_max,
-                                                                      power=2.0).to(self.device)
+                                                                      power=self.loss_preset.get('power', 2.0)).to(self.device)
             self.spectrogram_ops[f'{fft_size}_mel'] = mel_spec_transform
 
     def call(self, target_audio, predicted_audio, step: int, return_spectrogram: bool = False):
@@ -174,7 +174,7 @@ class ControlSpectralLoss(BaseSpectralLoss):
                                                              hop_length=512,
                                                              center=True,
                                                              pad_mode="reflect",
-                                                             power=2.0).to(self.device)
+                                                             power=self.loss_preset.get('power', 2.0)).to(self.device)
         self.db = torchaudio.transforms.AmplitudeToDB(stype='magnitude')
 
     def call(self, target_control_signal, predicted_control_signal, step: int, return_spectrogram: bool = False):

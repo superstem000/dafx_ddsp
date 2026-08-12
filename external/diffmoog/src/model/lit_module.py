@@ -698,6 +698,23 @@ class LitModularSynth(LightningModule):
             scheduler_config = {"scheduler": torch.optim.lr_scheduler.ExponentialLR(
                 optimizer, gamma=self.cfg.model.optimizer.gamma),
                 "interval": "epoch"}
+        elif optimizer_params.scheduler.lower() == 'warmup':
+            # Linear warmup over warmup_steps optimizer steps, then constant.
+            #
+            # None of the branches above warm up -- every one starts at base_lr
+            # on step 1 -- and a randomly initialised head takes its largest
+            # step against the largest gradient exactly then. That is how the
+            # cold-start linear arms pinned amplitude at 0.003 with std 0.001
+            # inside the first epoch and never recovered: once the output
+            # nonlinearity saturates its derivative is zero and no later
+            # gradient reaches the trunk.
+            #
+            # Lowering base_lr treats the same symptom but pays for it on every
+            # later step too, which is why 1e-4 stalled while 3e-4 died.
+            w = int(optimizer_params.get('warmup_steps', 300))
+            scheduler_config = {"scheduler": torch.optim.lr_scheduler.LambdaLR(
+                optimizer, lr_lambda=lambda s: min(1.0, (s + 1) / max(w, 1))),
+                "interval": "step"}
         else:
             raise NotImplementedError(f"Scheduler {self.optimizer_params['scheduler']} not implemented")
 

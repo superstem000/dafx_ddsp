@@ -239,7 +239,26 @@ SPECTROGRAM_LOGMAG_L1_LOSS = {'fft_sizes': (2048,),
                               'multi_spectral_loss_norm': 'L1',
                               'multi_spectral_mag_weight': 0,
                               'multi_spectral_logmag_weight': 1,
+                              'power': 1,
                               'normalize_loss_by_nfft': False}
+
+# The plate's MSS with the spectral-convergence term removed, on DiffMoog's
+# window list. loss_mss there is, per resolution, an SC term plus
+# mean|log(t + 1e-7) - log(c + 1e-7)| -- so dropping SC leaves the unbounded log
+# magnitude alone, which is what this is. Not DDSP's published loss, which also
+# carries a linear magnitude term; the name says what it is.
+#
+# Against spectrogram_logmag_eps_l1 this isolates resolution at fixed
+# compression, and against spectrogram_mag_l1 it is the multi-resolution end of
+# the compression axis.
+MSS_LOGMAG_EPS_LOSS = {'fft_sizes': (2048, 1024, 512, 256, 128, 64),
+                       'transform': 'SPECTROGRAM',
+                       'frame_overlap': 0.75,
+                       'multi_spectral_loss_norm': 'L1',
+                       'multi_spectral_mag_weight': 0,
+                       'multi_spectral_logmag_eps_weight': 1,
+                       'power': 1,
+                       'normalize_loss_by_nfft': False}
 
 # DDSP's original multi-scale spectral loss (Engel et al., 2020): linear
 # magnitude L1 plus log magnitude L1 at equal weight, summed over six
@@ -252,7 +271,23 @@ MSS_DDSP_LOSS = {'fft_sizes': (2048, 1024, 512, 256, 128, 64),
                  'multi_spectral_loss_norm': 'L1',
                  'multi_spectral_mag_weight': 1,
                  'multi_spectral_logmag_weight': 1,
+                 'power': 1,
                  'normalize_loss_by_nfft': False}
+
+# Linear magnitude at power 1, i.e. |X| rather than |X|^2. Their
+# SPECTROGRAM_MAGNITUDE_LOSS uses the Spectrogram default power=2.0, so an L1 on
+# it spans a squared dynamic range; from a random init the gradient is dominated
+# by a few loud bins and the cheapest descent is to go silent, which is exactly
+# what the cold-start linear arms did -- amplitude pinned at 0.003 with std
+# 0.001, spectral loss frozen at 78.596 from the first epoch. At power 1 this is
+# the plate's L1_STFT: |X|, L1, single resolution, hop n_fft/4.
+SPECTROGRAM_MAG_L1_LOSS = {'fft_sizes': (2048,),
+                           'transform': 'SPECTROGRAM',
+                           'frame_overlap': 0.75,
+                           'multi_spectral_loss_norm': 'L1',
+                           'multi_spectral_mag_weight': 1,
+                           'power': 1,
+                           'normalize_loss_by_nfft': False}
 
 # The unbounded end of the ladder: log(x + 1e-7) rather than log(x + 1).
 # Identical to SPECTROGRAM_LOGMAG_L1_LOSS in every other respect, so the pair
@@ -267,9 +302,12 @@ SPECTROGRAM_LOGMAG_EPS_L1_LOSS = {'fft_sizes': (2048,),
                                   'multi_spectral_loss_norm': 'L1',
                                   'multi_spectral_mag_weight': 0,
                                   'multi_spectral_logmag_eps_weight': 1,
+                                  'power': 1,
                                   'normalize_loss_by_nfft': False}
 
 loss_presets = {'mss_cumsum_time': MSS_CUMSUM_TIME_LOSS,
+                'mss_logmag_eps': MSS_LOGMAG_EPS_LOSS,
+                'spectrogram_mag_l1': SPECTROGRAM_MAG_L1_LOSS,
                 'spectrogram_logmag_l1': SPECTROGRAM_LOGMAG_L1_LOSS,
                 'spectrogram_logmag_eps_l1': SPECTROGRAM_LOGMAG_EPS_L1_LOSS,
                 'mss_ddsp': MSS_DDSP_LOSS,
