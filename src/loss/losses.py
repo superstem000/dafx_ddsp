@@ -853,6 +853,28 @@ _DECOMP_LOSSES["L1_STFT_c2"] = _make_stft_l1([4096], comp="c2")
 _DECOMP_LOSSES["L1_STFT_pow"] = _make_stft_l1([4096], comp="pow", gamma=0.3)
 
 
+# ---------------------------------------------------------------------------
+# The ladder above is four named losses; this is the same axis as one number.
+#
+# log(x + eps) at eps = 1 is log1p, which is C2 exactly, and at eps = 1e-7 it
+# is C1 exactly, so the two ends of the sweep reproduce two arms we have
+# already run and the rungs between them interpolate continuously. Naming them
+# separately would hide that they differ in one scalar; naming them by eps
+# makes the sweep single-variable on its face.
+#
+# Where the knee falls relative to the data is what eps actually controls, and
+# that is only well defined once magnitudes are on a common scale. Under
+# --peak-normalize target, eps = 1e-7 sits at percentile 0.0 of val-set bins --
+# below every bin, so the knee is never reached and the loss is pure log. Going
+# up the ladder walks the knee into the bin distribution until, at eps = 1, it
+# sits above nearly all of it and the loss is ~linear. So the sweep traverses
+# from pure log to effectively linear, and the question is where along that
+# traverse recovery breaks.
+_EPS_LADDER = {"1": 1.0, "1e1": 1e-1, "1e3": 1e-3, "1e5": 1e-5, "1e7": 1e-7}
+for _tag, _eps in _EPS_LADDER.items():
+    _DECOMP_LOSSES[f"L1_STFT_eps{_tag}"] = _make_stft_l1([4096], comp="c1", eps=_eps)
+
+
 # ===========================================================================
 # Spectral Optimal Transport (Torres, Peeters & Richard, ICASSP 2024)
 # "Unsupervised Harmonic Parameter Estimation Using DDSP and Spectral OT"
@@ -976,6 +998,7 @@ for _name, _fn in (
     ("SOT", _DECOMP_LOSSES["SOT"]),
     ("SOT_lin", _DECOMP_LOSSES["SOT_lin"]),
     ("SOT_lin_paper", _DECOMP_LOSSES["SOT_lin_paper"]),
+    *((f"L1_STFT_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_eps{_t}"]) for _t in _EPS_LADDER),
 ):
     LOSS_COMPONENTS[_name] = _fn
     LOSS_NAME_ALIASES[_normalize_name(_name)] = _name
