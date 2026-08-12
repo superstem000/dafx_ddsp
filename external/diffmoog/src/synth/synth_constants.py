@@ -62,7 +62,8 @@ class SynthConstants:
     # Modular synth possible modules from synth_modules.py
     modular_synth_operations = ['osc', 'osc_sine', 'osc_square', 'osc_saw', 'fm', 'lfo', 'mix', 'filter', 'env_adsr',
                                 'fm_lfo', 'lfo_sine', 'lfo_non_sine',
-                                'fm_sine', 'fm_square', 'fm_saw', 'lowpass_filter']
+                                'fm_sine', 'fm_square', 'fm_saw', 'lowpass_filter',
+                                'osc_saw_narrowfreq']
 
     # defined modules and their parameters
     modular_synth_params = {'osc': ['amp', 'freq', 'waveform', 'active', 'phase'],
@@ -72,6 +73,7 @@ class SynthConstants:
                             'osc_sine_no_activeness': ['amp', 'freq'],
                             'osc_square_no_activeness': ['amp', 'freq'],
                             'osc_saw_no_activeness': ['amp', 'freq'],
+                            'osc_saw_narrowfreq': ['amp', 'freq'],  # freq restricted to under an octave
                             'osc_sine_no_activeness_cont_freq': ['amp', 'freq'],  # 'freq' is continuous
                             'osc_square_no_activeness_cont_freq': ['amp', 'freq'],
                             'osc_saw_no_activeness_cont_freq': ['amp', 'freq'],
@@ -133,6 +135,24 @@ class SynthConstants:
             'osc_freq': {'type': 'choice',
                          'values': self.osc_freq_list,
                          'non_active_default': self.non_active_freq_default},
+            # Eleven semitones centred on middle C: 196.0 Hz to 349.2 Hz, a
+            # ratio of 1.78, deliberately under an octave.
+            #
+            # Two things make pitch hard for a bin-wise spectrogram distance.
+            # Locally the distance stops responding once harmonics leave their
+            # bins; globally, predicting twice the true pitch aligns every even
+            # harmonic, so octave errors sit in a deep false basin. Staying
+            # inside an octave removes the second outright. The first survives
+            # here: at n_fft 2048 and 16 kHz the bins are 7.8 Hz and a semitone
+            # near middle C is about 15 Hz, so adjacent notes overlap within the
+            # Hann mainlobe and a usable gradient exists.
+            #
+            # The point is a task where pitch is still estimated and can still
+            # be got wrong -- not one where it has been removed.
+            'osc_freq_narrow': {'type': 'choice',
+                                'values': [self.middle_c_freq * (2 ** (1 / 12)) ** x
+                                           for x in range(-5, 6)],
+                                'non_active_default': self.non_active_freq_default},
             'osc_cont_freq': {'type': 'uniform',
                               'values': (self.min_oscillator_freq, self.max_oscillator_freq),
                               'non_active_default': self.non_active_freq_default},
@@ -194,6 +214,8 @@ class SynthConstants:
                                          'freq': sampling_configurations['osc_freq']},
             'osc_saw_no_activeness': {'amp': sampling_configurations['uniform_amp'],
                                       'freq': sampling_configurations['osc_freq']},
+            'osc_saw_narrowfreq': {'amp': sampling_configurations['uniform_amp'],
+                                   'freq': sampling_configurations['osc_freq_narrow']},
             'osc_sine_no_activeness_cont_freq': {'amp': sampling_configurations['uniform_amp'],
                                                  'freq': sampling_configurations['osc_cont_freq']},
             'osc_square_no_activeness_cont_freq': {'amp': sampling_configurations['uniform_amp'],

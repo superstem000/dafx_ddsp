@@ -156,6 +156,15 @@ SAW_FILTER = [
     {'index': (0, 1), 'operation': 'lowpass_filter', 'audio_input': [[0, 0]], 'control_input': None, 'outputs': None},
 ]
 
+# SAW_FILTER with the pitch range narrowed to under an octave. Same three
+# parameters, same modules -- only how widely freq is sampled changes, so it is
+# a single-factor step down in difficulty from SAW_FILTER rather than a
+# different problem.
+SAW_NARROW_FILTER = [
+    {'index': (0, 0), 'operation': 'osc_saw_narrowfreq', 'audio_input': None, 'control_input': None, 'outputs': [[0, 1]]},
+    {'index': (0, 1), 'operation': 'lowpass_filter', 'audio_input': [[0, 0]], 'control_input': None, 'outputs': None},
+]
+
 SAW_SQUARE_MIX = [
     {'index': (0, 0), 'operation': 'saw_square_osc', 'default_connection': True},
 ]
@@ -366,5 +375,6 @@ synth_chains_dict = {'BASIC_FLOW': BASIC_FLOW,
                       'REDUCED_SIMPLE_FILTER': REDUCED_SIMPLE_FILTER,
                       'REDUCED_SIMPLE_OSC': REDUCED_SIMPLE_OSC,
                       'SAW_ONLY': SAW_ONLY,
-                      'SAW_FILTER': SAW_FILTER
+                      'SAW_FILTER': SAW_FILTER,
+                      'SAW_NARROW_FILTER': SAW_NARROW_FILTER
                       }
