@@ -39,23 +39,31 @@ set -euo pipefail
 # plates that need a finer grid than the pin. --n-train is set explicitly
 # because train_encoder defaults it to 8192, and it doubles as load_dataset's
 # `limit`, so leaving it alone would silently train on the first 8192 rows.
+# The sweep used 98304 rather than all 98339 -- 96*1024, i.e. a whole number of
+# batches -- so the ladder uses the same 98304 rather than the 35 extra.
 GPUS=${1:-"0 1 2 3"}
 STEPS=${STEPS:-40000}
 LR=${LR:-3e-4}
 OUT=${OUT:-results/ddsp/eps_ladder}
 TRAIN=${TRAIN:-data/train-p99}
 VAL=${VAL:-data/val-p99}
-N_TRAIN=${N_TRAIN:-98339}
+N_TRAIN=${N_TRAIN:-98304}
 N_VAL=${N_VAL:-996}
-# train_encoder defaults --grad-clip to 10, which is an outlier guard for a
-# linear arm and a hard cap for a log one: results/ddsp/log_tgtnorm ran at a
-# median gradient norm of 171 and a max of 481, and results/ddsp/log_p99 peaked
-# at 620, both recording 0% clipped -- so every reference run had the clip
-# effectively off, and a ladder left at 10 clips 70-100% of steps at rates that
-# differ per arm. That makes the clip, not eps, the thing setting step size, and
-# it sets it differently in each arm. Off keeps all rungs in one regime and
-# matches the runs whose numbers these are meant to be continuous with.
-CLIP=${CLIP:-1e9}
+# Everything below is read from the sweep120k_* checkpoints' saved args, where
+# all four arms agree exactly. Not inferred -- train_encoder stores vars(args)
+# in every checkpoint, so this is the invocation that produced the numbers the
+# ladder has to be continuous with.
+#
+# The defaults these override are not close. --batch-size is 16 by default
+# against the sweep's 64, a quarter of the data per step; --grad-clip is 10
+# against 5000, which clips 70-100% of steps on this problem and makes the clip
+# rather than eps the thing setting step size.
+CLIP=${CLIP:-5000.0}
+BATCH=${BATCH:-64}
+WARMUP=${WARMUP:-2000}
+LR_FLOOR=${LR_FLOOR:-0.02}
+LR_HOLD=${LR_HOLD:-0.6}
+DEEPSUP=${DEEPSUP:-0.5}
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7"}
@@ -92,7 +100,7 @@ echo
 {
   echo "steps=$STEPS lr=$LR arms='$ARMS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
-  echo "grad_clip=$CLIP"
+  echo "grad_clip=$CLIP batch=$BATCH warmup=$WARMUP lr_floor=$LR_FLOOR lr_hold_frac=$LR_HOLD deep_sup=$DEEPSUP"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -121,6 +129,10 @@ for ((g = 0; g < NG; g++)); do
         --peak-normalize target \
         --steps "$STEPS" \
         --lr "$LR" \
+        --lr-floor "$LR_FLOOR" --lr-hold-frac "$LR_HOLD" \
+        --warmup-steps "$WARMUP" \
+        --batch-size "$BATCH" \
+        --deep-supervision "$DEEPSUP" \
         --grad-clip "$CLIP" \
         --seed 0 \
         $NUMERICS $EXTRA \
