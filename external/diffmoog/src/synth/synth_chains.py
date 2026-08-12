@@ -176,9 +176,20 @@ SAW_SQUARE_MIX = [
     {'index': (0, 0), 'operation': 'saw_square_osc', 'default_connection': True},
 ]
 
+# The closest chain in this file to diffsynth's h2of: a saw<->square blend
+# feeding one lowpass filter. Five parameters (saw_amp, square_amp, freq,
+# factor, filter_freq) against Harmor's eight -- no second oscillator with its
+# own f0 multiplier and no filter resonance -- but the same shape of problem,
+# all continuous and all audible, with none of MODULAR's categorical heads.
+#
+# The filter cell terminated the chain while declaring an output into layer 2,
+# which has no cell; every other terminal cell here uses None. Nothing in the
+# repo runs this chain, so the dangling edge had never been exercised.
 SAW_SQUARE_MIX_FILTER = [
-    {'index': (0, 0), 'operation': 'saw_square_osc',  'audio_input': None, 'outputs': [[0, 1]]},
-    {'index': (0, 1), 'operation': 'lowpass_filter', 'audio_input': [[0, 0]], 'outputs': [[0, 2]]},
+    {'index': (0, 0), 'operation': 'saw_square_osc', 'audio_input': None, 'control_input': None,
+     'outputs': [[0, 1]]},
+    {'index': (0, 1), 'operation': 'lowpass_filter', 'audio_input': [[0, 0]], 'control_input': None,
+     'outputs': None},
 ]
 
 BASIC_FLOW_NO_ADSR = [

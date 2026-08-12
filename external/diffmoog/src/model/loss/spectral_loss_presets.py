@@ -325,7 +325,48 @@ def _logmag_eps_preset(eps):
 EPS_LADDER = {f'logmag_eps_{tag}': _logmag_eps_preset(v) for tag, v in
               (('1', 1.0), ('1e1', 1e-1), ('1e3', 1e-3), ('1e5', 1e-5), ('1e7', 1e-7))}
 
+
+# Masuda & Saito's reconstruction loss, transcribed from diffsynth. Their
+# SpecWaveLoss runs mag_w = log_mag_w = 1.0 over six FFT sizes on |STFT| and
+# then divides by len(fft_sizes) * (mag_w + log_mag_w) = 12; there is no
+# equivalent divisor here, so the normalisation is folded into the weights
+# instead. log_eps is log(x + 1e-4) (diffsynth/util.py), a fixed point partway
+# up the eps ladder rather than either end of it, and torch.stft is called with
+# center=False.
+#
+# The point of transcribing it exactly is that this is the loss behind their
+# published table, and it is a hybrid: a linear term and a log term at equal
+# weight. Splitting it into its two halves -- everything else held fixed -- is
+# what makes the comparison ours rather than a reproduction.
+_DIFFSYNTH_BASE = {'fft_sizes': (64, 128, 256, 512, 1024, 2048),
+                   'transform': 'SPECTROGRAM',
+                   'frame_overlap': 0.75,
+                   'power': 1.0,
+                   'center': False,
+                   'multi_spectral_loss_norm': 'L1',
+                   'logmag_eps_value': 1e-4,
+                   'normalize_loss_by_nfft': False}
+
+# both terms, weight 1 each, divided by 6 * 2
+DIFFSYNTH_MSS_LOSS = {**_DIFFSYNTH_BASE,
+                      'multi_spectral_mag_weight': 1 / 12,
+                      'multi_spectral_logmag_eps_weight': 1 / 12}
+
+# the linear half alone, at the weight it carries inside the hybrid's own
+# normalisation, so the two halves and the whole are on one scale
+DIFFSYNTH_MSS_MAG_LOSS = {**_DIFFSYNTH_BASE,
+                          'multi_spectral_mag_weight': 1 / 12,
+                          'multi_spectral_logmag_eps_weight': 0}
+
+# the log half alone
+DIFFSYNTH_MSS_LOG_LOSS = {**_DIFFSYNTH_BASE,
+                          'multi_spectral_mag_weight': 0,
+                          'multi_spectral_logmag_eps_weight': 1 / 12}
+
 loss_presets = {**EPS_LADDER,
+                'diffsynth_mss': DIFFSYNTH_MSS_LOSS,
+                'diffsynth_mss_mag': DIFFSYNTH_MSS_MAG_LOSS,
+                'diffsynth_mss_log': DIFFSYNTH_MSS_LOG_LOSS,
                 'mss_cumsum_time': MSS_CUMSUM_TIME_LOSS,
                 'mss_logmag_eps': MSS_LOGMAG_EPS_LOSS,
                 'spectrogram_mag_l1': SPECTROGRAM_MAG_L1_LOSS,

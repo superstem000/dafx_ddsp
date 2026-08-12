@@ -105,7 +105,12 @@ def run(run_args):
                       detect_anomaly=False,
                       log_every_n_steps=log_every_n_steps,
                       check_val_every_n_epoch=1,
-                      accumulate_grad_batches=4,
+                      # was hardcoded to 4, which divides the optimizer-step
+                      # count by four for identical compute. diffsynth
+                      # accumulates 1 and clips at 1.0; both are config-driven
+                      # now so the default stays put for existing runs.
+                      accumulate_grad_batches=cfg.model.get('accumulate_grad_batches', 4),
+                      gradient_clip_val=cfg.model.get('gradient_clip_val', None),
                       reload_dataloaders_every_n_epochs=cfg.loss.in_domain_epochs)
 
     if is_load_ckpt:

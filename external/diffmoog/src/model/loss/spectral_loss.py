@@ -110,6 +110,7 @@ class SpectralLoss(BaseSpectralLoss):
         if self.loss_transform == 'BOTH' or self.loss_transform == 'SPECTROGRAM':
             spec_transform = torchaudio.transforms.Spectrogram(n_fft=fft_size,
                                                                hop_length=hop_size,
+                                                               center=self.loss_preset.get('center', True),
                                                                power=self.loss_preset.get('power', 2.0)).to(self.device)
             self.spectrogram_ops[f'{fft_size}_spectrogram'] = spec_transform
 

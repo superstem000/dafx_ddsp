@@ -48,7 +48,8 @@ class LitModularSynth(LightningModule):
                                       device=device,
                                       backbone=train_cfg.model.backbone
                                       )
-        self.normalizer = Normalizer(train_cfg.synth.note_off_time, train_cfg.synth.signal_duration, synth_constants)
+        self.normalizer = Normalizer(train_cfg.synth.note_off_time, train_cfg.synth.signal_duration, synth_constants,
+                                     log_filter_freq=train_cfg.synth.get('log_filter_freq', False))
 
         self.use_multi_spec_input = train_cfg.synth.use_multi_spec_input
 

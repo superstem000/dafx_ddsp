@@ -13,7 +13,16 @@ class Normalizer:
     """
 
     def __init__(self, note_off_time: float, signal_duration: int, synth_structure: SynthConstants, clamp_adsr=True,
-                 clip=False):
+                 clip=False, log_filter_freq=False):
+
+        # filter_freq spans 100 Hz to Nyquist -- over six octaves -- and is
+        # normalised linearly below, so a fixed error in the [0, 1] head is
+        # inaudible at the top of the range and more than an octave at the
+        # bottom. filter_freq_log_normalizer is built a few lines down and was
+        # never referenced; oscillator freq already uses its log counterpart.
+        # Off by default so existing runs keep their scale, on for the configs
+        # that match diffsynth, whose cutoff is estimated on a MIDI axis.
+        self.log_filter_freq = log_filter_freq
 
         self.signal_duration = signal_duration
         self.clamp_adsr = clamp_adsr
@@ -112,8 +121,9 @@ class Normalizer:
                     normalized_params_dict[key]['parameters'][param_name] = \
                         self.mod_index_normalizer.normalise(params[param_name])
                 elif param_name in ['filter_freq']:
+                    _filt = self.filter_freq_log_normalizer if self.log_filter_freq else self.filter_freq_normalizer
                     normalized_params_dict[key]['parameters'][param_name] = \
-                        self.filter_freq_normalizer.normalise(params[param_name])
+                        _filt.normalise(params[param_name])
                 elif operation in ['env_adsr', 'lowpass_filter_adsr'] and param_name in self.adsr_normalizers:
                     normalized_params_dict[key]['parameters'][param_name] = \
                         self.adsr_normalizers[param_name].normalise(params[param_name])
@@ -152,8 +162,9 @@ class Normalizer:
                     denormalized_params_dict[key]['parameters'][param_name] = \
                         self.mod_index_normalizer.denormalise(params[param_name])
                 elif param_name in ['filter_freq']:
+                    _filt = self.filter_freq_log_normalizer if self.log_filter_freq else self.filter_freq_normalizer
                     denormalized_params_dict[key]['parameters'][param_name] = \
-                        self.filter_freq_normalizer.denormalise(params[param_name])
+                        _filt.denormalise(params[param_name])
                 elif operation in ['env_adsr', 'lowpass_filter_adsr'] and param_name in self.adsr_normalizers:
                     denormalized_params_dict[key]['parameters'][param_name] = \
                         self.adsr_normalizers[param_name].denormalise(params[param_name])
