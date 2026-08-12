@@ -1,0 +1,22 @@
+lr: 0.001
+decay_rate: 0.99
+
+estimator:
+  _target_: diffsynth.estimator.MelEstimator
+  hidden_size: 512
+  channels: 64
+  sample_rate: ${data.sample_rate}
+  n_fft: 1024
+  hop: 256
+
+sw_loss:
+  _target_: diffsynth.loss.SpecWaveLoss
+  mag_w: 1.0
+  log_mag_w: 1.0
+  fft_sizes: [64, 128, 256, 512, 1024, 2048]
+
+perc_model: null
+
+log_grad: true
+
+f0_encoder: null

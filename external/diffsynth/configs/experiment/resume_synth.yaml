@@ -1,0 +1,28 @@
+# @package _global_
+
+defaults:
+  - override /trainer: default.yaml
+  - override /model: default.yaml
+  - override /data: default.yaml
+  - override /synth: h2of.yaml
+  - override /schedule: switch.yaml
+
+data:
+  id_dir: data/diffsynth_5-6/harmor_2oscfree
+  ood_dir: data/nsynth-train
+  batch_size: 64
+  train_type: id
+
+trainer:
+  max_epochs: 200
+  gradient_clip_val: 1.0
+
+model:
+  lr: 0.001
+  decay_rate: 0.99
+  estimator:
+    _target_: diffsynth.estimator.MelEstimator
+    hidden_size: 512
+  sw_loss:
+    fft_sizes: [64, 128, 256, 512, 1024, 2048]
+  log_grad: true
