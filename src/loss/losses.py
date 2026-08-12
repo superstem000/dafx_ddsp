@@ -870,7 +870,10 @@ _DECOMP_LOSSES["L1_STFT_pow"] = _make_stft_l1([4096], comp="pow", gamma=0.3)
 # sits above nearly all of it and the loss is ~linear. So the sweep traverses
 # from pure log to effectively linear, and the question is where along that
 # traverse recovery breaks.
-_EPS_LADDER = {"1": 1.0, "1e1": 1e-1, "1e3": 1e-3, "1e5": 1e-5, "1e7": 1e-7}
+# 1e-4 splits the 1e-5 -> 1e-3 step, which the knee table shows covering 45
+# percentage points of the bin distribution -- by far the widest rung, and so
+# the one where a cliff would be least localised.
+_EPS_LADDER = {"1": 1.0, "1e1": 1e-1, "1e3": 1e-3, "1e4": 1e-4, "1e5": 1e-5, "1e7": 1e-7}
 for _tag, _eps in _EPS_LADDER.items():
     _DECOMP_LOSSES[f"L1_STFT_eps{_tag}"] = _make_stft_l1([4096], comp="c1", eps=_eps)
 

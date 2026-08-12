@@ -30,7 +30,7 @@ STEPS=${STEPS:-40000}
 LR=${LR:-3e-4}
 OUT=${OUT:-results/ddsp/eps_ladder}
 EXTRA=${EXTRA:-""}
-ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e5 L1_STFT_eps1e7"}
+ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7"}
 
 read -r -a GPU_ARR <<< "$GPUS"
 read -r -a ARM_ARR <<< "$ARMS"
