@@ -76,7 +76,11 @@ ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 
 # Ctrl-C should stop the sweep, not advance it. Without this the per-arm
 # failure handling below reads an interrupt as "that arm died, start the next
 # one", so interrupting a seven-arm ladder quietly launches three more.
-trap 'echo; echo "interrupted -- stopping all arms"; kill 0; exit 130' INT TERM
+# `trap - INT TERM` first: kill 0 signals this script's own process group,
+# which includes this script, so without disarming the handler it re-enters
+# itself and bash dies messily (observed as a segfault on core dump) instead
+# of exiting 130.
+trap 'trap - INT TERM; echo; echo "interrupted -- stopping all arms"; kill 0; exit 130' INT TERM
 
 read -r -a GPU_ARR <<< "$GPUS"
 read -r -a ARM_ARR <<< "$ARMS"

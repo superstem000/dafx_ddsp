@@ -46,7 +46,11 @@ EXTRA=${EXTRA:-""}
 LRS=${LRS:-"1e-3 3e-4 1e-4 3e-5 1e-5"}
 LOSSES=${LOSSES:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e7"}
 
-trap 'echo; echo "interrupted -- stopping all cells"; kill 0; exit 130' INT TERM
+# `trap - INT TERM` first: kill 0 signals this script's own process group,
+# which includes this script, so without disarming the handler it re-enters
+# itself and bash dies messily (observed as a segfault on core dump) instead
+# of exiting 130.
+trap 'trap - INT TERM; echo; echo "interrupted -- stopping all cells"; kill 0; exit 130' INT TERM
 
 read -r -a GPU_ARR <<< "$GPUS"
 NG=${#GPU_ARR[@]}
