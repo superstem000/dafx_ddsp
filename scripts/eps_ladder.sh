@@ -47,6 +47,15 @@ TRAIN=${TRAIN:-data/train-p99}
 VAL=${VAL:-data/val-p99}
 N_TRAIN=${N_TRAIN:-98339}
 N_VAL=${N_VAL:-996}
+# train_encoder defaults --grad-clip to 10, which is an outlier guard for a
+# linear arm and a hard cap for a log one: results/ddsp/log_tgtnorm ran at a
+# median gradient norm of 171 and a max of 481, and results/ddsp/log_p99 peaked
+# at 620, both recording 0% clipped -- so every reference run had the clip
+# effectively off, and a ladder left at 10 clips 70-100% of steps at rates that
+# differ per arm. That makes the clip, not eps, the thing setting step size, and
+# it sets it differently in each arm. Off keeps all rungs in one regime and
+# matches the runs whose numbers these are meant to be continuous with.
+CLIP=${CLIP:-1e9}
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7"}
@@ -83,6 +92,7 @@ echo
 {
   echo "steps=$STEPS lr=$LR arms='$ARMS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
+  echo "grad_clip=$CLIP"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -111,6 +121,7 @@ for ((g = 0; g < NG; g++)); do
         --peak-normalize target \
         --steps "$STEPS" \
         --lr "$LR" \
+        --grad-clip "$CLIP" \
         --seed 0 \
         $NUMERICS $EXTRA \
         > "$OUT/$arm.log" 2>&1 || rc=$?
