@@ -21,14 +21,33 @@
 #   STEPS=120000 scripts/eps_ladder.sh "0 1"   # extend a subset
 set -euo pipefail
 
-# EXTRA carries whatever data/schedule flags the 120k sweep was run with. The
-# ladder is only single-variable against *that* recipe, not against
-# train_encoder's bare defaults, so pass the same flags here -- e.g.
-#   EXTRA="--val-data-dir data/val-1000-0.25s --lr-floor 0.05 --lr-hold-frac 0.6"
+# Datasets and numerics come from docs/DATASETS.md, which is where the recipe
+# actually lives. They are defaults here rather than something to remember to
+# pass, because the cost of omitting them is measured there and it is not small:
+#
+#   --fixed-mode-grid 86,282  n_modes otherwise follows the batch maximum, so an
+#                             IR renders differently depending on which batch it
+#                             lands in. 6.1% of saturation for log, ~0 for
+#                             linear -- i.e. a spurious floor in precisely the
+#                             arms under test, in precisely the quiet bins log
+#                             weights most.
+#   --compile-plate           must match what the targets were rendered with.
+#   --chunk-elems, --mode-bucket   likewise; a fused kernel is different
+#                             arithmetic.
+#
+# train-p99 keeps 98339 of 100000 and val-p99 996 of 1000, the remainder being
+# plates that need a finer grid than the pin. --n-train is set explicitly
+# because train_encoder defaults it to 8192, and it doubles as load_dataset's
+# `limit`, so leaving it alone would silently train on the first 8192 rows.
 GPUS=${1:-"0 1 2 3"}
 STEPS=${STEPS:-40000}
 LR=${LR:-3e-4}
 OUT=${OUT:-results/ddsp/eps_ladder}
+TRAIN=${TRAIN:-data/train-p99}
+VAL=${VAL:-data/val-p99}
+N_TRAIN=${N_TRAIN:-98339}
+N_VAL=${N_VAL:-996}
+NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7"}
 
@@ -40,20 +59,26 @@ mkdir -p "$OUT"
 echo "arms: ${ARM_ARR[*]}"
 echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  lr: $LR  out: $OUT"
 
-if [[ -z "$EXTRA" ]]; then
-  echo
-  echo "WARNING: EXTRA is empty, so every arm falls back to train_encoder's own"
-  echo "defaults -- in particular --n-train 8192 generated on the fly rather than"
-  echo "a dataset from data/. The ladder is still internally single-variable, but"
-  echo "it is NOT comparable to the 120k arms unless those defaults are what they"
-  echo "ran with. src.ddsp.diag_recover_recipe identifies the datasets they used."
-  echo
-fi
+for d in "$TRAIN" "$VAL"; do
+  if [[ ! -d "$d" ]]; then
+    echo "ERROR: $d does not exist. Regenerate it with the make_dataset command"
+    echo "in docs/DATASETS.md -- the flags there are load-bearing, not defaults."
+    exit 1
+  fi
+done
+
+echo
+echo "docs/DATASETS.md requires diag_gt_floor to read 0.0000e+00 (within ~1e-3"
+echo "for log) on the SHUFFLED row before any sweep is attributable. If you have"
+echo "not run it against $VAL since these datasets were built, stop and run it."
+echo
 
 # The 120k sweep's arguments were never written down, which is the whole reason
 # EXTRA has to be guessed at. Record this one's before it starts.
 {
   echo "steps=$STEPS lr=$LR arms='$ARMS' gpus='$GPUS'"
+  echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
+  echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "python=$(command -v python)"
@@ -75,11 +100,13 @@ for ((g = 0; g < NG; g++)); do
       CUDA_VISIBLE_DEVICES=${GPU_ARR[$g]} python -m src.ddsp.train_encoder \
         --loss "$arm" \
         --output-dir "$OUT/$arm" \
+        --data-dir "$TRAIN" --n-train "$N_TRAIN" \
+        --val-data-dir "$VAL" --n-val "$N_VAL" \
         --peak-normalize target \
         --steps "$STEPS" \
         --lr "$LR" \
         --seed 0 \
-        $EXTRA \
+        $NUMERICS $EXTRA \
         > "$OUT/$arm.log" 2>&1 \
         || echo "FAILED $arm (gpu ${GPU_ARR[$g]}) -- see $OUT/$arm.log" | tee -a "$OUT/failures.txt"
     done
