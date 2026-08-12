@@ -122,7 +122,7 @@ def _verify_activity(sample_params_dict):
                              'osc_sine_no_activeness_cont_freq',
                              'osc_square_no_activeness_cont_freq',
                              'osc_saw_no_activeness_cont_freq',
-                             'osc_saw_narrowfreq']:
+                             'osc_saw_narrowfreq', 'osc_saw_fixedfreq']:
                 is_active = sample_params_dict[key]['parameters'].get('active', True)
                 has_active_osc = has_active_osc or is_active
         else:

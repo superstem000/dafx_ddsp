@@ -165,6 +165,13 @@ SAW_NARROW_FILTER = [
     {'index': (0, 1), 'operation': 'lowpass_filter', 'audio_input': [[0, 0]], 'control_input': None, 'outputs': None},
 ]
 
+# SAW_NARROW_FILTER with pitch pinned to middle C, so the task is amp and
+# filter_freq only -- two coordinates a spectrogram distance can actually see.
+SAW_FIXED_FILTER = [
+    {'index': (0, 0), 'operation': 'osc_saw_fixedfreq', 'audio_input': None, 'control_input': None, 'outputs': [[0, 1]]},
+    {'index': (0, 1), 'operation': 'lowpass_filter', 'audio_input': [[0, 0]], 'control_input': None, 'outputs': None},
+]
+
 SAW_SQUARE_MIX = [
     {'index': (0, 0), 'operation': 'saw_square_osc', 'default_connection': True},
 ]
@@ -376,5 +383,6 @@ synth_chains_dict = {'BASIC_FLOW': BASIC_FLOW,
                       'REDUCED_SIMPLE_OSC': REDUCED_SIMPLE_OSC,
                       'SAW_ONLY': SAW_ONLY,
                       'SAW_FILTER': SAW_FILTER,
-                      'SAW_NARROW_FILTER': SAW_NARROW_FILTER
+                      'SAW_NARROW_FILTER': SAW_NARROW_FILTER,
+                      'SAW_FIXED_FILTER': SAW_FIXED_FILTER
                       }

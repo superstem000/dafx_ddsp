@@ -63,7 +63,7 @@ class SynthConstants:
     modular_synth_operations = ['osc', 'osc_sine', 'osc_square', 'osc_saw', 'fm', 'lfo', 'mix', 'filter', 'env_adsr',
                                 'fm_lfo', 'lfo_sine', 'lfo_non_sine',
                                 'fm_sine', 'fm_square', 'fm_saw', 'lowpass_filter',
-                                'osc_saw_narrowfreq']
+                                'osc_saw_narrowfreq', 'osc_saw_fixedfreq']
 
     # defined modules and their parameters
     modular_synth_params = {'osc': ['amp', 'freq', 'waveform', 'active', 'phase'],
@@ -74,6 +74,7 @@ class SynthConstants:
                             'osc_square_no_activeness': ['amp', 'freq'],
                             'osc_saw_no_activeness': ['amp', 'freq'],
                             'osc_saw_narrowfreq': ['amp', 'freq'],  # freq restricted to under an octave
+                            'osc_saw_fixedfreq': ['amp', 'freq'],   # freq pinned to middle C
                             'osc_sine_no_activeness_cont_freq': ['amp', 'freq'],  # 'freq' is continuous
                             'osc_square_no_activeness_cont_freq': ['amp', 'freq'],
                             'osc_saw_no_activeness_cont_freq': ['amp', 'freq'],
@@ -149,6 +150,23 @@ class SynthConstants:
             #
             # The point is a task where pitch is still estimated and can still
             # be got wrong -- not one where it has been removed.
+            # Pitch pinned to a single note. Wrong pitch puts the predicted
+            # harmonics in different bins from the target's, and an L1 over
+            # disjoint supports is sum(target) + sum(pred) -- monotonically
+            # increasing in the model's own output, so the descent direction is
+            # silence, and the loss then equals sum(target), a constant. That is
+            # the 78.596 / 1.388 / 1.394 plateau reached from every
+            # initialisation, and it is why amp collapsed while nothing else
+            # could be learned either: a wrong pitch removes the gradient for
+            # every other coordinate.
+            #
+            # Fixing pitch is not sidestepping the hard part. It removes the one
+            # coordinate whose failure poisons the others, so that amp and
+            # filter_freq -- both smooth in spectral terms -- can be estimated at
+            # all, and a comparison between losses can mean something.
+            'osc_freq_fixed': {'type': 'choice',
+                               'values': (261.6255653005985,),
+                               'non_active_default': self.non_active_freq_default},
             'osc_freq_narrow': {'type': 'choice',
                                 'values': [self.middle_c_freq * (2 ** (1 / 12)) ** x
                                            for x in range(-5, 6)],
@@ -216,6 +234,8 @@ class SynthConstants:
                                       'freq': sampling_configurations['osc_freq']},
             'osc_saw_narrowfreq': {'amp': sampling_configurations['uniform_amp'],
                                    'freq': sampling_configurations['osc_freq_narrow']},
+            'osc_saw_fixedfreq': {'amp': sampling_configurations['uniform_amp'],
+                                  'freq': sampling_configurations['osc_freq_fixed']},
             'osc_sine_no_activeness_cont_freq': {'amp': sampling_configurations['uniform_amp'],
                                                  'freq': sampling_configurations['osc_cont_freq']},
             'osc_square_no_activeness_cont_freq': {'amp': sampling_configurations['uniform_amp'],
