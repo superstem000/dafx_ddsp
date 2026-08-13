@@ -25,7 +25,11 @@
 #             is impossible
 #
 #   L1_STFT         the healthy control -- any head that breaks this is out
-#   L1_STFT_eps1e7  the worst log arm, i.e. the one the fix has to rescue
+#   L1_STFT_eps1e1  eps = 0.1. Every log rung fails on the plate, so this is
+#                   the MILDEST failing arm rather than the worst: a head that
+#                   cannot rescue mild compression is evidence about
+#                   compression, while "eps = 1e-7 still collapses" invites
+#                   "of course it does"
 #
 # adam_eps is 1e-8 in all six, against the 1e-16 the earlier ladders used. Once
 # a coordinate's surface goes flat, m and v are both ~0 and m/(sqrt(v)+1e-16) is
@@ -59,7 +63,7 @@ fi
 
 GPUS=$1
 HEADS=${HEADS:-"tanh normtanh softcap"}
-LOSSES=${LOSSES:-"L1_STFT L1_STFT_eps1e7"}
+LOSSES=${LOSSES:-"L1_STFT L1_STFT_eps1e1"}
 STEPS=${STEPS:-12000}
 ROOT=${ROOT:-results/ddsp/head_probe}
 
