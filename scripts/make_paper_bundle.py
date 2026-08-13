@@ -174,6 +174,23 @@ ANALYSIS = [
     "docs/figures/nmse_ecdf.pdf",
 ]
 
+# The original numpy plate and its dataset generator. random-IR-100-1.0s and
+# random-IR-200-0.2s -- the CMA-ES and gradient-descent sets -- came from
+# DatasetGen.py, not from src/data/make_dataset.py, and nothing else in the
+# manifest reaches it.
+GENERATORS = [
+    ("ModalPlate", "datasets/generators/ModalPlate"),
+    # Re-render an existing dataset's IRs through the torch plate, so target
+    # and model share a code path. Referenced by train_encoder's docstring as
+    # what was done for the fitting datasets.
+    ("gen_torch_targets.py", "datasets/generators/gen_torch_targets.py"),
+    ("gen_torch_targets_200.py", "datasets/generators/gen_torch_targets_200.py"),
+    # The diagnostic that found the float32 target/synthesis disagreement in
+    # the first place.
+    ("confirm_f32_gt.py", "datasets/generators/confirm_f32_gt.py"),
+    ("src/data/make_dataset.py", "datasets/generators/make_dataset.py"),
+]
+
 CODE = [
     ("src", "code/plate_src"),
     ("external/diffmoog/src", "code/diffmoog_src"),
@@ -199,6 +216,64 @@ DATASET_GLOBS = [
 
 
 SKIP = ["*.pt", "*.ckpt", "*.db", "__pycache__", "events.out.tfevents.*"]
+
+
+GENERATORS_MD = """# Which script made which dataset, and which ones have a floor
+
+Three generators produced the data in this paper, and they are not
+interchangeable. `docs/DATASETS.md` covers the flags; this covers which script.
+
+## `generators/ModalPlate/DatasetGen.py`
+
+The original numpy plate. Produced the per-IR fitting sets:
+
+| set | IRs | duration | generated |
+|---|---|---|---|
+| `random-IR-100-1.0s` | 100 | 1.0 s | 2026-04-24 |
+| `random-IR-200-0.2s` | 200 | 0.25 s | 2026-07-28 |
+
+These are what the CMA-ES sweeps and the gradient-descent runs fit. Each ships a
+`generation_summary.txt` recording the parameter ranges, which are identical
+between them: Lx 1.0 and nu 0.25 fixed, Ly [1.1, 4.0], h [0.001, 0.005],
+T0 [0.01, 1000], rho [2430, 21230], E [6.7e10, 2.2e11].
+
+## `generators/gen_torch_targets*.py`
+
+Re-render an existing set's IRs through the *torch* plate, so a target and the
+model that fits it share a code path exactly. Used for the fitting datasets;
+`train_encoder`'s module docstring names `gen_torch_targets_200.py` as the
+precedent for doing the same inside the encoder pipeline.
+
+## `generators/make_dataset.py`
+
+The encoder datasets. Its `--render-path` is the flag that separates the two
+generations of them:
+
+- `direct` -- the historical path, builds plate14 straight from the CSV. Leaves
+  `T0` quantised by its *range* rather than its value, a ~6e-5 quantum on a
+  range of (0.01, 1000), which is ~1e-4 on the mode frequencies. Invisible to a
+  linear loss and **19.8% of saturation to log(x + 1e-7)**.
+- `training` -- renders through the float32 `z` the encoder emits, so targets
+  and training synthesis agree bit-for-bit.
+
+`--fixed-mode-grid` is the second axis. Without it `n_modes` follows the batch
+maximum, so an IR renders differently depending on which batch it lands in:
+6.1% of saturation for log against ~0 for linear.
+
+| set | grid pinned | `gt_loss` observed |
+|---|---|---|
+| `train-100000-0.25s`, `val-1000-0.25s` | no | **1.2490e-05** |
+| `*-v3` | (107, 403) | 0.0 |
+| `train-p99`, `val-p99` | (86, 282) | 0.0 |
+
+The 250k linear run (`l1_stft_tgtnorm`) is on the first row; the 120k sweep and
+the eps ladder are on the last. That is why their numbers are not on the same
+footing, and why `diag_gt_floor` has to read `0.0000e+00` on the SHUFFLED row
+before a sweep is attributable at all.
+
+Audio is not shipped. `datasets/` carries the parameter CSVs; the commands in
+`docs/DATASETS.md` regenerate the audio, and every flag in them is load-bearing.
+"""
 
 
 def copy(src: Path, dst: Path, skip=None) -> tuple[int, int]:
@@ -328,6 +403,15 @@ def main() -> None:
             missing.append(pat)
         else:
             print(f"{'datasets/' + sub:<32} {len(hits):>5} files")
+    for src, dst in GENERATORS:
+        sp = root / src
+        if sp.exists():
+            f, b = copy(sp, args.out / dst)
+            print(f"{dst:<32} {f:>5} files  {human(b):>9}")
+        else:
+            missing.append(src)
+    (args.out / "datasets").mkdir(parents=True, exist_ok=True)
+    (args.out / "datasets" / "GENERATORS.md").write_text(GENERATORS_MD)
     for a in ANALYSIS:
         s = root / a
         if s.exists():
