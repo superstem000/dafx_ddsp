@@ -77,7 +77,13 @@ def load(root: str):
             "rows": rows,
             "last": h[-1]["step"] if h else 0,
             "rate": h[-1]["step"] / max(h[-1]["elapsed_s"], 1e-9) if h else 0.0,
+            # Lifetime clip% is dominated by warmup transients early on -- three
+            # of six logged records reads as 50% and says nothing about whether
+            # it is settling. Report the recent window too; that is the one that
+            # answers "is the clip setting the step size".
             "clip": 100.0 * sum(bool(q.get("clipped")) for q in h) / max(len(h), 1),
+            "clip_recent": 100.0 * sum(bool(q.get("clipped")) for q in h[-20:])
+                           / max(len(h[-20:]), 1),
             "gt": d.get("gt_loss", float("nan")),
             "sat": d.get("saturation", float("nan")),
             "floor": d.get("const_nmse_6d", float("nan")),
@@ -111,12 +117,13 @@ def main() -> None:
     names = sorted(arms)
     w = max(9, max(len(short(n)) for n in names) + 2)
 
-    print(f"{'arm':<18}{'step':>8}{'st/s':>7}{'clip%':>7}{'eta_h':>7}"
+    print(f"{'arm':<18}{'step':>8}{'st/s':>7}{'clip%':>7}{'clip20':>8}{'eta_h':>7}"
           f"{'gt_loss':>11}{'sat':>11}{'floor':>9}")
     for n in names:
         a = arms[n]
         eta = (args.steps - a["last"]) / a["rate"] / 3600 if a["rate"] > 0 else float("nan")
-        print(f"{short(n):<18}{a['last']:>8}{a['rate']:>7.2f}{a['clip']:>7.1f}{eta:>7.1f}"
+        print(f"{short(n):<18}{a['last']:>8}{a['rate']:>7.2f}{a['clip']:>7.1f}"
+              f"{a['clip_recent']:>8.1f}{eta:>7.1f}"
               f"{a['gt']:>11.3e}{a['sat']:>11.3e}{a['floor']:>9.4f}")
 
     if args.zmax:
