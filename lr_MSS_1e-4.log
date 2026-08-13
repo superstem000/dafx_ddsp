@@ -1,0 +1,184 @@
+Device cuda | loss MSS | duration 0.25s
+Loading train targets from data/train-p99
+Loading val targets from data/val-p99
+  98304 train / 996 val in 42s   train tensor 4.34 GB
+  training set held in host memory; batches transferred per step
+reference levels:  gt_loss 0.0000e+00   saturation (unrelated IRs) 6.3173e+00
+constant-predictor NMSE: 6d 4.730e-02  7d 7.959e-02  (the floor to beat)
+training loss stuck near saturation = gradient uninformative; well below = learning
+
+encoder: 3.74M params, width 32
+
+loss scale (fixed): 3.7580e+00
+step      1  train 3.7580e+00  val 2.1383e+01  6d geo 4.269e-02 med 4.728e-02 p90 8.122e-02 (const 4.730e-02)  |g| 1.68e+01  [1s]
+           5d geo 4.193e-02 med 4.870e-02   postmu 6d geo 5.183e-02 med 5.478e-02 p90 1.360e-01   mu |dlog| 0.6051
+           WARNING: prediction spread 0.004 of ground truth -- the output has collapsed to a constant (saturated tanh); lower --lr or raise --warmup-steps and restart
+           corr(identifiable)  mu=+0.35  D_div_mu=+0.38  T0_div_mu=+0.14  Ly=+0.02  op_x=+0.13  op_y=+0.04   mean spread/GT 0.00
+           err share           mu=16%  D_div_mu=2%  T0_div_mu=2%  Ly=26%  op_x=28%  op_y=26%
+step    100  train 2.5457e+00  |g| 1.34e+01  [47s]
+step    200  train 2.6130e+00  |g| 1.04e+02  [90s]
+step    300  train 2.5649e+00  |g| 3.75e+01  [132s]
+step    400  train 4.6463e+00  |g| 1.93e+02  [175s]
+step    500  train 3.3833e+00  |g| 3.23e+02  [219s]
+step    600  train 2.4550e+00  |g| 2.21e+02  [295s]
+step    700  train 2.5046e+00  |g| 8.97e+01  [377s]
+step    800  train 4.7896e+00  |g| 6.07e+01  [433s]
+step    900  train 2.7162e+00  |g| 2.58e+01  [481s]
+step   1000  train 3.0271e+00  val 3.8049e+00  6d geo 1.831e-01 med 2.024e-01 p90 3.161e-01 (const 4.730e-02)  |g| 1.63e+02  [522s]
+           5d geo 1.403e-01 med 1.691e-01   postmu 6d geo 1.343e-01 med 1.569e-01 p90 2.665e-01   mu |dlog| 1.0980
+           WARNING: prediction spread 0.002 of ground truth -- the output has collapsed to a constant (saturated tanh); lower --lr or raise --warmup-steps and restart
+           corr(identifiable)  mu=+0.20  D_div_mu=+0.32  T0_div_mu=+0.10  Ly=+0.01  op_x=+0.58  op_y=+0.16   mean spread/GT 0.00
+           err share           mu=30%  D_div_mu=1%  T0_div_mu=0%  Ly=26%  op_x=21%  op_y=23%
+step   1100  train 2.8917e+00  |g| 6.10e+01  [567s]
+step   1200  train 2.6953e+00  |g| 3.10e+01  [608s]
+step   1300  train 2.8438e+00  |g| 7.06e+01  [648s]
+step   1400  train 2.8130e+00  |g| 2.56e+01  [689s]
+step   1500  train 2.8847e+00  |g| 3.34e+01  [730s]
+step   1600  train 2.7409e+00  |g| 2.22e+02  [771s]
+step   1700  train 2.7439e+00  |g| 2.12e+01  [812s]
+  WARNING: 64 of 64 parameter sets need a finer grid than the pinned (86, 282) and are truncated. Raise --fixed-mode-grid; targets rendered under a pin that truncates them are not the plate's output at those parameters.
+step   1800  train 9.3208e+00  |g| 2.53e+02  [853s]
+step   1900  train 2.6890e+00  |g| 9.45e+00  [894s]
+step   2000  train 2.5197e+00  val 3.0567e+00  6d geo 1.468e-01 med 1.643e-01 p90 2.835e-01 (const 4.730e-02)  |g| 2.57e+01  [935s]
+           5d geo 1.617e-01 med 1.859e-01   postmu 6d geo 1.545e-01 med 1.739e-01 p90 2.910e-01   mu |dlog| 1.5554
+           WARNING: prediction spread 0.000 of ground truth -- the output has collapsed to a constant (saturated tanh); lower --lr or raise --warmup-steps and restart
+           corr(identifiable)  mu=-0.64  D_div_mu=+0.14  T0_div_mu=-0.44  Ly=+0.43  op_x=-0.18  op_y=-0.21   mean spread/GT 0.00
+           err share           mu=6%  D_div_mu=1%  T0_div_mu=1%  Ly=31%  op_x=30%  op_y=31%
+step   2100  train 3.1736e+00  |g| 1.66e+01  [980s]
+step   2200  train 3.9627e+00  |g| 4.62e+01  [1022s]
+step   2300  train 2.3176e+00  |g| 1.38e+01  [1063s]
+step   2400  train 2.4946e+00  |g| 8.88e+00  [1104s]
+step   2500  train 2.1481e+00  |g| 8.21e+00  [1145s]
+step   2600  train 2.4867e+00  |g| 5.12e+01  [1186s]
+step   2700  train 2.2236e+00  |g| 1.04e+01  [1227s]
+step   2800  train 2.1616e+00  |g| 1.69e+02  [1268s]
+step   2900  train 2.2070e+00  |g| 3.81e+01  [1309s]
+step   3000  train 2.1831e+00  val 2.3086e+00  6d geo 1.347e-01 med 1.539e-01 p90 2.617e-01 (const 4.730e-02)  |g| 7.51e+01  [1350s]
+           5d geo 1.474e-01 med 1.700e-01   postmu 6d geo 1.304e-01 med 1.496e-01 p90 2.621e-01   mu |dlog| 0.6305
+           WARNING: prediction spread 0.014 of ground truth -- the output has collapsed to a constant (saturated tanh); lower --lr or raise --warmup-steps and restart
+           corr(identifiable)  mu=-0.36  D_div_mu=-0.42  T0_div_mu=-0.16  Ly=+0.17  op_x=+0.46  op_y=+0.30   mean spread/GT 0.01
+           err share           mu=7%  D_div_mu=1%  T0_div_mu=1%  Ly=34%  op_x=25%  op_y=32%
+step   3100  train 2.2030e+00  |g| 2.98e+01  [1395s]
+step   3200  train 2.3658e+00  |g| 1.38e+01  [1437s]
+step   3300  train 2.3227e+00  |g| 1.09e+01  [1478s]
+step   3400  train 2.1899e+00  |g| 4.50e+01  [1519s]
+step   3500  train 2.1984e+00  |g| 1.02e+02  [1560s]
+step   3600  train 2.2076e+00  |g| 9.59e+00  [1601s]
+step   3700  train 2.0834e+00  |g| 5.06e+00  [1642s]
+step   3800  train 2.0425e+00  |g| 1.41e+01  [1683s]
+step   3900  train 1.9956e+00  |g| 8.35e+00  [1724s]
+step   4000  train 2.1685e+00  val 2.0477e+00  6d geo 1.513e-01 med 1.696e-01 p90 2.990e-01 (const 4.730e-02)  |g| 2.80e+00  [1765s]
+           5d geo 1.669e-01 med 1.907e-01   postmu 6d geo 1.517e-01 med 1.697e-01 p90 3.003e-01   mu |dlog| 0.8900
+           WARNING: prediction spread 0.017 of ground truth -- the output has collapsed to a constant (saturated tanh); lower --lr or raise --warmup-steps and restart
+           corr(identifiable)  mu=-0.37  D_div_mu=-0.43  T0_div_mu=-0.14  Ly=+0.19  op_x=+0.22  op_y=+0.31   mean spread/GT 0.02
+           err share           mu=6%  D_div_mu=1%  T0_div_mu=1%  Ly=30%  op_x=32%  op_y=29%
+step   4100  train 2.0475e+00  |g| 1.19e+01  [1811s]
+step   4200  train 2.1039e+00  |g| 1.06e+01  [1852s]
+step   4300  train 2.0365e+00  |g| 9.32e+00  [1893s]
+step   4400  train 2.1168e+00  |g| 5.05e+00  [1934s]
+step   4500  train 2.1322e+00  |g| 9.28e+00  [1975s]
+step   4600  train 1.9958e+00  |g| 1.16e+01  [2017s]
+step   4700  train 2.0191e+00  |g| 9.02e+00  [2058s]
+step   4800  train 2.0289e+00  |g| 1.75e+01  [2099s]
+step   4900  train 2.0055e+00  |g| 4.72e+00  [2140s]
+step   5000  train 2.0013e+00  val 1.9646e+00  6d geo 1.519e-01 med 1.709e-01 p90 2.991e-01 (const 4.730e-02)  |g| 1.66e+01  [2181s]
+           5d geo 1.676e-01 med 1.918e-01   postmu 6d geo 1.557e-01 med 1.740e-01 p90 3.041e-01   mu |dlog| 1.1124
+           WARNING: prediction spread 0.022 of ground truth -- the output has collapsed to a constant (saturated tanh); lower --lr or raise --warmup-steps and restart
+           corr(identifiable)  mu=-0.45  D_div_mu=-0.26  T0_div_mu=-0.20  Ly=+0.26  op_x=+0.18  op_y=+0.24   mean spread/GT 0.02
+           err share           mu=6%  D_div_mu=1%  T0_div_mu=1%  Ly=30%  op_x=32%  op_y=30%
+step   5100  train 2.1050e+00  |g| 7.54e+01  [2226s]
+step   5200  train 1.9921e+00  |g| 5.55e+00  [2268s]
+step   5300  train 1.9711e+00  |g| 2.25e+01  [2309s]
+step   5400  train 1.9554e+00  |g| 1.67e+01  [2350s]
+step   5500  train 2.0352e+00  |g| 1.91e+01  [2391s]
+step   5600  train 1.8959e+00  |g| 1.07e+01  [2432s]
+step   5700  train 1.9709e+00  |g| 4.83e+00  [2473s]
+step   5800  train 2.1046e+00  |g| 3.69e+01  [2514s]
+step   5900  train 1.9461e+00  |g| 3.98e+01  [2555s]
+step   6000  train 1.9056e+00  val 1.9506e+00  6d geo 1.523e-01 med 1.713e-01 p90 2.998e-01 (const 4.730e-02)  |g| 2.14e+01  [2597s]
+           5d geo 1.681e-01 med 1.924e-01   postmu 6d geo 1.576e-01 med 1.749e-01 p90 3.060e-01   mu |dlog| 1.2154
+           WARNING: prediction spread 0.015 of ground truth -- the output has collapsed to a constant (saturated tanh); lower --lr or raise --warmup-steps and restart
+           corr(identifiable)  mu=-0.18  D_div_mu=+0.03  T0_div_mu=-0.26  Ly=+0.26  op_x=+0.21  op_y=+0.22   mean spread/GT 0.02
+           err share           mu=6%  D_div_mu=1%  T0_div_mu=1%  Ly=30%  op_x=33%  op_y=29%
+step   6100  train 3.3088e+00  |g| 4.55e+02  [2642s]
+step   6200  train 2.1737e+00  |g| 2.07e+01  [2683s]
+step   6300  train 3.3142e+00  |g| 1.79e+01  [2726s]
+step   6400  train 3.1567e+00  |g| 3.11e+01  [2768s]
+step   6500  train 3.1535e+00  |g| 1.17e+01  [2810s]
+step   6600  train 3.0869e+00  |g| 4.94e+00  [2852s]
+step   6700  train 3.1424e+00  |g| 5.57e+00  [2894s]
+step   6800  train 3.0707e+00  |g| 1.79e+01  [2936s]
+step   6900  train 3.1738e+00  |g| 3.98e+00  [2978s]
+step   7000  train 3.0680e+00  val 3.0787e+00  6d geo 2.156e-01 med 2.319e-01 p90 3.609e-01 (const 4.730e-02)  |g| 3.75e+00  [3020s]
+           5d geo 1.552e-01 med 1.795e-01   postmu 6d geo 1.466e-01 med 1.650e-01 p90 2.919e-01   mu |dlog| 1.3796
+           WARNING: prediction spread 0.017 of ground truth -- the output has collapsed to a constant (saturated tanh); lower --lr or raise --warmup-steps and restart
+           corr(identifiable)  mu=+0.28  D_div_mu=+0.36  T0_div_mu=+0.05  Ly=+0.11  op_x=-0.51  op_y=+0.22   mean spread/GT 0.02
+           err share           mu=34%  D_div_mu=1%  T0_div_mu=0%  Ly=23%  op_x=22%  op_y=20%
+step   7100  train 3.1424e+00  |g| 1.98e+01  [3067s]
+step   7200  train 3.0575e+00  |g| 2.25e+01  [3109s]
+step   7300  train 2.9990e+00  |g| 7.32e+01  [3150s]
+step   7400  train 2.8182e+00  |g| 2.12e+01  [3192s]
+step   7500  train 2.8529e+00  |g| 8.64e+00  [3234s]
+step   7600  train 2.9359e+00  |g| 1.29e+01  [3276s]
+step   7700  train 2.8950e+00  |g| 7.98e+00  [3318s]
+step   7800  train 2.7369e+00  |g| 2.81e+01  [3360s]
+step   7900  train 2.8353e+00  |g| 2.68e+01  [3402s]
+step   8000  train 2.6429e+00  val 2.7415e+00  6d geo 1.725e-01 med 1.891e-01 p90 3.017e-01 (const 4.730e-02)  |g| 1.84e+01  [3444s]
+           5d geo 1.081e-01 med 1.274e-01   postmu 6d geo 1.027e-01 med 1.189e-01 p90 2.243e-01   mu |dlog| 0.5886
+           corr(identifiable)  mu=+0.30  D_div_mu=+0.47  T0_div_mu=-0.04  Ly=+0.15  op_x=+0.47  op_y=+0.11   mean spread/GT 0.10
+           err share           mu=41%  D_div_mu=1%  T0_div_mu=1%  Ly=27%  op_x=7%  op_y=24%
+step   8100  train 2.8160e+00  |g| 5.95e+00  [3490s]
+step   8200  train 2.6591e+00  |g| 3.37e+01  [3532s]
+step   8300  train 2.7728e+00  |g| 3.61e+01  [3574s]
+step   8400  train 2.0956e+00  |g| 3.55e+02  [3615s]
+step   8500  train 2.2669e+00  |g| 3.04e+02  [3656s]
+step   8600  train 2.0681e+00  |g| 2.71e+02  [3697s]
+step   8700  train 1.9952e+00  |g| 2.81e+02  [3738s]
+step   8800  train 1.9552e+00  |g| 2.27e+01  [3780s]
+step   8900  train 1.9847e+00  |g| 6.64e+01  [3821s]
+step   9000  train 2.0332e+00  val 1.9964e+00  6d geo 1.367e-01 med 1.558e-01 p90 2.672e-01 (const 4.730e-02)  |g| 2.84e+02  [3862s]
+           5d geo 1.449e-01 med 1.727e-01   postmu 6d geo 1.355e-01 med 1.569e-01 p90 2.706e-01   mu |dlog| 1.0286
+           corr(identifiable)  mu=+0.08  D_div_mu=-0.16  T0_div_mu=-0.06  Ly=+0.16  op_x=+0.53  op_y=+0.16   mean spread/GT 0.07
+           err share           mu=9%  D_div_mu=1%  T0_div_mu=1%  Ly=32%  op_x=28%  op_y=28%
+step   9100  train 2.0257e+00  |g| 5.62e+01  [3907s]
+step   9200  train 1.9977e+00  |g| 1.35e+02  [3948s]
+step   9300  train 2.0620e+00  |g| 3.27e+01  [3989s]
+step   9400  train 1.9775e+00  |g| 5.05e+01  [4030s]
+step   9500  train 2.0803e+00  |g| 3.04e+01  [4071s]
+step   9600  train 1.9031e+00  |g| 1.58e+01  [4113s]
+step   9700  train 1.9495e+00  |g| 5.37e+01  [4154s]
+step   9800  train 1.9922e+00  |g| 1.75e+01  [4195s]
+step   9900  train 1.9155e+00  |g| 4.88e+01  [4236s]
+step  10000  train 1.8842e+00  val 1.9241e+00  6d geo 1.389e-01 med 1.602e-01 p90 2.725e-01 (const 4.730e-02)  |g| 1.89e+01  [4277s]
+           5d geo 1.507e-01 med 1.778e-01   postmu 6d geo 1.368e-01 med 1.598e-01 p90 2.744e-01   mu |dlog| 0.8335
+           corr(identifiable)  mu=+0.33  D_div_mu=-0.51  T0_div_mu=-0.08  Ly=+0.15  op_x=+0.55  op_y=+0.09   mean spread/GT 0.07
+           err share           mu=7%  D_div_mu=1%  T0_div_mu=1%  Ly=33%  op_x=28%  op_y=31%
+step  10100  train 1.8914e+00  |g| 1.17e+01  [4322s]
+step  10200  train 2.0321e+00  |g| 2.26e+01  [4364s]
+step  10300  train 2.0334e+00  |g| 1.27e+02  [4405s]
+step  10400  train 1.9671e+00  |g| 1.34e+01  [4446s]
+step  10500  train 1.8270e+00  |g| 2.13e+01  [4487s]
+step  10600  train 1.9652e+00  |g| 5.12e+01  [4528s]
+step  10700  train 1.9363e+00  |g| 5.77e+00  [4569s]
+step  10800  train 1.9523e+00  |g| 4.24e+01  [4610s]
+step  10900  train 1.9459e+00  |g| 3.78e+00  [4651s]
+step  11000  train 2.1208e+00  val 2.0327e+00  6d geo 1.439e-01 med 1.642e-01 p90 2.804e-01 (const 4.730e-02)  |g| 1.48e+01  [4693s]
+           5d geo 1.560e-01 med 1.825e-01   postmu 6d geo 1.475e-01 med 1.689e-01 p90 2.868e-01   mu |dlog| 1.2487
+           corr(identifiable)  mu=-0.18  D_div_mu=+0.42  T0_div_mu=-0.10  Ly=+0.17  op_x=+0.46  op_y=+0.12   mean spread/GT 0.07
+           err share           mu=7%  D_div_mu=1%  T0_div_mu=1%  Ly=32%  op_x=28%  op_y=32%
+step  11100  train 1.8942e+00  |g| 2.87e+01  [4738s]
+step  11200  train 2.0211e+00  |g| 1.74e+01  [4779s]
+step  11300  train 1.8538e+00  |g| 5.19e+01  [4820s]
+step  11400  train 1.8913e+00  |g| 8.31e+00  [4861s]
+step  11500  train 2.0221e+00  |g| 2.58e+01  [4902s]
+step  11600  train 1.9758e+00  |g| 1.30e+01  [4944s]
+step  11700  train 1.8849e+00  |g| 3.35e+01  [4985s]
+step  11800  train 2.2981e+00  |g| 3.82e+01  [5026s]
+step  11900  train 2.0469e+00  |g| 1.28e+01  [5067s]
+step  12000  train 2.0015e+00  val 2.0362e+00  6d geo 1.246e-01 med 1.443e-01 p90 2.575e-01 (const 4.730e-02)  |g| 3.28e+01  [5108s]
+           5d geo 1.342e-01 med 1.601e-01   postmu 6d geo 1.168e-01 med 1.383e-01 p90 2.548e-01   mu |dlog| 0.3778
+           corr(identifiable)  mu=-0.29  D_div_mu=-0.51  T0_div_mu=-0.11  Ly=+0.19  op_x=+0.48  op_y=-0.18   mean spread/GT 0.11
+           err share           mu=8%  D_div_mu=1%  T0_div_mu=1%  Ly=35%  op_x=22%  op_y=33%
+best val_nmse_6d_postmu_geo 5.1834e-02 (encoder_best.pt)
+
+Done. Outputs written to /home/bhpark3/dafx_ddsp/results/ddsp/lr_MSS_1e-4
