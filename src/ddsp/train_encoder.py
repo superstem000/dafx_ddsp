@@ -193,6 +193,17 @@ class Encoder(nn.Module):
         if extra is not None:
             h = torch.cat([h, extra], dim=1)
         z = self.head(h)
+        # z = W.h, so a large |z| can come from the head's weights growing or
+        # from the trunk's features growing. eps1e7 had mean|h| 6x the linear
+        # arm's, so both contribute and the aggregate alone does not say which.
+        self.last_h_absmean = float(h.detach().abs().mean())
+        self.last_z_absmax = z.detach().abs().amax(dim=0).cpu()   # per parameter
+        # Hinge on the RAW pre-activation. On the clamped output it would be
+        # identically zero -- (|clamp(z)|-1)+ == 0 always -- so this must stay
+        # upstream of the bound. Zero inside the box, so it biases nothing; its
+        # gradient 2*lam*(|z|-1) vanishes as |z| -> 1, which is what lets the
+        # audio loss win near the boundary and the hinge win far outside it.
+        self.last_hinge = (z.abs() - 1.0).clamp(min=0.0).pow(2).mean()
         # Record how much of the batch sits where tanh's derivative has gone
         # (|z| > 2.5 leaves tanh' < 0.03) so saturation is measured rather than
         # inferred from prediction spread. Under stclamp this should stay near
@@ -876,12 +887,23 @@ def run(args) -> None:
         finite = torch.isfinite(loss)
         obj = torch.where(finite, loss, torch.zeros_like(loss)).mean()
 
+        # Kept out of `obj` until after loss_scale is fixed, and reported
+        # separately below: train_loss has to stay comparable to `saturation`
+        # and `gt_loss`, which are audio-only quantities. At step 1 the head is
+        # initialized at std 0.01 so the hinge is ~0 anyway, but relying on that
+        # rather than stating it is how the scale ends up quietly contaminated.
+        hinge = torch.zeros((), device=obj.device)
+        if args.head_hinge > 0:
+            hinge = args.head_hinge * getattr(model, "last_hinge", hinge)
+            if refiner is not None and hasattr(refiner, "last_hinge"):
+                hinge = hinge + args.head_hinge * refiner.last_hinge
+
         if loss_scale is None:
             loss_scale = max(float(obj.detach()), 1e-30)
             print(f"loss scale (fixed): {loss_scale:.4e}")
 
         opt.zero_grad(set_to_none=True)
-        (obj / loss_scale).backward()
+        ((obj + hinge) / loss_scale).backward()
         # Clip each network separately: one shared norm would let stage 0's much
         # larger gradient decide how much the refiner's gets scaled.
         gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip))
@@ -898,6 +920,10 @@ def run(args) -> None:
                 "grad_norm": gnorm,
                 "clipped": bool(gnorm > args.grad_clip),
                 "sat_frac": float(getattr(model, "last_sat_frac", 0.0)),
+                "hinge": float(hinge.detach()),
+                "h_absmean": float(getattr(model, "last_h_absmean", 0.0)),
+                **{f"zmax_{k}": float(v) for k, v in
+                   zip(PARAM_KEYS, getattr(model, "last_z_absmax", torch.zeros(len(PARAM_KEYS))))},
                 "elapsed_s": time.time() - t0,
             }
             if step % args.eval_every == 0 or step == 1:
@@ -1059,6 +1085,16 @@ def build_parser() -> argparse.ArgumentParser:
              "parameterization, so it applies to every loss by construction "
              "rather than by argument, and it forces nothing: it does not push "
              "predictions apart, it only declines to zero the gradient.",
+    )
+    p.add_argument(
+        "--head-hinge", type=float, default=0.0,
+        help="Weight on mean((|z|-1)+^2) over the raw pre-activation. 0 is off. "
+             "The failing arms reach |z| of 60 where reaching the box edge needs "
+             "1.47; that is runaway, and a straight-through clamp alone cannot "
+             "walk back from it inside the budget (Adam at ~lr integrates to "
+             "|z| ~ 9 over this schedule). 1e-2 rather than 1e-3 because the "
+             "penalty is exactly zero inside the box, so over-penalizing costs a "
+             "healthy run nothing while under-penalizing wastes the run.",
     )
     p.add_argument(
         "--norm", type=str, default="group", choices=["group", "batch"],

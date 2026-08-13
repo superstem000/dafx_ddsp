@@ -1,0 +1,19 @@
+# Clamp ladder: seven arms, one per GPU, taken as cards free.
+#
+# NORM=batch is not optional -- the tanh ladder these compare against ran
+# --norm batch and eps_ladder.sh defaults to group. Omitting it once already
+# produced an unattributable run.
+#
+# stclamp + hinge together, from the checkpoint probe: every failing arm has
+# sat 0.67-1.00 and |z| to 60 against the linear arm's sat 0.00 and |z|max
+# 3.3, while eps1e7's trunk_sd is 3.5x the linear arm's -- the trunk still
+# discriminates and the head discards it. Clamp keeps the gradient alive;
+# the hinge stops z reaching 60, which a clamp alone could not undo in
+# 40k steps.
+NORM=batch HEAD_BOUND=stclamp HEAD_HINGE=1e-2 OUT=results/ddsp/eps_ladder_clamp ARMS="L1_STFT" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp HEAD_HINGE=1e-2 OUT=results/ddsp/eps_ladder_clamp ARMS="L1_STFT_eps1" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp HEAD_HINGE=1e-2 OUT=results/ddsp/eps_ladder_clamp ARMS="L1_STFT_eps1e1" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp HEAD_HINGE=1e-2 OUT=results/ddsp/eps_ladder_clamp ARMS="L1_STFT_eps1e3" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp HEAD_HINGE=1e-2 OUT=results/ddsp/eps_ladder_clamp ARMS="L1_STFT_eps1e4" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp HEAD_HINGE=1e-2 OUT=results/ddsp/eps_ladder_clamp ARMS="L1_STFT_eps1e5" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp HEAD_HINGE=1e-2 OUT=results/ddsp/eps_ladder_clamp ARMS="L1_STFT_eps1e7" scripts/eps_ladder.sh "{gpu}"
