@@ -134,7 +134,12 @@ MANIFEST = [
         title="DiffMoog encoder, log(x + eps) ladder on the fixed-pitch task",
         sources=["results/diffmoog"],
         scripts=[],
-        extra_globs=["external/diffmoog/configs/loss_study/q_*.yaml"],
+        extra_globs=[
+            "external/diffmoog/configs/loss_study/q_*.yaml",
+            # The resolved config and the git commit + argv each run actually
+            # used. configs/ is the input; config_dump/ is what happened.
+            "external/diffmoog/experiments/current/q_*/config_dump/*",
+        ],
         note=(
             "The q_* runs are the ladder: ploss, linear at two rates, the eps "
             "ladder, and mss. Scalars only -- experiments/ is 21 GB of "
@@ -148,6 +153,17 @@ MANIFEST = [
 # Copied once, shared by every entry, rather than traced per result: an import
 # trace would be more precise and would also be one more thing that can be
 # subtly wrong.
+ANALYSIS = [
+    # Produces the cross-loss comparison tables; lives under results/ rather
+    # than src/, so nothing else in the manifest would pick it up.
+    "results/cmaes/compare_all_losses.py",
+    # Per-IR NMSE for the CMA-ES full run, every 1-restart ladder arm and the
+    # 250k DDSP run -- the data behind the ECDF figure, and the only per-IR
+    # record that survives for the full CMA-ES run.
+    "docs/figures/nmse_per_ir.csv",
+    "docs/figures/nmse_ecdf.pdf",
+]
+
 CODE = [
     ("src", "code/plate_src"),
     ("external/diffmoog/src", "code/diffmoog_src"),
@@ -161,16 +177,28 @@ DATASETS = [
     "docs/DATASETS.md",
 ]
 
+# Per-IR parameters for the sets the CMA-ES and gradient-descent runs used.
+# Those directories are 80 MB and 75 MB of rendered audio; the parameters are
+# what make them regenerable, and they are a few hundred KB.
+DATASET_GLOBS = [
+    ("data/random-IR-100-1.0s/random_IR_params_*.csv", "random-IR-100-1.0s"),
+    ("data/random-IR-100-1.0s/generation_summary.txt", "random-IR-100-1.0s"),
+    ("random-IR-200-0.2s/random_IR_params_*.csv", "random-IR-200-0.2s"),
+    ("random-IR-200-0.2s/generation_summary.txt", "random-IR-200-0.2s"),
+]
 
-def copy(src: Path, dst: Path) -> tuple[int, int]:
+
+SKIP = ["*.pt", "*.ckpt", "*.db", "__pycache__", "events.out.tfevents.*"]
+
+
+def copy(src: Path, dst: Path, skip=None) -> tuple[int, int]:
     """Copy a file or tree. Returns (files, bytes)."""
     if src.is_dir():
         if dst.exists():
             shutil.rmtree(dst)
         # Checkpoints are the reason experiments/ is 21 GB and results/ddsp is
         # hundreds of MB. Nothing in the paper reads them.
-        shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
-            "*.pt", "*.ckpt", "*.db", "__pycache__", "events.out.tfevents.*"))
+        shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*(skip or SKIP)))
         files = [p for p in dst.rglob("*") if p.is_file()]
         return len(files), sum(p.stat().st_size for p in files)
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -191,7 +219,13 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--out", type=Path, default=Path("paper"))
     p.add_argument("--only", nargs="+", default=None, help="Slugs to rebuild")
+    p.add_argument("--with-figures", action="store_true",
+                   help="Include per-IR diagnostic PNGs. They are 1212 files "
+                        "and ~96 MB in the 1-restart ladder alone, they "
+                        "regenerate from the CSVs beside them, and no figure "
+                        "in the paper is one of them.")
     args = p.parse_args()
+    skip = list(SKIP) + ([] if args.with_figures else ["*_diagnostic.png"])
 
     root = Path(".").resolve()
     commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
@@ -226,7 +260,7 @@ def main() -> None:
             if not src.exists():
                 absent.append(s)
                 continue
-            f, b = copy(src, base / "results" / Path(s).name)
+            f, b = copy(src, base / "results" / Path(s).name, skip)
             nf, nb = nf + f, nb + b
             got.append(s)
         for s in e.get("scripts", []):
@@ -276,6 +310,20 @@ def main() -> None:
             copy(s, args.out / "datasets" / Path(d).name)
         else:
             missing.append(d)
+    for pat, sub in DATASET_GLOBS:
+        hits = sorted(root.glob(pat))
+        for h in hits:
+            copy(h, args.out / "datasets" / sub / h.name)
+        if not hits:
+            missing.append(pat)
+        else:
+            print(f"{'datasets/' + sub:<32} {len(hits):>5} files")
+    for a in ANALYSIS:
+        s = root / a
+        if s.exists():
+            copy(s, args.out / "analysis" / Path(a).name)
+        else:
+            missing.append(a)
 
     lines += [
         "## `code/`",
