@@ -7,4 +7,3 @@ HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e4" scr
 HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e5" scripts/eps_ladder.sh "{gpu}"
 HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e7" scripts/eps_ladder.sh "{gpu}"
 # then the lr grid, which skips cells already in results/ddsp/lr_*
-scripts/lr_probe.sh "{gpu}"
