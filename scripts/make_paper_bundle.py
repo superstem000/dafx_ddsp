@@ -57,7 +57,7 @@ MANIFEST = [
         slug="02_cmaes_ladder_1restart",
         title="CMA-ES compression ladder, one restart per IR",
         sources=["results/ladder_1restart"],
-        scripts=["scripts/cmaes_norm_es/l1stft.sh"],
+        scripts=["scripts/ladder_1restart.sh"],
         note=(
             "200 IRs, linear / c2 / log / pow plus mss and smoothmss, each in "
             "two stages, --n_trials 1 against the standard sweep's 20. One "
@@ -142,6 +142,11 @@ MANIFEST = [
             # The resolved config and the git commit + argv each run actually
             # used. configs/ is the input; config_dump/ is what happened.
             "external/diffmoog/experiments/current/q_*/config_dump/*",
+            # create_data.py writes commit_and_args.txt beside each split; it
+            # is the only record of how the dataset was generated, since the
+            # training run's own commit_and_args only says "-d fixed10k".
+            "external/diffmoog/data/fixed10k/*/commit_and_args.txt",
+            "external/diffmoog/data/fixed10k/*/params_dataset.csv",
         ],
         note=(
             "The q_* runs are the ladder: ploss, linear at two rates, the eps "
