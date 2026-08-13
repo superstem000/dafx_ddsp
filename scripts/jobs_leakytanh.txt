@@ -1,0 +1,39 @@
+# Leakytanh ladder: seven arms, one per GPU, taken as cards free.
+#
+# Every variable that differs from a default is named on every line, because
+# omitting NORM once already produced a run that could not be attributed:
+#
+#   NORM=batch          the tanh ladder these compare against ran --norm batch,
+#                       and eps_ladder.sh defaults to group.
+#   HEAD_BOUND          the one thing under test.
+#   HEAD_GRAD_FLOOR     0.05 = tanh'(z) at |z| ~ 2.2, so inside the working
+#                       range the true derivative is larger and the floor never
+#                       activates; it only bites where tanh had already died.
+#   HEAD_HINGE=0        off. Adam is per-coordinate scale-free, so a penalty on
+#                       the pre-activation sets direction and not magnitude --
+#                       it did not hold stclamp back and there is no reason to
+#                       expect it to do anything here. Stating it rather than
+#                       inheriting it.
+#
+# Why leakytanh and not the stclamp+hinge attempt this replaces: stclamp
+# changes the forward map to a clamp, so outside the box the physical
+# parameters stop moving and the audio loss is exactly flat. With adam_eps
+# 1e-16 a numerically-zero gradient still produces ~lr steps in a noise
+# direction, and op_x integrated that to |z| 50636 by step 2000 -- on the
+# LINEAR control, the arm that works under tanh. leakytanh keeps tanh's
+# forward map bit-identical and floors only the derivative, so the output
+# always moves with z, the loss is never flat, and that failure mode is not
+# available. It also means these arms remain directly comparable with the
+# tanh ladder, which the clamp runs are not.
+#
+# Run L1_STFT FIRST and alone. It is the control: under tanh it reaches
+# nmse ~ 0.045 by step 2000 with sat 0.00, so if leakytanh does not track that
+# the parameterization is the problem and the other six are wasted GPU-days.
+# Release the rest once it has cleared step 2000 looking like the baseline.
+NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e1" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e3" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e4" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e5" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e7" scripts/eps_ladder.sh "{gpu}"

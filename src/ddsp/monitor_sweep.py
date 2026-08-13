@@ -38,7 +38,15 @@ METRICS = {
     # seven coordinates -- use --zmax for the per-parameter breakdown, which is
     # what says whether one coordinate is running while six behave.
     "sat": ("fraction of the batch with |z| > 2.5", "{:.3f}"),
+    # leakytanh only. Nonzero says the floor is carrying that step rather than
+    # tanh's own derivative -- inert on a healthy arm, so a column that stays
+    # high is a coordinate the floor is holding up and worth saying so about.
+    "floor": ("fraction of the batch riding the gradient floor", "{:.3f}"),
     "zmax": ("max |z| over all seven parameters", "{:.2f}"),
+    # op_x alone: it was already the worst coordinate under tanh (40% of the
+    # 6d NMSE, correlation stuck at 0.84) and it is the one that ran away under
+    # stclamp, so the aggregate zmax hides exactly the thing being watched.
+    "zmax_op_x": ("|z|max for op_x specifically", "{:.2f}"),
     "hinge": ("weighted hinge penalty, kept out of train_loss", "{:.4g}"),
     "h_abs": ("mean |h| entering the head", "{:.3f}"),
 }
@@ -68,7 +76,9 @@ def load(root: str):
                 "ratio": r["val_nmse_6d"] / d["const_nmse_6d"],
                 "spread": sum(sp) / len(sp) if sp else float("nan"),
                 "sat": r.get("sat_frac", float("nan")),
+                "floor": r.get("floor_frac", float("nan")),
                 "zmax": max(zc.values()) if zc else float("nan"),
+                "zmax_op_x": zc.get("op_x", float("nan")),
                 "hinge": r.get("hinge", float("nan")),
                 "h_abs": r.get("h_absmean", float("nan")),
             }

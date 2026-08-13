@@ -43,6 +43,7 @@ def probe(ckpt: Path, x: torch.Tensor, device) -> dict | None:
         hop=a.get("hop", 512), n_blocks=a.get("n_blocks", 5),
         max_ch=a.get("max_ch", 256), input_mode=a.get("input_mode", "norm_amp"),
         norm=a.get("norm", "group"), head_bound=a.get("head_bound", "tanh"),
+        head_grad_floor=a.get("head_grad_floor", 0.05),
     ).to(device)
     model.load_state_dict(ck["model"])
     model.eval()

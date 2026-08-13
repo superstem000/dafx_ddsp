@@ -93,10 +93,13 @@ class Encoder(nn.Module):
         n_extra: int = 0,
         norm: str = "group",
         head_bound: str = "tanh",
+        head_grad_floor: float = 0.05,
     ):
         super().__init__()
         self.head_bound = head_bound
+        self.head_grad_floor = head_grad_floor
         self.last_sat_frac = 0.0
+        self.last_floor_frac = 0.0
         self.n_fft, self.hop = n_fft, hop
         self.input_mode = input_mode
         self.register_buffer("window", torch.hann_window(n_fft))
@@ -209,6 +212,41 @@ class Encoder(nn.Module):
         # inferred from prediction spread. Under stclamp this should stay near
         # zero by construction; under tanh it is the thing that kills an arm.
         self.last_sat_frac = float((z.detach().abs() > 2.5).float().mean())
+        if self.head_bound == "leakytanh":
+            # tanh forward, floored derivative backward.
+            #
+            # The forward map is bit-identical to the tanh ladder -- same
+            # function, same range, same shape -- so an arm run under this is
+            # still comparable with the tanh runs in a way stclamp's is not.
+            # Only the backward pass changes: the true derivative 1 - tanh(z)^2
+            # is replaced by max(1 - tanh(z)^2, floor), so a saturated
+            # coordinate keeps receiving gradient of the correct *sign* and a
+            # fixed small magnitude instead of nothing.
+            #
+            # This is why stclamp's failure mode cannot occur here. Under
+            # stclamp the forward value is constant outside the box, so the
+            # audio loss is exactly flat there, and with adam_eps 1e-16 a
+            # numerically-zero gradient still produces a ~lr step in whatever
+            # direction the noise points -- op_x integrated that to |z| 50636.
+            # Under leakytanh the forward value keeps moving with z at every
+            # |z|, so the loss is never flat and the restoring force that the
+            # parameterization provides is still there; the floor only bounds
+            # how slowly a saturated coordinate can walk back, never removes
+            # the thing telling it which way to walk.
+            #
+            # y.detach() + d.detach() * (z - z.detach()) evaluates to y in the
+            # forward pass and has gradient d w.r.t. z in the backward pass.
+            y = torch.tanh(z)
+            d = (1.0 - y * y).clamp(min=self.head_grad_floor)
+            # How much of the batch is riding the floor rather than the true
+            # derivative -- i.e. how often this is load-bearing. A healthy arm
+            # should show ~0; a coordinate pinned here for long stretches is a
+            # coordinate the floor is carrying, which is worth knowing before
+            # quoting its number.
+            self.last_floor_frac = float(
+                (1.0 - y.detach() * y.detach() < self.head_grad_floor).float().mean()
+            )
+            return y.detach() + d.detach() * (z - z.detach())
         if self.head_bound == "stclamp":
             # Straight-through clamp: forward is bounded exactly as tanh's range
             # is, backward passes gradient 1 everywhere, so no amount of drift in
@@ -695,6 +733,7 @@ def run(args) -> None:
         n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
         n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
         norm=args.norm, head_bound=args.head_bound,
+        head_grad_floor=args.head_grad_floor,
     ).to(device)
     cond = CompositeConditioner(device)
     refiner = None
@@ -705,7 +744,7 @@ def run(args) -> None:
             n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
             n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
             in_ch=6, n_extra=len(CompositeConditioner.KEYS), norm=args.norm,
-            head_bound=args.head_bound,
+            head_bound=args.head_bound, head_grad_floor=args.head_grad_floor,
         ).to(device)
 
     params = list(model.parameters()) + (list(refiner.parameters()) if refiner else [])
@@ -920,6 +959,10 @@ def run(args) -> None:
                 "grad_norm": gnorm,
                 "clipped": bool(gnorm > args.grad_clip),
                 "sat_frac": float(getattr(model, "last_sat_frac", 0.0)),
+                # Fraction of the batch whose true tanh derivative is below the
+                # floor, i.e. how much of the step the floor is paying for. Only
+                # meaningful under leakytanh; zero elsewhere.
+                "floor_frac": float(getattr(model, "last_floor_frac", 0.0)),
                 "hinge": float(hinge.detach()),
                 "h_absmean": float(getattr(model, "last_h_absmean", 0.0)),
                 **{f"zmax_{k}": float(v) for k, v in
@@ -1074,17 +1117,31 @@ def build_parser() -> argparse.ArgumentParser:
              "essentially every step, making it a constant rather than an outlier guard",
     )
     p.add_argument(
-        "--head-bound", type=str, default="tanh", choices=["tanh", "stclamp"],
+        "--head-bound", type=str, default="tanh",
+        choices=["tanh", "stclamp", "leakytanh"],
         help="How the output is held in [-1,1]. tanh saturates: once a "
              "pre-activation passes ~2.5 its derivative is gone and the head is "
              "stuck emitting a constant, which is what the log arms do -- their "
              "Ly, op_x and op_y sit at 1/3 normalized squared error, the value "
              "for a constant at the edge of a uniform range, with spread 0.000. "
-             "stclamp bounds the forward pass identically and passes gradient 1 "
-             "through, so saturation cannot happen. It lives in the "
-             "parameterization, so it applies to every loss by construction "
-             "rather than by argument, and it forces nothing: it does not push "
-             "predictions apart, it only declines to zero the gradient.",
+             "leakytanh keeps tanh's forward map exactly and floors only its "
+             "derivative, so saturation cannot zero the gradient while the "
+             "output still moves with z everywhere -- run it. stclamp instead "
+             "replaces the forward map with a clamp, which makes the loss "
+             "genuinely flat outside the box; that removed the restoring force "
+             "and op_x ran to |z| 50636 on the linear control, so it is kept "
+             "only to reproduce that. Both live in the parameterization, so "
+             "they apply to every loss by construction rather than by argument, "
+             "and neither forces anything: they do not push predictions apart, "
+             "they only decline to zero the gradient.",
+    )
+    p.add_argument(
+        "--head-grad-floor", type=float, default=0.05,
+        help="leakytanh only: the floor under tanh's derivative. 0.05 is "
+             "tanh'(z) at |z| ~ 2.2, so inside the working range the true "
+             "derivative is larger and the floor is inert; past there a "
+             "coordinate walks back at a bounded rate rather than not at all. "
+             "0 recovers plain tanh exactly.",
     )
     p.add_argument(
         "--head-hinge", type=float, default=0.0,

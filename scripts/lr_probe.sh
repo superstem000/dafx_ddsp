@@ -38,16 +38,11 @@ BATCH=${BATCH:-64}
 WARMUP=${WARMUP:-2000}
 DEEPSUP=${DEEPSUP:-0.5}
 NORM=${NORM:-group}
-# tanh saturates and that is how the log arms die -- Ly/op_x/op_y at 1/3
-# normalized squared error, the value for a constant at the edge of a
-# uniform range, with spread 0.000. stclamp bounds the forward pass the
-# same way and passes gradient 1, so it cannot. It is a change to the
-# parameterization, so it applies to every arm identically.
+# See scripts/eps_ladder.sh for why this is leakytanh rather than stclamp.
+# Whatever the ladder is published under, this grid must use the same head --
+# an LR grid on a different parameterization answers a different question.
 HEAD_BOUND=${HEAD_BOUND:-tanh}
-# Hinge on the raw pre-activation, off by default. The failing arms reach
-# |z| of 60 where the box edge needs 1.47, and a clamp alone cannot walk
-# back from that inside the budget. Zero inside the box, so it costs a
-# healthy arm nothing.
+HEAD_GRAD_FLOOR=${HEAD_GRAD_FLOOR:-0.05}
 HEAD_HINGE=${HEAD_HINGE:-0}
 # The rest of the encoder, also from the sweep120k_* saved args. These are NOT
 # train_encoder's defaults, and the gap is not cosmetic: --n-fft 4096 / --hop
@@ -90,7 +85,7 @@ echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  out: $OUT"
   echo "steps=$STEPS losses='$LOSSES' lrs='$LRS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
   echo "n_fft=$N_FFT hop=$HOP n_blocks=$N_BLOCKS grad_ckpt=$GRAD_CKPT"
-  echo "head_bound=$HEAD_BOUND head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP constant_lr=yes"
+  echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP constant_lr=yes"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -146,6 +141,7 @@ PY
         --deep-supervision "$DEEPSUP" \
         --grad-clip "$CLIP" \
         --norm "$NORM" --head-bound "$HEAD_BOUND" --head-hinge "$HEAD_HINGE" \
+        --head-grad-floor "$HEAD_GRAD_FLOOR" \
         --n-fft "$N_FFT" --hop "$HOP" --n-blocks "$N_BLOCKS" \
         --eval-every "$EVAL_EVERY" \
         --seed 0 \
