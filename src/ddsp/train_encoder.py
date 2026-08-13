@@ -94,10 +94,12 @@ class Encoder(nn.Module):
         norm: str = "group",
         head_bound: str = "tanh",
         head_grad_floor: float = 0.05,
+        head_cap: float = 3.0,
     ):
         super().__init__()
         self.head_bound = head_bound
         self.head_grad_floor = head_grad_floor
+        self.head_cap = head_cap
         self.last_sat_frac = 0.0
         self.last_floor_frac = 0.0
         self.n_fft, self.hop = n_fft, hop
@@ -140,8 +142,21 @@ class Encoder(nn.Module):
         self.net = nn.Sequential(*blocks)
 
         self.flatten = nn.Flatten()
+        head_in = ch_in * n_freq + n_extra
+        # normtanh: normalize what the head sees. z = W.h, and in the failing
+        # arms mean|h| grew to 6x the linear arm's, so the trunk's own drift is
+        # the dominant term in |z| reaching 60. LayerNorm removes it -- and does
+        # so per example, across features, so unlike BatchNorm on the output it
+        # places no constraint on whether two inputs give two different
+        # predictions. That matters: prediction spread is part of what is being
+        # measured, and a normalization that forces it would be rigging the
+        # metric rather than fixing the head.
+        #
+        # It is not a hard bound on |z|: ||W|| can still grow. It removes the
+        # larger of the two contributions, not both.
+        self.head_norm = nn.LayerNorm(head_in) if head_bound == "normtanh" else nn.Identity()
         self.head = nn.Sequential(
-            nn.Linear(ch_in * n_freq + n_extra, 256), nn.GELU(), nn.Linear(256, n_out)
+            nn.Linear(head_in, 256), nn.GELU(), nn.Linear(256, n_out)
         )
         # Start the output layer near zero so tanh begins in its linear region.
         # At default init the pre-activations are large enough that tanh can pin
@@ -195,6 +210,7 @@ class Encoder(nn.Module):
         h = self.flatten(self.net(feat))
         if extra is not None:
             h = torch.cat([h, extra], dim=1)
+        h = self.head_norm(h)          # Identity unless head_bound == normtanh
         z = self.head(h)
         # z = W.h, so a large |z| can come from the head's weights growing or
         # from the trunk's features growing. eps1e7 had mean|h| 6x the linear
@@ -212,6 +228,21 @@ class Encoder(nn.Module):
         # inferred from prediction spread. Under stclamp this should stay near
         # zero by construction; under tanh it is the thing that kills an arm.
         self.last_sat_frac = float((z.detach().abs() > 2.5).float().mean())
+        if self.head_bound == "softcap":
+            # A soft cap on the pre-activation, then the usual output tanh:
+            # out = tanh(c * tanh(z/c)), so what the output tanh sees is bounded
+            # by c and its own derivative never falls below 1 - tanh^2(c).
+            #
+            # What this does and does not do. It does make runaway impossible,
+            # because the inner squash's derivative decays and the outward pull
+            # therefore decays with it -- the property leakytanh destroyed. It
+            # does NOT floor the total gradient: the chain rule gives
+            #   d out/dz = [1 - tanh^2(z')] * [1 - tanh^2(z/c)]
+            # and the second factor still goes to zero. The cap slows that decay
+            # from e^(-2|z|) to e^(-2|z|/c), three times slower in the exponent
+            # at c = 3, which buys time rather than immunity.
+            c = self.head_cap
+            return torch.tanh(c * torch.tanh(z / c))
         if self.head_bound == "leakytanh":
             # tanh forward, floored derivative backward.
             #
@@ -223,16 +254,25 @@ class Encoder(nn.Module):
             # coordinate keeps receiving gradient of the correct *sign* and a
             # fixed small magnitude instead of nothing.
             #
-            # This is why stclamp's failure mode cannot occur here. Under
-            # stclamp the forward value is constant outside the box, so the
-            # audio loss is exactly flat there, and with adam_eps 1e-16 a
-            # numerically-zero gradient still produces a ~lr step in whatever
-            # direction the noise points -- op_x integrated that to |z| 50636.
-            # Under leakytanh the forward value keeps moving with z at every
-            # |z|, so the loss is never flat and the restoring force that the
-            # parameterization provides is still there; the floor only bounds
-            # how slowly a saturated coordinate can walk back, never removes
-            # the thing telling it which way to walk.
+            # MEASURED FAILURE -- kept only to reproduce it. Do not use.
+            #
+            # The argument for it was that tanh's forward map keeps moving with
+            # z, so the loss is never flat and stclamp's runaway cannot happen.
+            # That is false: tanh(z) reaches exactly +-1.0 in float32 by
+            # |z| ~ 9, so the forward value is as constant out there as a
+            # clamp's. Worse, the floor is what CAUSES the runaway. Under plain
+            # tanh a persistent outward pull decays as tanh' -> 0 and z stalls
+            # (the tanh ladder capped around 60); floored, that pull never
+            # decays and integrates without bound. On the linear control -- the
+            # arm that is healthy under tanh -- op_x reached |z| 577204 by step
+            # 2000, against stclamp's 50636, with val nmse 3.46x the constant
+            # predictor. Step 1 was bit-identical to the tanh run, so nothing
+            # else differed.
+            #
+            # General lesson, which is why softcap above is shaped as it is:
+            # any scheme that keeps gradient alive at large |z| makes |z| grow,
+            # and |z| growing is the failure. The restoring force has to be
+            # allowed to decay.
             #
             # y.detach() + d.detach() * (z - z.detach()) evaluates to y in the
             # forward pass and has gradient d w.r.t. z in the backward pass.
@@ -733,7 +773,7 @@ def run(args) -> None:
         n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
         n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
         norm=args.norm, head_bound=args.head_bound,
-        head_grad_floor=args.head_grad_floor,
+        head_grad_floor=args.head_grad_floor, head_cap=args.head_cap,
     ).to(device)
     cond = CompositeConditioner(device)
     refiner = None
@@ -745,6 +785,7 @@ def run(args) -> None:
             n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
             in_ch=6, n_extra=len(CompositeConditioner.KEYS), norm=args.norm,
             head_bound=args.head_bound, head_grad_floor=args.head_grad_floor,
+            head_cap=args.head_cap,
         ).to(device)
 
     params = list(model.parameters()) + (list(refiner.parameters()) if refiner else [])
@@ -1094,7 +1135,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--steps", type=int, default=100000)
     p.add_argument("--lr", type=float, default=3e-4)
-    p.add_argument("--adam-eps", type=float, default=1e-16)
+    p.add_argument(
+        "--adam-eps", type=float, default=1e-8,
+        help="Was 1e-16, eight orders below the torch default, and that is its "
+             "own failure mode. Adam's update is m/(sqrt(v)+eps); once a "
+             "coordinate's loss surface goes flat, m and v are both ~0 and the "
+             "ratio is noise divided by noise, so at 1e-16 the coordinate takes "
+             "full-lr steps in whatever direction rounding points. At 1e-8 the "
+             "same situation makes the update decay toward zero instead. This "
+             "is independent of the head bound and plausibly a large part of "
+             "the observed runaways. Pass 1e-16 explicitly to reproduce the "
+             "earlier ladders, whose checkpoints record it.",
+    )
     p.add_argument(
         "--lr-floor", type=float, default=0.0,
         help="Fraction of peak the cosine decays to and then holds. 0 reproduces the "
@@ -1118,22 +1170,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--head-bound", type=str, default="tanh",
-        choices=["tanh", "stclamp", "leakytanh"],
+        choices=["tanh", "normtanh", "softcap", "stclamp", "leakytanh"],
         help="How the output is held in [-1,1]. tanh saturates: once a "
              "pre-activation passes ~2.5 its derivative is gone and the head is "
              "stuck emitting a constant, which is what the log arms do -- their "
              "Ly, op_x and op_y sit at 1/3 normalized squared error, the value "
              "for a constant at the edge of a uniform range, with spread 0.000. "
-             "leakytanh keeps tanh's forward map exactly and floors only its "
-             "derivative, so saturation cannot zero the gradient while the "
-             "output still moves with z everywhere -- run it. stclamp instead "
-             "replaces the forward map with a clamp, which makes the loss "
-             "genuinely flat outside the box; that removed the restoring force "
-             "and op_x ran to |z| 50636 on the linear control, so it is kept "
-             "only to reproduce that. Both live in the parameterization, so "
-             "they apply to every loss by construction rather than by argument, "
-             "and neither forces anything: they do not push predictions apart, "
-             "they only decline to zero the gradient.",
+             "normtanh LayerNorms the head's input, removing the trunk drift "
+             "that supplied most of that |z| (mean|h| grew 6x in the failing "
+             "arms); softcap squashes the pre-activation first, out = "
+             "tanh(c*tanh(z/c)), so the outward pull decays and runaway is "
+             "impossible. stclamp and leakytanh are MEASURED FAILURES kept only "
+             "to reproduce them -- both keep gradient alive at large |z|, which "
+             "is exactly what makes |z| grow, and both blew up the healthy "
+             "linear control (|z| 50636 and 577204). All four live in the "
+             "parameterization, so they apply to every loss by construction "
+             "rather than by argument, and none forces predictions apart.",
+    )
+    p.add_argument(
+        "--head-cap", type=float, default=3.0,
+        help="softcap only: the bound on the pre-activation. At c = 3 the "
+             "output tanh sees at most 3, where its own derivative is still "
+             "~0.01. Note this is not a floor on the total gradient -- the "
+             "inner squash's derivative still decays -- it slows the decay from "
+             "e^(-2|z|) to e^(-2|z|/c) and, unlike a floor, lets the restoring "
+             "force decay so nothing can run away.",
     )
     p.add_argument(
         "--head-grad-floor", type=float, default=0.05,

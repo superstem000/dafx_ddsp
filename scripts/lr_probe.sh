@@ -38,11 +38,14 @@ BATCH=${BATCH:-64}
 WARMUP=${WARMUP:-2000}
 DEEPSUP=${DEEPSUP:-0.5}
 NORM=${NORM:-group}
-# See scripts/eps_ladder.sh for why this is leakytanh rather than stclamp.
-# Whatever the ladder is published under, this grid must use the same head --
-# an LR grid on a different parameterization answers a different question.
+# Whatever the ladder is finally published under, this grid must use the same
+# head -- an LR grid on a different parameterization answers a different
+# question. See --head-bound in train_encoder.py for which are live and which
+# are recorded failures.
 HEAD_BOUND=${HEAD_BOUND:-tanh}
 HEAD_GRAD_FLOOR=${HEAD_GRAD_FLOOR:-0.05}
+HEAD_CAP=${HEAD_CAP:-3.0}
+ADAM_EPS=${ADAM_EPS:-1e-8}
 HEAD_HINGE=${HEAD_HINGE:-0}
 # The rest of the encoder, also from the sweep120k_* saved args. These are NOT
 # train_encoder's defaults, and the gap is not cosmetic: --n-fft 4096 / --hop
@@ -85,7 +88,7 @@ echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  out: $OUT"
   echo "steps=$STEPS losses='$LOSSES' lrs='$LRS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
   echo "n_fft=$N_FFT hop=$HOP n_blocks=$N_BLOCKS grad_ckpt=$GRAD_CKPT"
-  echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP constant_lr=yes"
+  echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_cap=$HEAD_CAP adam_eps=$ADAM_EPS head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP constant_lr=yes"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -141,7 +144,8 @@ PY
         --deep-supervision "$DEEPSUP" \
         --grad-clip "$CLIP" \
         --norm "$NORM" --head-bound "$HEAD_BOUND" --head-hinge "$HEAD_HINGE" \
-        --head-grad-floor "$HEAD_GRAD_FLOOR" \
+        --head-grad-floor "$HEAD_GRAD_FLOOR" --head-cap "$HEAD_CAP" \
+        --adam-eps "$ADAM_EPS" \
         --n-fft "$N_FFT" --hop "$HOP" --n-blocks "$N_BLOCKS" \
         --eval-every "$EVAL_EVERY" \
         --seed 0 \

@@ -71,19 +71,22 @@ DEEPSUP=${DEEPSUP:-0.5}
 NORM=${NORM:-group}
 # tanh saturates and that is how the log arms die -- Ly/op_x/op_y at 1/3
 # normalized squared error, the value for a constant at the edge of a
-# uniform range, with spread 0.000. leakytanh keeps tanh's forward map
-# exactly and floors only its derivative, so the forward pass -- and hence
-# comparability with the tanh ladder -- is untouched while a saturated
-# coordinate keeps receiving gradient. It is a change to the
+# uniform range, with spread 0.000. Any replacement is a change to the
 # parameterization, so it applies to every arm identically.
 #
-# stclamp was tried first and failed on the linear control: replacing the
-# forward map with a clamp makes the loss exactly flat outside the box, so
-# the restoring force is gone, and with adam_eps 1e-16 a numerically-zero
-# gradient still takes ~lr steps -- op_x reached |z| 50636 by step 2000.
-# leakytanh cannot do that, because its output keeps moving with z.
+# Two attempts failed, both by keeping gradient alive at large |z|, which is
+# what makes |z| grow: stclamp took op_x to |z| 50636 on the healthy linear
+# control, leakytanh to 577204. normtanh and softcap instead attack |z|
+# itself -- see --head-bound in train_encoder.py. Do not set stclamp or
+# leakytanh except to reproduce those failures.
 HEAD_BOUND=${HEAD_BOUND:-tanh}
 HEAD_GRAD_FLOOR=${HEAD_GRAD_FLOOR:-0.05}
+HEAD_CAP=${HEAD_CAP:-3.0}
+# 1e-16 is what the earlier ladders ran. Once a coordinate goes flat both
+# m and v are ~0 and m/(sqrt(v)+1e-16) is noise over noise, so it takes
+# full-lr steps in a rounding-determined direction; at 1e-8 the update
+# decays instead. Pass 1e-16 to reproduce the old runs.
+ADAM_EPS=${ADAM_EPS:-1e-8}
 # Hinge on the raw pre-activation, off by default. Adam is per-coordinate
 # scale-free (m/(sqrt(v)+eps) cancels any constant factor on the gradient),
 # so a penalty sets direction and not magnitude -- which is why the hinge did
@@ -171,7 +174,7 @@ fi
   echo "steps=$STEPS lr=$LR arms='$ARMS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
   echo "n_fft=$N_FFT hop=$HOP n_blocks=$N_BLOCKS grad_ckpt=$GRAD_CKPT"
-  echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP lr_floor=$LR_FLOOR lr_hold_frac=$LR_HOLD deep_sup=$DEEPSUP"
+  echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_cap=$HEAD_CAP adam_eps=$ADAM_EPS head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP lr_floor=$LR_FLOOR lr_hold_frac=$LR_HOLD deep_sup=$DEEPSUP"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -206,7 +209,8 @@ for ((g = 0; g < NG; g++)); do
         --deep-supervision "$DEEPSUP" \
         --grad-clip "$CLIP" \
         --norm "$NORM" --head-bound "$HEAD_BOUND" --head-hinge "$HEAD_HINGE" \
-        --head-grad-floor "$HEAD_GRAD_FLOOR" \
+        --head-grad-floor "$HEAD_GRAD_FLOOR" --head-cap "$HEAD_CAP" \
+        --adam-eps "$ADAM_EPS" \
         --n-fft "$N_FFT" --hop "$HOP" --n-blocks "$N_BLOCKS" \
         --eval-every "$EVAL_EVERY" \
         --seed 0 \
