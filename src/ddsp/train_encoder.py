@@ -92,8 +92,11 @@ class Encoder(nn.Module):
         in_ch: Optional[int] = None,
         n_extra: int = 0,
         norm: str = "group",
+        head_bound: str = "tanh",
     ):
         super().__init__()
+        self.head_bound = head_bound
+        self.last_sat_frac = 0.0
         self.n_fft, self.hop = n_fft, hop
         self.input_mode = input_mode
         self.register_buffer("window", torch.hann_window(n_fft))
@@ -189,7 +192,22 @@ class Encoder(nn.Module):
         h = self.flatten(self.net(feat))
         if extra is not None:
             h = torch.cat([h, extra], dim=1)
-        return torch.tanh(self.head(h))
+        z = self.head(h)
+        # Record how much of the batch sits where tanh's derivative has gone
+        # (|z| > 2.5 leaves tanh' < 0.03) so saturation is measured rather than
+        # inferred from prediction spread. Under stclamp this should stay near
+        # zero by construction; under tanh it is the thing that kills an arm.
+        self.last_sat_frac = float((z.detach().abs() > 2.5).float().mean())
+        if self.head_bound == "stclamp":
+            # Straight-through clamp: forward is bounded exactly as tanh's range
+            # is, backward passes gradient 1 everywhere, so no amount of drift in
+            # the pre-activation can zero it. This is a change to the
+            # parameterization, identical for every loss, and strictly weaker
+            # than forcing variance -- it does not push predictions apart, it
+            # only refuses to stop the gradient. If an arm still collapses under
+            # it, saturation was not the reason.
+            return z + (z.clamp(-1.0, 1.0) - z).detach()
+        return torch.tanh(z)
 
     def forward(self, x: torch.Tensor, scale: float) -> torch.Tensor:
         return self.from_features(self.features(x, scale))
@@ -665,7 +683,7 @@ def run(args) -> None:
     model = Encoder(
         n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
         n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
-        norm=args.norm,
+        norm=args.norm, head_bound=args.head_bound,
     ).to(device)
     cond = CompositeConditioner(device)
     refiner = None
@@ -676,6 +694,7 @@ def run(args) -> None:
             n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
             n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
             in_ch=6, n_extra=len(CompositeConditioner.KEYS), norm=args.norm,
+            head_bound=args.head_bound,
         ).to(device)
 
     params = list(model.parameters()) + (list(refiner.parameters()) if refiner else [])
@@ -878,6 +897,7 @@ def run(args) -> None:
                 "train_loss": tr,
                 "grad_norm": gnorm,
                 "clipped": bool(gnorm > args.grad_clip),
+                "sat_frac": float(getattr(model, "last_sat_frac", 0.0)),
                 "elapsed_s": time.time() - t0,
             }
             if step % args.eval_every == 0 or step == 1:
@@ -1026,6 +1046,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--grad-clip", type=float, default=10.0,
         help="Clip is on the objective *after* loss scaling; at 1.0 it bound on "
              "essentially every step, making it a constant rather than an outlier guard",
+    )
+    p.add_argument(
+        "--head-bound", type=str, default="tanh", choices=["tanh", "stclamp"],
+        help="How the output is held in [-1,1]. tanh saturates: once a "
+             "pre-activation passes ~2.5 its derivative is gone and the head is "
+             "stuck emitting a constant, which is what the log arms do -- their "
+             "Ly, op_x and op_y sit at 1/3 normalized squared error, the value "
+             "for a constant at the edge of a uniform range, with spread 0.000. "
+             "stclamp bounds the forward pass identically and passes gradient 1 "
+             "through, so saturation cannot happen. It lives in the "
+             "parameterization, so it applies to every loss by construction "
+             "rather than by argument, and it forces nothing: it does not push "
+             "predictions apart, it only declines to zero the gradient.",
     )
     p.add_argument(
         "--norm", type=str, default="group", choices=["group", "batch"],
