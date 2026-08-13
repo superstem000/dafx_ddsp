@@ -33,24 +33,23 @@ from pathlib import Path
 MANIFEST = [
     dict(
         section="plate",
-        slug="01_cmaes_full_l1stft",
-        title="CMA-ES, L1-STFT, full restart budget",
-        sources=[
-            "results/cmaes_norm_es_lessdigit/l1_stft",
-            "results/cmaes_norm_es_lessdigit/l1_stft_tolfun",
-            "results/cmaes_norm_es/l1_stft_tolfun",
-        ],
-        scripts=[
-            "scripts/cmaes_norm_es/l1stft.sh",
-            "scripts/cmaes_norm_es/l1stft_tolfun.sh",
-        ],
+        slug="01_cmaes_full",
+        title="CMA-ES, 20 restarts, all losses (the 'CMA-ES full' row)",
+        sources=["results/standard_sweep"],
+        scripts=["scripts/standard_sweep/run_standard_sweep.sh"],
         note=(
-            "100 IRs from data/random-IR-100-1.0s, via "
-            "src.cmaes.fit_7param_norm_es at sigma0 0.6 with early stop at "
-            "loss 0.01. Three directories because three variants exist and "
-            "which one the paper quotes is not recorded anywhere: the plain "
-            "run, the tolfun-stopped run, and the later _lessdigit "
-            "reporting. CONFIRM WHICH, then cut this entry down to one."
+            "src/analysis/compare_methods.py line 228 reads "
+            "results/standard_sweep/l1_stft for the row it labels 'CMA-ES "
+            "full L1_STFT', so this is that run and cmaes_norm_es* is not. "
+            "50 IRs from data/random-IR-100-1.0s at float32, 14 losses, two "
+            "stages each -- sweep_run.log records DSET_ROOT, N_SAMPLES=50 and "
+            "DTYPE per run along with wall clock, so the invocation is "
+            "recovered rather than assumed. Everything else comes from "
+            "fit_7param_norm_es defaults: n_trials 400, budget 25000, sigma0 "
+            "0.6, tolfun 1e-5, lhs_seed 42, popsize 30-60, early stop at "
+            "0.01. All 14 losses are kept, not just L1_STFT: the cross-loss "
+            "comparison at a full restart budget is the counterpart to the "
+            "one-restart ladder."
         ),
     ),
     dict(
@@ -60,9 +59,13 @@ MANIFEST = [
         sources=["results/ladder_1restart"],
         scripts=["scripts/cmaes_norm_es/l1stft.sh"],
         note=(
-            "linear / c2 / log / pow, plus mss and smoothmss, each in two "
-            "stages. One restart per IR is the point: it removes the restart "
-            "budget as a confound between losses."
+            "200 IRs, linear / c2 / log / pow plus mss and smoothmss, each in "
+            "two stages, --n_trials 1 against the standard sweep's 20. One "
+            "restart per IR is the point: it removes the restart budget as a "
+            "confound between losses. compare_methods scores these at stage 2 "
+            "using stage2/mu_refined_summary.csv's refined_* columns, so the "
+            "figure's medians (l1_stft 1.00e-3) do not match stage1 "
+            "summary.csv's nmse (1.59e-2) -- read the right stage."
         ),
     ),
     dict(
@@ -154,6 +157,13 @@ MANIFEST = [
 # trace would be more precise and would also be one more thing that can be
 # subtly wrong.
 ANALYSIS = [
+    # THE generator for the paper's table and ECDF figure. Reads
+    # standard_sweep/l1_stft as "CMA-ES full", every ladder_1restart/* as
+    # "CMA-ES 1rst", and the encoder from --ddsp-ckpt. Scores CMA-ES at stage 2
+    # via the refined_* columns when mu_refined_summary.csv exists, which is
+    # why a stage-1 median read straight off summary.csv does not reproduce the
+    # figure's numbers.
+    "src/analysis/compare_methods.py",
     # Produces the cross-loss comparison tables; lives under results/ rather
     # than src/, so nothing else in the manifest would pick it up.
     "results/cmaes/compare_all_losses.py",
