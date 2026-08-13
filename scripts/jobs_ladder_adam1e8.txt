@@ -1,0 +1,48 @@
+# The full compression ladder, re-run with a working optimizer.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_ladder_adam1e8.txt
+#
+# Why this exists. The published ladder in results/ddsp/eps_ladder ran
+# adam_eps=1e-16. That is a bug, not a setting: once a coordinate's loss surface
+# goes flat both m and v are ~0, so m/(sqrt(v)+1e-16) is noise divided by noise
+# and the coordinate takes full-lr steps in a rounding-determined direction. The
+# head probe measured what fixing it does -- clip% went from 37-52% to 0.0 in
+# every cell, and |z|max for op_x from 50636 (stclamp) and 577204 (leakytanh)
+# down to single digits. Numbers quoted in the paper should come from runs
+# without that defect.
+#
+# What this does NOT change. The head probe already ran both ends of this ladder
+# at adam_eps=1e-8: L1_STFT recovers (ratio 0.33 at 12k steps) and L1_STFT_eps1e1
+# fails (ratio 3.54), same as before. So this is expected to reproduce the
+# existing conclusion with clean numbers, not to overturn it. If a rung moves
+# across the linear/log boundary, that is a finding and the ladder needs saying
+# again more carefully.
+#
+# tanh, not normtanh or softcap. All three gave the same linear control to
+# within noise (nmse 0.0156 / 0.0167 / 0.0170) and none rescued the log arm, and
+# normtanh actually made it worse while holding |z| lowest -- which is the
+# evidence that saturation was a symptom. tanh is the simplest and the one the
+# earlier results used, so the re-run stays a one-variable change against them.
+# The head probe stands separately as the robustness table.
+#
+# Output goes to a NEW directory. results/ddsp/eps_ladder is the adam_eps=1e-16
+# record and both are wanted: the comparison between them is what shows the
+# conclusion survives the fix.
+#
+# Ordering: the control first, then the two ends of the ladder, then the middle.
+# A queue that only gets halfway is then still interpretable -- every arm is
+# reported as a ratio against L1_STFT and the constant-predictor floor, so
+# without the anchor the partial results say nothing.
+
+# --- anchor ---
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_adam1e8 ARMS="L1_STFT"        scripts/eps_ladder.sh "{gpu}"
+
+# --- the ends: log1p (mildest) and eps=1e-7 (harshest) ---
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_adam1e8 ARMS="L1_STFT_eps1"   scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_adam1e8 ARMS="L1_STFT_eps1e7" scripts/eps_ladder.sh "{gpu}"
+
+# --- the middle, where the cliff is if there is one ---
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_adam1e8 ARMS="L1_STFT_eps1e1" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_adam1e8 ARMS="L1_STFT_eps1e3" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_adam1e8 ARMS="L1_STFT_eps1e4" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_adam1e8 ARMS="L1_STFT_eps1e5" scripts/eps_ladder.sh "{gpu}"
