@@ -2044,6 +2044,104 @@
       "grad_norm": 11.260587692260742,
       "clipped": false,
       "elapsed_s": 26024.843995571136
+    },
+    {
+      "step": 22300,
+      "train_loss": 0.2792671322822571,
+      "grad_norm": 52.30183410644531,
+      "clipped": false,
+      "elapsed_s": 26144.012870550156
+    },
+    {
+      "step": 22400,
+      "train_loss": 0.27672380208969116,
+      "grad_norm": 19.419010162353516,
+      "clipped": false,
+      "elapsed_s": 26263.281313180923
+    },
+    {
+      "step": 22500,
+      "train_loss": 0.27959561347961426,
+      "grad_norm": 54.14620590209961,
+      "clipped": false,
+      "elapsed_s": 26382.559131145477
+    },
+    {
+      "step": 22600,
+      "train_loss": 0.273585706949234,
+      "grad_norm": 22.415773391723633,
+      "clipped": false,
+      "elapsed_s": 26501.80694246292
+    },
+    {
+      "step": 22700,
+      "train_loss": 0.2856558561325073,
+      "grad_norm": 48.0992317199707,
+      "clipped": false,
+      "elapsed_s": 26621.05627799034
+    },
+    {
+      "step": 22800,
+      "train_loss": 0.2803557813167572,
+      "grad_norm": 56.86138916015625,
+      "clipped": false,
+      "elapsed_s": 26740.25878238678
+    },
+    {
+      "step": 22900,
+      "train_loss": 0.28996986150741577,
+      "grad_norm": 77.45756530761719,
+      "clipped": false,
+      "elapsed_s": 26859.496858119965
+    },
+    {
+      "step": 23000,
+      "train_loss": 0.291332483291626,
+      "grad_norm": 49.779178619384766,
+      "clipped": false,
+      "elapsed_s": 26978.74765586853
+    },
+    {
+      "step": 23100,
+      "train_loss": 0.28559795022010803,
+      "grad_norm": 16.42999267578125,
+      "clipped": false,
+      "elapsed_s": 27098.022711515427
+    },
+    {
+      "step": 23200,
+      "train_loss": 0.28084903955459595,
+      "grad_norm": 62.185302734375,
+      "clipped": false,
+      "elapsed_s": 27217.26259827614
+    },
+    {
+      "step": 23300,
+      "train_loss": 0.28009504079818726,
+      "grad_norm": 49.4084358215332,
+      "clipped": false,
+      "elapsed_s": 27336.483745098114
+    },
+    {
+      "step": 23400,
+      "train_loss": 0.2778899073600769,
+      "grad_norm": 22.086755752563477,
+      "clipped": false,
+      "elapsed_s": 27455.689596414566
+    },
+    {
+      "step": 23500,
+      "train_loss": 0.28895294666290283,
+      "grad_norm": 43.4769172668457,
+      "clipped": false,
+      "elapsed_s": 27574.944235801697
+    },
+    {
+      "step": 23600,
+      "train_loss": 0.28098800778388977,
+      "grad_norm": 13.882857322692871,
+      "clipped": false,
+      "elapsed_s": 27694.20733809471
     }
   ]
 }

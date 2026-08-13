@@ -1,0 +1,2 @@
+Git commit: de41fc8600ef5ebfa304dcea3c1d9ba5e58bd3b7
+Arguments: -e q_eps1 -d fixed10k -c loss_study/q_eps1.yaml -g 0

@@ -90,13 +90,28 @@ def main() -> None:
             for s in sorted(merged):
                 w.writerow([s] + [merged[s].get(t, "") for t in cols[1:]])
 
-        # Final value per tag, taken at the last step that tag was written --
-        # not at the last step overall, since validation and training scalars
-        # are logged on different cadences and the last global step usually has
-        # only one of them.
-        last = {t: next(merged[s][t] for s in sorted(merged, reverse=True)
-                        if t in merged[s]) for t in tags}
-        finals.append({"run": name, "last_step": max(merged), **last})
+        # Three numbers per tag, not one. Every arm here degrades substantially
+        # between its best epoch and its last -- q_ploss runs 0.047 at step 2279
+        # and 0.113 at 7999 -- so "final" and "best" disagree by about 2x and
+        # they do not even rank the arms the same way. Reporting one of them
+        # unlabelled is how a table ends up meaning something other than what
+        # its caption says.
+        #
+        # min_step is the important one. The best params_loss and the best
+        # mfcc_mae occur at different steps, so a row of per-metric minima is
+        # not one model -- quoting it as if a single checkpoint achieved all of
+        # them overstates the result, and min_step is what makes that visible.
+        ordered = sorted(merged)
+        rows_out = {}
+        for t in tags:
+            vals = [(st, merged[st][t]) for st in ordered if t in merged[st]]
+            if not vals:
+                continue
+            lo = min(vals, key=lambda x: x[1])
+            rows_out[f"final_{t}"] = vals[-1][1]
+            rows_out[f"min_{t}"] = lo[1]
+            rows_out[f"minstep_{t}"] = lo[0]
+        finals.append({"run": name, "last_step": max(merged), **rows_out})
         print(f"  {name}: {len(merged)} steps, {len(tags)} tags -> {hp}")
 
     if finals:

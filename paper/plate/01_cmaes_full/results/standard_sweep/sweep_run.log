@@ -1,0 +1,48 @@
+[2026-07-05 23:13:15] === standard_sweep START ===
+[2026-07-05 23:13:15] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-05 23:13:15] DSET_ROOT=/home/bhpark3/dafxchal/data/random-IR-100-1.0s  N_SAMPLES=50
+[2026-07-05 23:13:15] RESULT_ROOT=/home/bhpark3/dafxchal/results/standard_sweep
+[2026-07-05 23:13:15] LOSSES (14): L1_STFT MSS SC+LogMag Mel LSD ESR L1 L2 L1_STFT_1024 CQT_L1 VQT Gammatone MultiResCQT Scattering1D
+[2026-07-05 23:13:15] ----- [L1_STFT] (slug=l1_stft) START -----
+[2026-07-05 23:13:15] [L1_STFT] watch:  tail -f /home/bhpark3/dafxchal/results/standard_sweep/l1_stft/stage1.log
+[2026-07-05 23:13:15] [L1_STFT] stage 1: CMA-ES
+[2026-07-06 01:23:35] [L1_STFT] stage 2: ternary mu
+[2026-07-06 01:25:01] [L1_STFT] DONE in 7906s
+[2026-07-06 01:25:01] ----- [MSS] (slug=mss) START -----
+[2026-07-06 01:25:01] [MSS] watch:  tail -f /home/bhpark3/dafxchal/results/standard_sweep/mss/stage1.log
+[2026-07-06 01:25:01] [MSS] stage 1: CMA-ES
+[2026-07-06 15:10:16] [MSS] stage 2: ternary mu
+[2026-07-06 15:11:30] [MSS] DONE in 49589s
+[2026-07-06 15:11:30] ----- [SC+LogMag] (slug=sc_logmag) START -----
+[2026-07-06 15:11:30] [SC+LogMag] watch:  tail -f /home/bhpark3/dafxchal/results/standard_sweep/sc_logmag/stage1.log
+[2026-07-06 15:11:30] [SC+LogMag] stage 1: CMA-ES
+[2026-07-07 04:12:24] [SC+LogMag] stage 2: ternary mu
+[2026-07-07 04:13:50] [SC+LogMag] DONE in 46940s
+[2026-07-07 04:13:50] ----- [Mel] (slug=mel) START -----
+[2026-07-07 04:13:50] [Mel] watch:  tail -f /home/bhpark3/dafxchal/results/standard_sweep/mel/stage1.log
+[2026-07-07 04:13:50] [Mel] stage 1: CMA-ES
+[2026-07-07 20:45:21] [Mel] stage 2: ternary mu
+[2026-07-07 20:47:32] [Mel] DONE in 59622s
+[2026-07-07 20:47:32] ----- [LSD] (slug=lsd) START -----
+[2026-07-07 20:47:32] [LSD] watch:  tail -f /home/bhpark3/dafxchal/results/standard_sweep/lsd/stage1.log
+[2026-07-07 20:47:32] [LSD] stage 1: CMA-ES
+[2026-07-08 20:24:48] [LSD] stage 2: ternary mu
+[2026-07-08 20:26:39] [LSD] DONE in 85147s
+[2026-07-08 20:26:39] ----- [ESR] (slug=esr) START -----
+[2026-07-08 20:26:39] [ESR] watch:  tail -f /home/bhpark3/dafxchal/results/standard_sweep/esr/stage1.log
+[2026-07-08 20:26:39] [ESR] stage 1: CMA-ES
+[2026-07-08 22:32:37] [ESR] stage 2: ternary mu
+[2026-07-08 22:34:01] [ESR] DONE in 7642s
+[2026-07-08 22:34:01] ----- [L1] (slug=l1) START -----
+[2026-07-08 22:34:01] [L1] watch:  tail -f /home/bhpark3/dafxchal/results/standard_sweep/l1/stage1.log
+[2026-07-08 22:34:01] [L1] stage 1: CMA-ES
+[2026-07-09 00:54:00] [L1] stage 2: ternary mu
+[2026-07-09 00:55:27] [L1] DONE in 8486s
+[2026-07-09 00:55:27] ----- [L2] (slug=l2) START -----
+[2026-07-09 00:55:27] [L2] watch:  tail -f /home/bhpark3/dafxchal/results/standard_sweep/l2/stage1.log
+[2026-07-09 00:55:27] [L2] stage 1: CMA-ES
+[2026-07-09 03:16:40] [L2] stage 2: ternary mu
+[2026-07-09 03:18:04] [L2] DONE in 8557s
+[2026-07-09 03:18:04] ----- [L1_STFT_1024] (slug=l1_stft_1024) START -----
+[2026-07-09 03:18:04] [L1_STFT_1024] watch:  tail -f /home/bhpark3/dafxchal/results/standard_sweep/l1_stft_1024/stage1.log
+[2026-07-09 03:18:04] [L1_STFT_1024] stage 1: CMA-ES
