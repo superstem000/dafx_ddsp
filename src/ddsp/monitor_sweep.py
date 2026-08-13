@@ -24,15 +24,15 @@ import os
 from pathlib import Path
 
 METRICS = {
-    # ratio > 1 is worse than emitting the training mean; ~1 is the floor
-    # itself; below 1 is the only regime in which anything is being recovered.
-    "ratio": ("val_nmse_6d / const_nmse_6d", "{:.2f}"),
-    # prediction sd over ground-truth sd. Starts near 0 by construction (the
-    # output layer is initialized at std 0.01 with zero bias), so this reads as
-    # "has it left the initialization", not "has it collapsed".
-    "spread": ("mean spread_* over the raw seven", "{:.3f}"),
-    "train_sat": ("train_loss / saturation; ~1 = gradient uninformative", "{:.3f}"),
+    "train": ("train_loss", "{:.4g}"),
+    "val": ("val_loss", "{:.4g}"),
     "nmse": ("val_nmse_6d", "{:.4f}"),
+    "nmse_geo": ("val_nmse_6d_geo", "{:.4f}"),
+    # Train loss is not comparable across arms -- each loss has its own scale --
+    # so these two put every arm on one axis when that is what is wanted.
+    "train_sat": ("train_loss / saturation; ~1 = gradient uninformative", "{:.3f}"),
+    "ratio": ("val_nmse_6d / const_nmse_6d; ~1 = the constant predictor", "{:.2f}"),
+    "spread": ("mean spread_* over the raw seven", "{:.3f}"),
 }
 
 
@@ -50,10 +50,13 @@ def load(root: str):
                 continue
             sp = [r[k] for k in r if k.startswith("spread_")]
             rows[r["step"]] = {
+                "train": r["train_loss"],
+                "val": r.get("val_loss", float("nan")),
+                "nmse": r["val_nmse_6d"],
+                "nmse_geo": r.get("val_nmse_6d_geo", float("nan")),
+                "train_sat": r["train_loss"] / d["saturation"],
                 "ratio": r["val_nmse_6d"] / d["const_nmse_6d"],
                 "spread": sum(sp) / len(sp) if sp else float("nan"),
-                "train_sat": r["train_loss"] / d["saturation"],
-                "nmse": r["val_nmse_6d"],
             }
         h = d["history"]
         arms[name] = {
@@ -61,6 +64,9 @@ def load(root: str):
             "last": h[-1]["step"] if h else 0,
             "rate": h[-1]["step"] / max(h[-1]["elapsed_s"], 1e-9) if h else 0.0,
             "clip": 100.0 * sum(bool(q.get("clipped")) for q in h) / max(len(h), 1),
+            "gt": d.get("gt_loss", float("nan")),
+            "sat": d.get("saturation", float("nan")),
+            "floor": d.get("const_nmse_6d", float("nan")),
         }
     return arms
 
@@ -74,7 +80,7 @@ def short(name: str) -> str:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--root", default="results/ddsp/eps_ladder")
-    p.add_argument("--metrics", nargs="+", default=["ratio", "spread"],
+    p.add_argument("--metrics", nargs="+", default=["train", "val", "nmse"],
                    choices=sorted(METRICS))
     p.add_argument("--steps", type=int, default=40000, help="For the ETA column")
     p.add_argument("--tail", type=int, default=0,
@@ -89,11 +95,13 @@ def main() -> None:
     names = sorted(arms)
     w = max(9, max(len(short(n)) for n in names) + 2)
 
-    print(f"{'arm':<18}{'step':>8}{'st/s':>7}{'clip%':>7}{'eta_h':>7}")
+    print(f"{'arm':<18}{'step':>8}{'st/s':>7}{'clip%':>7}{'eta_h':>7}"
+          f"{'gt_loss':>11}{'sat':>11}{'floor':>9}")
     for n in names:
         a = arms[n]
         eta = (args.steps - a["last"]) / a["rate"] / 3600 if a["rate"] > 0 else float("nan")
-        print(f"{short(n):<18}{a['last']:>8}{a['rate']:>7.2f}{a['clip']:>7.1f}{eta:>7.1f}")
+        print(f"{short(n):<18}{a['last']:>8}{a['rate']:>7.2f}{a['clip']:>7.1f}{eta:>7.1f}"
+              f"{a['gt']:>11.3e}{a['sat']:>11.3e}{a['floor']:>9.4f}")
 
     all_steps = sorted({s for a in arms.values() for s in a["rows"]})
     if args.tail:
