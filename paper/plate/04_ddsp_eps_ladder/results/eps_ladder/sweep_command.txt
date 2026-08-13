@@ -1,0 +1,9 @@
+steps=40000 lr=3e-4 arms='L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7' gpus='0 1 2 3'
+train=data/train-p99 n_train=98304  val=data/val-p99 n_val=996
+n_fft=4096 hop=1024 n_blocks=6 grad_ckpt=--no-grad-checkpoint
+norm=batch grad_clip=5000.0 batch=64 warmup=2000 lr_floor=0.02 lr_hold_frac=0.6 deep_sup=0.5
+numerics='--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282'
+extra=''
+commit=598fd035ad74746d725c8b96077803dd2b334115
+python=/home/bhpark3/dafxenv/bin/python
+torch=2.12.1+cu130 13.0

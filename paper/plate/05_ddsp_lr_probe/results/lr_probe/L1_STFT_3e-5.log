@@ -1,0 +1,31 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/bhpark3/dafx_ddsp/src/ddsp/train_encoder.py", line 1164, in <module>
+    main()
+  File "/home/bhpark3/dafx_ddsp/src/ddsp/train_encoder.py", line 1160, in main
+    run(args)
+  File "/home/bhpark3/dafx_ddsp/src/ddsp/train_encoder.py", line 631, in run
+    z_tr, x_tr = load_dataset(space, args.data_dir, args.duration, device, args.n_train)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bhpark3/dafx_ddsp/src/ddsp/train_encoder.py", line 237, in load_dataset
+    ir = load_target_ir_from_npz(npz, duration, SAMPLE_RATE)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bhpark3/dafx_ddsp/src/mu_optimization/ternary_mu.py", line 55, in load_target_ir_from_npz
+    sr = int(np.asarray(data["sample_rate"]).item()) if "sample_rate" in data else expected_sr
+                        ~~~~^^^^^^^^^^^^^^^
+  File "/home/bhpark3/dafxenv/lib/python3.12/site-packages/numpy/lib/_npyio_impl.py", line 245, in __getitem__
+    with self.zip.open(key) as bytes:
+         ^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/zipfile/__init__.py", line 1680, in open
+    return ZipExtFile(zef_file, mode, zinfo, pwd, True)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/zipfile/__init__.py", line 879, in __init__
+    self._decompressor = _get_decompressor(self._compress_type)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/zipfile/__init__.py", line 777, in _get_decompressor
+    def _get_decompressor(compress_type):
+    
+KeyboardInterrupt
+Device cuda | loss L1_STFT | duration 0.25s
+Loading train targets from data/train-p99

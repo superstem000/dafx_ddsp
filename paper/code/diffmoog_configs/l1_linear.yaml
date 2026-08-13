@@ -1,0 +1,78 @@
+# Spectral-loss-only sound matching on the reduced chain, L1 on linear
+# magnitude. The analogue of the plate's L1_STFT arm, and the control the log
+# arm is a single-factor flip from.
+#
+# Derived from paper_configs_reduced/synth_reduced_preset.yaml. Everything
+# outside the `loss` block is theirs, unchanged, so the comparison stays theirs.
+#
+# Three settings differ from every config they ship, and each is load-bearing:
+#
+#   apply_loss_normalization: false
+#     _balance_losses() hard-sets BOTH params_loss_factor and spec_loss_factor
+#     to 1.0 when this is true (lit_module.py:545-550), discarding the weights
+#     below entirely. Left at true, `parameters_loss_weight: 0` is silently
+#     ignored and the run stays parameter-supervised -- which would answer a
+#     different question than the one being asked.
+#
+#   parameters_loss_weight: 0
+#     Their setups all supervise on parameters, either alone (params_baseline)
+#     or as a bootstrap that decays into spectral loss (synth_config, 5:1 with
+#     a 25-epoch warmup and a 75-epoch switch). Neither isolates the loss, so
+#     neither can say what the loss alone recovers.
+#
+#   spectrogram_loss_warmup_epochs / loss_switch_epochs: 0
+#     With both at 0, _apply_ramp_up() falls past both branches on every epoch
+#     and returns spec_loss_rampup_factor 1, parameters_loss_decay_factor
+#     min_parameters_loss_decay = 0. Full spectral weight from epoch 0, no
+#     parameter term ever. Note the second branch divides by loss_switch_epochs,
+#     so it is only safe at 0 because the first comparison keeps it unreachable.
+
+model:
+  arch: simple
+  backbone: gru
+  chain: REDUCED_SIMPLE_OSC
+  num_workers: 8
+  batch_size: 64
+  # Short on purpose: this run exists to show the pipeline recovers parameters
+  # at all. Raise once it does.
+  num_epochs: 30
+
+  optimizer:
+    base_lr: 0.001
+    optimizer: adam
+    scheduler: exponential
+    gamma: 0.99
+
+loss:
+  # Single fft 2048 at frame_overlap 0.75 -- hop n_fft/4, the same convention
+  # the plate's L1_STFT uses. The log arm flips this to a preset with
+  # mag_weight 0 / logmag_weight 1 and changes nothing else.
+  loss_preset: spectrogram_magnitude
+  control_spec_preset: spectrogram_magnitude
+  parameters_loss_norm: L1
+
+  apply_loss_normalization: false
+  parameters_loss_weight: 0
+  spectrogram_loss_weight: 1
+
+  spectrogram_loss_warmup_epochs: 0
+  loss_switch_epochs: 0
+  min_parameters_loss_decay: 0
+  in_domain_epochs: 200
+
+  use_chain_loss: false
+  chain_loss_weight: 1.0
+  use_gradual_chain_loss: false
+  chain_warmup_factor: 5
+
+synth:
+  chain: REDUCED_SIMPLE_OSC
+  transform: MEL
+  apply_log_transform_to_input: true
+  use_multi_spec_input: false
+  signal_duration: 4.0
+  note_off_time: 3.0
+  added_noise_std: 0.0001
+
+logging:
+  n_images_to_log: 5

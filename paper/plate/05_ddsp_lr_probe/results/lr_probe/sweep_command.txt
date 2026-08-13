@@ -1,0 +1,7 @@
+steps=12000 losses='L1_STFT L1_STFT_eps1 L1_STFT_eps1e7' lrs='1e-3 3e-4 1e-4 3e-5 1e-5' gpus='0 1 2 3'
+train=data/train-p99 n_train=98304  val=data/val-p99 n_val=996
+n_fft=4096 hop=1024 n_blocks=6 grad_ckpt=--no-grad-checkpoint
+norm=group grad_clip=5000.0 batch=64 warmup=2000 deep_sup=0.5 constant_lr=yes
+numerics='--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282'
+extra=''
+commit=598fd035ad74746d725c8b96077803dd2b334115

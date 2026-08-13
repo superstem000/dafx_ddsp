@@ -1,0 +1,5063 @@
+CMA-ES with LHS + Normalized Space on CUDA
+  Loss: L1_STFT_c2
+  Available losses: MSS, SC+LogMag, CQT_L1, CQT+LogDec, Mel, LSD, L1_STFT, L1_STFT_1024, MultiResCQT, VQT, Gammatone, Envelope, ESR, FreqDecay, Subband, ModalDensity, Dispersion, CentroidTraj, OnsetDisp, NullPattern, GroupDelay, ComplexSTFT, InstFreq, Scattering1D, SoftDTW_Mel, L1, L2, L1_STFT_512, L1_STFT_2048, L1_STFT_8192, L1_STFT_multi, L1_STFT_log, L1_STFT_sc, L1_STFT_log_multi, L1_STFT_sc_multi, L1_STFT_log_sc, SmoothMSS, SmoothMSS_resmatch, L1_STFT_c2, L1_STFT_pow, SOT, SOT_lin, SOT_lin_paper, Mel_linear, L1_STFT_log_masked, L1_STFT_masked, SI-SDR, EDC, EDR, MFCC, SpectralOT_LP
+  Trials: 1
+  Duration: 0.25s
+  Search: normalized [-1, 1] space; expanded to physical bounds for synthesis
+  sigma0: 0.6
+  tolfun: 1e-05
+  tolfunhist: 1e-05
+  pruner_min_resource: 15
+  pruner_reduction_factor: 3
+
+============================================================
+[1/200] random_IR_0001.npz
+  GT loss: 0.000000
+  terrain_mean=0.062769  early_threshold=0.000596  (alpha=0.0095)
+  tolfun=0.000326 tolfunhist=0.000326  (frac=0.0052 of range=0.0628)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0427
+        [Trial 0] gen   40  evals= 1640  best=0.0426
+        [Trial 0] gen   60  evals= 2460  best=0.0424
+        [Trial 0] gen   80  evals= 3280  best=0.0423
+        [Trial 0] gen  100  evals= 4100  best=0.0420
+        [Trial 0] gen  120  evals= 4920  best=0.0417
+        [Trial 0] gen  140  evals= 5740  best=0.0414
+        [Done] Trial 0 best=0.0414
+
+  Winner: Trial 0, loss=0.041361 (256s)
+    Restarts run: 1
+    mu: 18.661684
+    D_mu: 1.103940
+    T0_mu: 44.849803
+    Ly: 3.777181
+    op_x: 0.511327
+    op_y: 0.697675
+    NMSE: 0.108700
+  [Saved] random_IR_0001
+
+============================================================
+[2/200] random_IR_0002.npz
+  GT loss: 0.000000
+  terrain_mean=0.065314  early_threshold=0.000620  (alpha=0.0095)
+  tolfun=0.00034 tolfunhist=0.00034  (frac=0.0052 of range=0.0653)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0458
+        [Trial 0] gen   40  evals= 1640  best=0.0458
+        [Trial 0] gen   60  evals= 2460  best=0.0458
+        [Trial 0] gen   80  evals= 3280  best=0.0458
+        [Trial 0] gen  100  evals= 4100  best=0.0458
+        [Trial 0] gen  120  evals= 4920  best=0.0458
+        [Done] Trial 0 best=0.0458
+
+  Winner: Trial 0, loss=0.045788 (172s)
+    Restarts run: 1
+    mu: 20.790382
+    D_mu: 18.037217
+    T0_mu: 29.040881
+    Ly: 3.750802
+    op_x: 0.683444
+    op_y: 0.956231
+    NMSE: 0.070357
+  [Saved] random_IR_0002
+
+============================================================
+[3/200] random_IR_0003.npz
+  GT loss: 0.000000
+  terrain_mean=0.126611  early_threshold=0.001203  (alpha=0.0095)
+  tolfun=0.000658 tolfunhist=0.000658  (frac=0.0052 of range=0.127)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0758
+        [Trial 0] gen   40  evals= 1640  best=0.0751
+        [Trial 0] gen   60  evals= 2460  best=0.0734
+        [Trial 0] gen   80  evals= 3280  best=0.0727
+        [Trial 0] gen  100  evals= 4100  best=0.0723
+        [Trial 0] gen  120  evals= 4920  best=0.0719
+        [Done] Trial 0 best=0.0717
+
+  Winner: Trial 0, loss=0.071734 (85s)
+    Restarts run: 1
+    mu: 25.655213
+    D_mu: 14.084092
+    T0_mu: 27.534956
+    Ly: 3.914913
+    op_x: 0.727251
+    op_y: 0.994710
+    NMSE: 0.166607
+  [Saved] random_IR_0003
+
+============================================================
+[4/200] random_IR_0004.npz
+  GT loss: 0.000000
+  terrain_mean=0.069525  early_threshold=0.000660  (alpha=0.0095)
+  tolfun=0.000362 tolfunhist=0.000362  (frac=0.0052 of range=0.0695)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0518
+        [Trial 0] gen   40  evals= 1640  best=0.0517
+        [Trial 0] gen   60  evals= 2460  best=0.0511
+        [Trial 0] gen   80  evals= 3280  best=0.0495
+        [Trial 0] gen  100  evals= 4100  best=0.0486
+        [Done] Trial 0 best=0.0485
+
+  Winner: Trial 0, loss=0.048453 (82s)
+    Restarts run: 1
+    mu: 52.610617
+    D_mu: 6.931718
+    T0_mu: 15.243980
+    Ly: 3.730396
+    op_x: 0.915339
+    op_y: 0.856479
+    NMSE: 0.116606
+  [Saved] random_IR_0004
+
+============================================================
+[5/200] random_IR_0005.npz
+  GT loss: 0.000000
+  terrain_mean=0.065590  early_threshold=0.000623  (alpha=0.0095)
+  tolfun=0.000341 tolfunhist=0.000341  (frac=0.0052 of range=0.0656)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0289
+        [Trial 0] gen   40  evals= 1640  best=0.0289
+        [Trial 0] gen   60  evals= 2460  best=0.0289
+        [Trial 0] gen   80  evals= 3280  best=0.0289
+        [Done] Trial 0 best=0.0289
+
+  Winner: Trial 0, loss=0.028922 (60s)
+    Restarts run: 1
+    mu: 63.267340
+    D_mu: 5.038842
+    T0_mu: 0.628958
+    Ly: 2.599108
+    op_x: 0.800500
+    op_y: 0.516138
+    NMSE: 0.005217
+  [Saved] random_IR_0005
+
+============================================================
+[6/200] random_IR_0006.npz
+  GT loss: 0.000000
+  terrain_mean=0.063626  early_threshold=0.000604  (alpha=0.0095)
+  tolfun=0.000331 tolfunhist=0.000331  (frac=0.0052 of range=0.0636)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0374
+        [Trial 0] gen   40  evals= 1640  best=0.0368
+        [Trial 0] gen   60  evals= 2460  best=0.0366
+        [Trial 0] gen   80  evals= 3280  best=0.0365
+        [Trial 0] gen  100  evals= 4100  best=0.0363
+        [Trial 0] gen  120  evals= 4920  best=0.0361
+        [Trial 0] gen  140  evals= 5740  best=0.0354
+        [Done] Trial 0 best=0.0354
+
+  Winner: Trial 0, loss=0.035412 (300s)
+    Restarts run: 1
+    mu: 20.148264
+    D_mu: 0.311536
+    T0_mu: 27.285499
+    Ly: 2.483184
+    op_x: 0.672649
+    op_y: 0.596801
+    NMSE: 0.053155
+  [Saved] random_IR_0006
+
+============================================================
+[7/200] random_IR_0007.npz
+  GT loss: 0.000000
+  terrain_mean=0.060233  early_threshold=0.000572  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0602)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0364
+        [Trial 0] gen   40  evals= 1640  best=0.0362
+        [Trial 0] gen   60  evals= 2460  best=0.0254
+        [Trial 0] gen   80  evals= 3280  best=0.0124
+        [Trial 0] gen  100  evals= 4100  best=0.0022
+        [Trial 0] gen  120  evals= 4920  best=0.0001
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000031 < 0.000572
+
+  Winner: Trial 0, loss=0.000031 (205s)
+    Restarts run: 1
+    mu: 26.143187
+    D_mu: 0.902800
+    T0_mu: 35.734107
+    Ly: 3.123126
+    op_x: 0.573172
+    op_y: 0.664558
+    NMSE: 0.000867
+  [Saved] random_IR_0007
+
+============================================================
+[8/200] random_IR_0008.npz
+  GT loss: 0.000000
+  terrain_mean=0.071221  early_threshold=0.000677  (alpha=0.0095)
+  tolfun=0.00037 tolfunhist=0.00037  (frac=0.0052 of range=0.0712)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0333
+        [Trial 0] gen   40  evals= 1640  best=0.0330
+        [Trial 0] gen   60  evals= 2460  best=0.0330
+        [Trial 0] gen   80  evals= 3280  best=0.0330
+        [Trial 0] gen  100  evals= 4100  best=0.0319
+        [Trial 0] gen  120  evals= 4920  best=0.0319
+        [Done] Trial 0 best=0.0319
+
+  Winner: Trial 0, loss=0.031852 (125s)
+    Restarts run: 1
+    mu: 23.471358
+    D_mu: 0.371749
+    T0_mu: 2.310941
+    Ly: 1.212464
+    op_x: 0.510180
+    op_y: 0.568138
+    NMSE: 0.057230
+  [Saved] random_IR_0008
+
+============================================================
+[9/200] random_IR_0009.npz
+  GT loss: 0.000000
+  terrain_mean=0.058156  early_threshold=0.000552  (alpha=0.0095)
+  tolfun=0.000302 tolfunhist=0.000302  (frac=0.0052 of range=0.0582)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0351
+        [Trial 0] gen   40  evals= 1640  best=0.0351
+        [Trial 0] gen   60  evals= 2460  best=0.0349
+        [Trial 0] gen   80  evals= 3280  best=0.0349
+        [Trial 0] gen  100  evals= 4100  best=0.0345
+        [Trial 0] gen  120  evals= 4920  best=0.0340
+        [Trial 0] gen  140  evals= 5740  best=0.0340
+        [Done] Trial 0 best=0.0340
+
+  Winner: Trial 0, loss=0.033995 (318s)
+    Restarts run: 1
+    mu: 20.251598
+    D_mu: 0.377156
+    T0_mu: 11.267071
+    Ly: 3.162688
+    op_x: 0.527499
+    op_y: 0.725244
+    NMSE: 0.010463
+  [Saved] random_IR_0009
+
+============================================================
+[10/200] random_IR_0010.npz
+  GT loss: 0.000000
+  terrain_mean=0.059000  early_threshold=0.000561  (alpha=0.0095)
+  tolfun=0.000307 tolfunhist=0.000307  (frac=0.0052 of range=0.059)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0428
+        [Trial 0] gen   40  evals= 1640  best=0.0424
+        [Trial 0] gen   60  evals= 2460  best=0.0415
+        [Trial 0] gen   80  evals= 3280  best=0.0415
+        [Trial 0] gen  100  evals= 4100  best=0.0415
+        [Done] Trial 0 best=0.0415
+
+  Winner: Trial 0, loss=0.041489 (124s)
+    Restarts run: 1
+    mu: 22.643082
+    D_mu: 3.328993
+    T0_mu: 32.759875
+    Ly: 3.998672
+    op_x: 0.644804
+    op_y: 0.730747
+    NMSE: 0.199178
+  [Saved] random_IR_0010
+
+============================================================
+[11/200] random_IR_0011.npz
+  GT loss: 0.000000
+  terrain_mean=0.060710  early_threshold=0.000577  (alpha=0.0095)
+  tolfun=0.000316 tolfunhist=0.000316  (frac=0.0052 of range=0.0607)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0384
+        [Trial 0] gen   40  evals= 1640  best=0.0382
+        [Trial 0] gen   60  evals= 2460  best=0.0382
+        [Trial 0] gen   80  evals= 3280  best=0.0382
+        [Trial 0] gen  100  evals= 4100  best=0.0382
+        [Trial 0] gen  120  evals= 4920  best=0.0380
+        [Done] Trial 0 best=0.0380
+
+  Winner: Trial 0, loss=0.037993 (198s)
+    Restarts run: 1
+    mu: 21.520135
+    D_mu: 0.794930
+    T0_mu: 35.205123
+    Ly: 2.701527
+    op_x: 0.549631
+    op_y: 0.626111
+    NMSE: 0.036167
+  [Saved] random_IR_0011
+
+============================================================
+[12/200] random_IR_0012.npz
+  GT loss: 0.000000
+  terrain_mean=0.060116  early_threshold=0.000571  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0601)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0385
+        [Trial 0] gen   40  evals= 1640  best=0.0385
+        [Trial 0] gen   60  evals= 2460  best=0.0380
+        [Trial 0] gen   80  evals= 3280  best=0.0375
+        [Trial 0] gen  100  evals= 4100  best=0.0375
+        [Trial 0] gen  120  evals= 4920  best=0.0372
+        [Done] Trial 0 best=0.0372
+
+  Winner: Trial 0, loss=0.037208 (132s)
+    Restarts run: 1
+    mu: 45.479007
+    D_mu: 6.278924
+    T0_mu: 0.047519
+    Ly: 3.987574
+    op_x: 0.535916
+    op_y: 0.744949
+    NMSE: 0.146765
+  [Saved] random_IR_0012
+
+============================================================
+[13/200] random_IR_0013.npz
+  GT loss: 0.000000
+  terrain_mean=0.102690  early_threshold=0.000976  (alpha=0.0095)
+  tolfun=0.000534 tolfunhist=0.000534  (frac=0.0052 of range=0.103)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0669
+        [Trial 0] gen   40  evals= 1640  best=0.0652
+        [Trial 0] gen   60  evals= 2460  best=0.0631
+        [Trial 0] gen   80  evals= 3280  best=0.0631
+        [Trial 0] gen  100  evals= 4100  best=0.0631
+        [Trial 0] gen  120  evals= 4920  best=0.0626
+        [Done] Trial 0 best=0.0625
+
+  Winner: Trial 0, loss=0.062548 (195s)
+    Restarts run: 1
+    mu: 12.490078
+    D_mu: 1.278978
+    T0_mu: 40.119354
+    Ly: 3.998602
+    op_x: 0.977070
+    op_y: 0.649365
+    NMSE: 0.032827
+  [Saved] random_IR_0013
+
+============================================================
+[14/200] random_IR_0014.npz
+  GT loss: 0.000000
+  terrain_mean=0.057884  early_threshold=0.000550  (alpha=0.0095)
+  tolfun=0.000301 tolfunhist=0.000301  (frac=0.0052 of range=0.0579)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0378
+        [Trial 0] gen   40  evals= 1640  best=0.0378
+        [Trial 0] gen   60  evals= 2460  best=0.0373
+        [Trial 0] gen   80  evals= 3280  best=0.0366
+        [Trial 0] gen  100  evals= 4100  best=0.0355
+        [Trial 0] gen  120  evals= 4920  best=0.0343
+        [Done] Trial 0 best=0.0342
+
+  Winner: Trial 0, loss=0.034169 (134s)
+    Restarts run: 1
+    mu: 33.485616
+    D_mu: 2.516425
+    T0_mu: 27.795488
+    Ly: 3.017199
+    op_x: 0.659743
+    op_y: 0.521727
+    NMSE: 0.021295
+  [Saved] random_IR_0014
+
+============================================================
+[15/200] random_IR_0015.npz
+  GT loss: 0.000000
+  terrain_mean=0.116835  early_threshold=0.001110  (alpha=0.0095)
+  tolfun=0.000608 tolfunhist=0.000608  (frac=0.0052 of range=0.117)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0678
+        [Trial 0] gen   40  evals= 1640  best=0.0678
+        [Trial 0] gen   60  evals= 2460  best=0.0678
+        [Trial 0] gen   80  evals= 3280  best=0.0678
+        [Trial 0] gen  100  evals= 4100  best=0.0672
+        [Trial 0] gen  120  evals= 4920  best=0.0672
+        [Trial 0] gen  140  evals= 5740  best=0.0665
+        [Done] Trial 0 best=0.0665
+
+  Winner: Trial 0, loss=0.066528 (88s)
+    Restarts run: 1
+    mu: 40.940969
+    D_mu: 12.044238
+    T0_mu: 21.525240
+    Ly: 3.759780
+    op_x: 0.708009
+    op_y: 0.994148
+    NMSE: 0.166308
+  [Saved] random_IR_0015
+
+============================================================
+[16/200] random_IR_0016.npz
+  GT loss: 0.000000
+  terrain_mean=0.061978  early_threshold=0.000589  (alpha=0.0095)
+  tolfun=0.000322 tolfunhist=0.000322  (frac=0.0052 of range=0.062)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0467
+        [Trial 0] gen   40  evals= 1640  best=0.0464
+        [Trial 0] gen   60  evals= 2460  best=0.0459
+        [Trial 0] gen   80  evals= 3280  best=0.0449
+        [Trial 0] gen  100  evals= 4100  best=0.0442
+        [Done] Trial 0 best=0.0441
+
+  Winner: Trial 0, loss=0.044137 (115s)
+    Restarts run: 1
+    mu: 3.150537
+    D_mu: 2.309678
+    T0_mu: 305.215464
+    Ly: 3.055111
+    op_x: 0.640210
+    op_y: 0.671026
+    NMSE: 0.138111
+  [Saved] random_IR_0016
+
+============================================================
+[17/200] random_IR_0017.npz
+  GT loss: 0.000000
+  terrain_mean=0.061465  early_threshold=0.000584  (alpha=0.0095)
+  tolfun=0.00032 tolfunhist=0.00032  (frac=0.0052 of range=0.0615)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0460
+        [Trial 0] gen   40  evals= 1640  best=0.0460
+        [Trial 0] gen   60  evals= 2460  best=0.0460
+        [Trial 0] gen   80  evals= 3280  best=0.0458
+        [Trial 0] gen  100  evals= 4100  best=0.0453
+        [Trial 0] gen  120  evals= 4920  best=0.0445
+        [Done] Trial 0 best=0.0443
+
+  Winner: Trial 0, loss=0.044257 (109s)
+    Restarts run: 1
+    mu: 4.047278
+    D_mu: 8.078909
+    T0_mu: 216.283337
+    Ly: 3.814593
+    op_x: 0.669068
+    op_y: 0.850369
+    NMSE: 0.062362
+  [Saved] random_IR_0017
+
+============================================================
+[18/200] random_IR_0018.npz
+  GT loss: 0.000000
+  terrain_mean=0.059506  early_threshold=0.000565  (alpha=0.0095)
+  tolfun=0.000309 tolfunhist=0.000309  (frac=0.0052 of range=0.0595)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0409
+        [Trial 0] gen   40  evals= 1640  best=0.0405
+        [Trial 0] gen   60  evals= 2460  best=0.0401
+        [Trial 0] gen   80  evals= 3280  best=0.0397
+        [Trial 0] gen  100  evals= 4100  best=0.0391
+        [Done] Trial 0 best=0.0391
+
+  Winner: Trial 0, loss=0.039119 (155s)
+    Restarts run: 1
+    mu: 11.646663
+    D_mu: 0.736516
+    T0_mu: 63.508507
+    Ly: 2.895405
+    op_x: 0.657213
+    op_y: 0.645793
+    NMSE: 0.096695
+  [Saved] random_IR_0018
+
+============================================================
+[19/200] random_IR_0019.npz
+  GT loss: 0.000000
+  terrain_mean=0.067671  early_threshold=0.000643  (alpha=0.0095)
+  tolfun=0.000352 tolfunhist=0.000352  (frac=0.0052 of range=0.0677)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0358
+        [Trial 0] gen   40  evals= 1640  best=0.0354
+        [Trial 0] gen   60  evals= 2460  best=0.0354
+        [Trial 0] gen   80  evals= 3280  best=0.0353
+        [Trial 0] gen  100  evals= 4100  best=0.0350
+        [Trial 0] gen  120  evals= 4920  best=0.0347
+        [Done] Trial 0 best=0.0346
+
+  Winner: Trial 0, loss=0.034647 (104s)
+    Restarts run: 1
+    mu: 23.287675
+    D_mu: 0.594828
+    T0_mu: 8.201111
+    Ly: 1.149650
+    op_x: 0.557530
+    op_y: 0.510034
+    NMSE: 0.023094
+  [Saved] random_IR_0019
+
+============================================================
+[20/200] random_IR_0020.npz
+  GT loss: 0.000000
+  terrain_mean=0.061557  early_threshold=0.000585  (alpha=0.0095)
+  tolfun=0.00032 tolfunhist=0.00032  (frac=0.0052 of range=0.0616)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0431
+        [Trial 0] gen   40  evals= 1640  best=0.0430
+        [Trial 0] gen   60  evals= 2460  best=0.0430
+        [Trial 0] gen   80  evals= 3280  best=0.0427
+        [Trial 0] gen  100  evals= 4100  best=0.0424
+        [Trial 0] gen  120  evals= 4920  best=0.0412
+        [Trial 0] gen  140  evals= 5740  best=0.0407
+        [Done] Trial 0 best=0.0407
+
+  Winner: Trial 0, loss=0.040671 (188s)
+    Restarts run: 1
+    mu: 19.476307
+    D_mu: 0.349142
+    T0_mu: 38.711454
+    Ly: 1.707587
+    op_x: 0.529012
+    op_y: 0.708702
+    NMSE: 0.074157
+  [Saved] random_IR_0020
+
+============================================================
+[21/200] random_IR_0021.npz
+  GT loss: 0.000000
+  terrain_mean=0.063495  early_threshold=0.000603  (alpha=0.0095)
+  tolfun=0.00033 tolfunhist=0.00033  (frac=0.0052 of range=0.0635)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0401
+        [Trial 0] gen   40  evals= 1640  best=0.0396
+        [Trial 0] gen   60  evals= 2460  best=0.0390
+        [Trial 0] gen   80  evals= 3280  best=0.0390
+        [Trial 0] gen  100  evals= 4100  best=0.0384
+        [Done] Trial 0 best=0.0381
+
+  Winner: Trial 0, loss=0.038131 (111s)
+    Restarts run: 1
+    mu: 14.434165
+    D_mu: 0.967442
+    T0_mu: 55.931896
+    Ly: 1.663563
+    op_x: 0.654404
+    op_y: 0.621258
+    NMSE: 0.131862
+  [Saved] random_IR_0021
+
+============================================================
+[22/200] random_IR_0022.npz
+  GT loss: 0.000000
+  terrain_mean=0.061503  early_threshold=0.000584  (alpha=0.0095)
+  tolfun=0.00032 tolfunhist=0.00032  (frac=0.0052 of range=0.0615)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0416
+        [Trial 0] gen   40  evals= 1640  best=0.0411
+        [Trial 0] gen   60  evals= 2460  best=0.0406
+        [Trial 0] gen   80  evals= 3280  best=0.0406
+        [Done] Trial 0 best=0.0404
+
+  Winner: Trial 0, loss=0.040389 (150s)
+    Restarts run: 1
+    mu: 18.749506
+    D_mu: 0.487938
+    T0_mu: 40.825580
+    Ly: 2.171961
+    op_x: 0.510529
+    op_y: 0.737732
+    NMSE: 0.068924
+  [Saved] random_IR_0022
+
+============================================================
+[23/200] random_IR_0023.npz
+  GT loss: 0.000000
+  terrain_mean=0.058841  early_threshold=0.000559  (alpha=0.0095)
+  tolfun=0.000306 tolfunhist=0.000306  (frac=0.0052 of range=0.0588)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0426
+        [Trial 0] gen   40  evals= 1640  best=0.0426
+        [Trial 0] gen   60  evals= 2460  best=0.0423
+        [Trial 0] gen   80  evals= 3280  best=0.0417
+        [Trial 0] gen  100  evals= 4100  best=0.0412
+        [Done] Trial 0 best=0.0411
+
+  Winner: Trial 0, loss=0.041062 (168s)
+    Restarts run: 1
+    mu: 10.362548
+    D_mu: 0.577247
+    T0_mu: 70.040937
+    Ly: 2.344628
+    op_x: 0.617168
+    op_y: 0.708145
+    NMSE: 0.072433
+  [Saved] random_IR_0023
+
+============================================================
+[24/200] random_IR_0024.npz
+  GT loss: 0.000000
+  terrain_mean=0.058663  early_threshold=0.000557  (alpha=0.0095)
+  tolfun=0.000305 tolfunhist=0.000305  (frac=0.0052 of range=0.0587)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0400
+        [Trial 0] gen   40  evals= 1640  best=0.0388
+        [Trial 0] gen   60  evals= 2460  best=0.0388
+        [Trial 0] gen   80  evals= 3280  best=0.0388
+        [Trial 0] gen  100  evals= 4100  best=0.0380
+        [Trial 0] gen  120  evals= 4920  best=0.0367
+        [Done] Trial 0 best=0.0367
+
+  Winner: Trial 0, loss=0.036664 (80s)
+    Restarts run: 1
+    mu: 22.882925
+    D_mu: 4.476606
+    T0_mu: 22.106842
+    Ly: 1.852593
+    op_x: 0.510487
+    op_y: 0.683308
+    NMSE: 0.058606
+  [Saved] random_IR_0024
+
+============================================================
+[25/200] random_IR_0025.npz
+  GT loss: 0.000000
+  terrain_mean=0.060782  early_threshold=0.000577  (alpha=0.0095)
+  tolfun=0.000316 tolfunhist=0.000316  (frac=0.0052 of range=0.0608)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0394
+        [Trial 0] gen   40  evals= 1640  best=0.0394
+        [Trial 0] gen   60  evals= 2460  best=0.0386
+        [Trial 0] gen   80  evals= 3280  best=0.0384
+        [Done] Trial 0 best=0.0383
+
+  Winner: Trial 0, loss=0.038293 (78s)
+    Restarts run: 1
+    mu: 58.593170
+    D_mu: 7.184444
+    T0_mu: 14.352678
+    Ly: 3.977483
+    op_x: 0.512467
+    op_y: 0.927304
+    NMSE: 0.060756
+  [Saved] random_IR_0025
+
+============================================================
+[26/200] random_IR_0026.npz
+  GT loss: 0.000000
+  terrain_mean=0.067246  early_threshold=0.000639  (alpha=0.0095)
+  tolfun=0.00035 tolfunhist=0.00035  (frac=0.0052 of range=0.0672)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0336
+        [Trial 0] gen   40  evals= 1640  best=0.0327
+        [Trial 0] gen   60  evals= 2460  best=0.0327
+        [Trial 0] gen   80  evals= 3280  best=0.0326
+        [Trial 0] gen  100  evals= 4100  best=0.0326
+        [Trial 0] gen  120  evals= 4920  best=0.0321
+        [Done] Trial 0 best=0.0320
+
+  Winner: Trial 0, loss=0.032029 (257s)
+    Restarts run: 1
+    mu: 22.757649
+    D_mu: 0.468252
+    T0_mu: 1.170114
+    Ly: 2.751108
+    op_x: 0.526224
+    op_y: 0.689345
+    NMSE: 0.037503
+  [Saved] random_IR_0026
+
+============================================================
+[27/200] random_IR_0027.npz
+  GT loss: 0.000000
+  terrain_mean=0.061774  early_threshold=0.000587  (alpha=0.0095)
+  tolfun=0.000321 tolfunhist=0.000321  (frac=0.0052 of range=0.0618)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0385
+        [Trial 0] gen   40  evals= 1640  best=0.0385
+        [Trial 0] gen   60  evals= 2460  best=0.0380
+        [Trial 0] gen   80  evals= 3280  best=0.0374
+        [Done] Trial 0 best=0.0373
+
+  Winner: Trial 0, loss=0.037290 (106s)
+    Restarts run: 1
+    mu: 32.289168
+    D_mu: 2.901665
+    T0_mu: 27.044483
+    Ly: 3.476804
+    op_x: 0.545608
+    op_y: 0.823890
+    NMSE: 0.056159
+  [Saved] random_IR_0027
+
+============================================================
+[28/200] random_IR_0028.npz
+  GT loss: 0.000000
+  terrain_mean=0.066938  early_threshold=0.000636  (alpha=0.0095)
+  tolfun=0.000348 tolfunhist=0.000348  (frac=0.0052 of range=0.0669)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0516
+        [Trial 0] gen   40  evals= 1640  best=0.0516
+        [Trial 0] gen   60  evals= 2460  best=0.0513
+        [Trial 0] gen   80  evals= 3280  best=0.0513
+        [Trial 0] gen  100  evals= 4100  best=0.0511
+        [Trial 0] gen  120  evals= 4920  best=0.0500
+        [Trial 0] gen  140  evals= 5740  best=0.0493
+        [Trial 0] gen  160  evals= 6560  best=0.0493
+        [Trial 0] gen  180  evals= 7380  best=0.0493
+        [Done] Trial 0 best=0.0493
+
+  Winner: Trial 0, loss=0.049333 (177s)
+    Restarts run: 1
+    mu: 2.523411
+    D_mu: 2.722011
+    T0_mu: 338.462598
+    Ly: 3.164242
+    op_x: 0.532980
+    op_y: 0.689047
+    NMSE: 0.217036
+  [Saved] random_IR_0028
+
+============================================================
+[29/200] random_IR_0029.npz
+  GT loss: 0.000000
+  terrain_mean=0.063527  early_threshold=0.000604  (alpha=0.0095)
+  tolfun=0.00033 tolfunhist=0.00033  (frac=0.0052 of range=0.0635)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0391
+        [Trial 0] gen   40  evals= 1640  best=0.0391
+        [Trial 0] gen   60  evals= 2460  best=0.0391
+        [Trial 0] gen   80  evals= 3280  best=0.0387
+        [Trial 0] gen  100  evals= 4100  best=0.0381
+        [Trial 0] gen  120  evals= 4920  best=0.0380
+        [Done] Trial 0 best=0.0380
+
+  Winner: Trial 0, loss=0.037976 (96s)
+    Restarts run: 1
+    mu: 26.561046
+    D_mu: 1.484761
+    T0_mu: 36.755980
+    Ly: 1.659310
+    op_x: 0.527345
+    op_y: 0.751501
+    NMSE: 0.076796
+  [Saved] random_IR_0029
+
+============================================================
+[30/200] random_IR_0030.npz
+  GT loss: 0.000000
+  terrain_mean=0.059582  early_threshold=0.000566  (alpha=0.0095)
+  tolfun=0.00031 tolfunhist=0.00031  (frac=0.0052 of range=0.0596)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0419
+        [Trial 0] gen   40  evals= 1640  best=0.0416
+        [Trial 0] gen   60  evals= 2460  best=0.0414
+        [Trial 0] gen   80  evals= 3280  best=0.0408
+        [Trial 0] gen  100  evals= 4100  best=0.0408
+        [Trial 0] gen  120  evals= 4920  best=0.0407
+        [Trial 0] gen  140  evals= 5740  best=0.0400
+        [Trial 0] gen  160  evals= 6560  best=0.0393
+        [Done] Trial 0 best=0.0393
+
+  Winner: Trial 0, loss=0.039270 (306s)
+    Restarts run: 1
+    mu: 16.614869
+    D_mu: 1.022361
+    T0_mu: 58.895791
+    Ly: 3.317789
+    op_x: 0.778907
+    op_y: 0.724766
+    NMSE: 0.095073
+  [Saved] random_IR_0030
+
+============================================================
+[31/200] random_IR_0031.npz
+  GT loss: 0.000000
+  terrain_mean=0.062277  early_threshold=0.000592  (alpha=0.0095)
+  tolfun=0.000324 tolfunhist=0.000324  (frac=0.0052 of range=0.0623)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0423
+        [Trial 0] gen   40  evals= 1640  best=0.0420
+        [Trial 0] gen   60  evals= 2460  best=0.0416
+        [Trial 0] gen   80  evals= 3280  best=0.0410
+        [Trial 0] gen  100  evals= 4100  best=0.0401
+        [Done] Trial 0 best=0.0400
+
+  Winner: Trial 0, loss=0.039964 (133s)
+    Restarts run: 1
+    mu: 5.417001
+    D_mu: 2.653124
+    T0_mu: 45.933502
+    Ly: 3.999915
+    op_x: 0.674906
+    op_y: 0.733868
+    NMSE: 0.033884
+  [Saved] random_IR_0031
+
+============================================================
+[32/200] random_IR_0032.npz
+  GT loss: 0.000000
+  terrain_mean=0.059758  early_threshold=0.000568  (alpha=0.0095)
+  tolfun=0.000311 tolfunhist=0.000311  (frac=0.0052 of range=0.0598)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0440
+        [Trial 0] gen   40  evals= 1640  best=0.0438
+        [Trial 0] gen   60  evals= 2460  best=0.0434
+        [Trial 0] gen   80  evals= 3280  best=0.0426
+        [Trial 0] gen  100  evals= 4100  best=0.0425
+        [Trial 0] gen  120  evals= 4920  best=0.0420
+        [Done] Trial 0 best=0.0420
+
+  Winner: Trial 0, loss=0.041975 (78s)
+    Restarts run: 1
+    mu: 15.476707
+    D_mu: 14.071965
+    T0_mu: 45.959380
+    Ly: 3.780518
+    op_x: 0.681467
+    op_y: 0.771048
+    NMSE: 0.078447
+  [Saved] random_IR_0032
+
+============================================================
+[33/200] random_IR_0033.npz
+  GT loss: 0.000000
+  terrain_mean=0.076254  early_threshold=0.000724  (alpha=0.0095)
+  tolfun=0.000397 tolfunhist=0.000397  (frac=0.0052 of range=0.0763)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0616
+        [Trial 0] gen   40  evals= 1640  best=0.0611
+        [Trial 0] gen   60  evals= 2460  best=0.0611
+        [Trial 0] gen   80  evals= 3280  best=0.0610
+        [Trial 0] gen  100  evals= 4100  best=0.0604
+        [Trial 0] gen  120  evals= 4920  best=0.0592
+        [Trial 0] gen  140  evals= 5740  best=0.0592
+        [Trial 0] gen  160  evals= 6560  best=0.0592
+        [Trial 0] gen  180  evals= 7380  best=0.0592
+        [Done] Trial 0 best=0.0592
+
+  Winner: Trial 0, loss=0.059156 (162s)
+    Restarts run: 1
+    mu: 2.559745
+    D_mu: 3.652947
+    T0_mu: 296.163729
+    Ly: 3.279790
+    op_x: 0.838029
+    op_y: 0.573953
+    NMSE: 0.159923
+  [Saved] random_IR_0033
+
+============================================================
+[34/200] random_IR_0034.npz
+  GT loss: 0.000000
+  terrain_mean=0.057422  early_threshold=0.000546  (alpha=0.0095)
+  tolfun=0.000299 tolfunhist=0.000299  (frac=0.0052 of range=0.0574)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0373
+        [Trial 0] gen   40  evals= 1640  best=0.0370
+        [Trial 0] gen   60  evals= 2460  best=0.0364
+        [Trial 0] gen   80  evals= 3280  best=0.0355
+        [Trial 0] gen  100  evals= 4100  best=0.0352
+        [Done] Trial 0 best=0.0352
+
+  Winner: Trial 0, loss=0.035182 (92s)
+    Restarts run: 1
+    mu: 27.937834
+    D_mu: 1.035862
+    T0_mu: 20.318047
+    Ly: 1.540588
+    op_x: 0.647221
+    op_y: 0.525485
+    NMSE: 0.035795
+  [Saved] random_IR_0034
+
+============================================================
+[35/200] random_IR_0035.npz
+  GT loss: 0.000000
+  terrain_mean=0.065791  early_threshold=0.000625  (alpha=0.0095)
+  tolfun=0.000342 tolfunhist=0.000342  (frac=0.0052 of range=0.0658)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0487
+        [Trial 0] gen   40  evals= 1640  best=0.0487
+        [Trial 0] gen   60  evals= 2460  best=0.0480
+        [Trial 0] gen   80  evals= 3280  best=0.0480
+        [Trial 0] gen  100  evals= 4100  best=0.0477
+        [Done] Trial 0 best=0.0475
+
+  Winner: Trial 0, loss=0.047477 (118s)
+    Restarts run: 1
+    mu: 6.619782
+    D_mu: 1.972947
+    T0_mu: 145.701075
+    Ly: 3.245285
+    op_x: 0.656578
+    op_y: 0.578691
+    NMSE: 0.108454
+  [Saved] random_IR_0035
+
+============================================================
+[36/200] random_IR_0036.npz
+  GT loss: 0.000000
+  terrain_mean=0.073625  early_threshold=0.000699  (alpha=0.0095)
+  tolfun=0.000383 tolfunhist=0.000383  (frac=0.0052 of range=0.0736)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0543
+        [Trial 0] gen   40  evals= 1640  best=0.0543
+        [Trial 0] gen   60  evals= 2460  best=0.0536
+        [Trial 0] gen   80  evals= 3280  best=0.0536
+        [Trial 0] gen  100  evals= 4100  best=0.0536
+        [Trial 0] gen  120  evals= 4920  best=0.0535
+        [Trial 0] gen  140  evals= 5740  best=0.0529
+        [Done] Trial 0 best=0.0528
+
+  Winner: Trial 0, loss=0.052840 (141s)
+    Restarts run: 1
+    mu: 2.505143
+    D_mu: 2.916642
+    T0_mu: 300.504570
+    Ly: 3.156657
+    op_x: 0.913469
+    op_y: 0.883976
+    NMSE: 0.145956
+  [Saved] random_IR_0036
+
+============================================================
+[37/200] random_IR_0037.npz
+  GT loss: 0.000000
+  terrain_mean=0.101406  early_threshold=0.000963  (alpha=0.0095)
+  tolfun=0.000527 tolfunhist=0.000527  (frac=0.0052 of range=0.101)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0651
+        [Trial 0] gen   40  evals= 1640  best=0.0651
+        [Trial 0] gen   60  evals= 2460  best=0.0647
+        [Trial 0] gen   80  evals= 3280  best=0.0647
+        [Trial 0] gen  100  evals= 4100  best=0.0645
+        [Trial 0] gen  120  evals= 4920  best=0.0645
+        [Trial 0] gen  140  evals= 5740  best=0.0641
+        [Trial 0] gen  160  evals= 6560  best=0.0636
+        [Trial 0] gen  180  evals= 7380  best=0.0634
+        [Done] Trial 0 best=0.0634
+
+  Winner: Trial 0, loss=0.063362 (101s)
+    Restarts run: 1
+    mu: 78.952760
+    D_mu: 12.091850
+    T0_mu: 4.544435
+    Ly: 3.933015
+    op_x: 0.950069
+    op_y: 0.969738
+    NMSE: 0.095227
+  [Saved] random_IR_0037
+
+============================================================
+[38/200] random_IR_0038.npz
+  GT loss: 0.000000
+  terrain_mean=0.066107  early_threshold=0.000628  (alpha=0.0095)
+  tolfun=0.000344 tolfunhist=0.000344  (frac=0.0052 of range=0.0661)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0516
+        [Trial 0] gen   40  evals= 1640  best=0.0511
+        [Trial 0] gen   60  evals= 2460  best=0.0509
+        [Trial 0] gen   80  evals= 3280  best=0.0488
+        [Trial 0] gen  100  evals= 4100  best=0.0486
+        [Done] Trial 0 best=0.0483
+
+  Winner: Trial 0, loss=0.048292 (52s)
+    Restarts run: 1
+    mu: 4.322832
+    D_mu: 25.302555
+    T0_mu: 210.044816
+    Ly: 3.259271
+    op_x: 0.660494
+    op_y: 0.956101
+    NMSE: 0.094736
+  [Saved] random_IR_0038
+
+============================================================
+[39/200] random_IR_0039.npz
+  GT loss: 0.000000
+  terrain_mean=0.082732  early_threshold=0.000786  (alpha=0.0095)
+  tolfun=0.00043 tolfunhist=0.00043  (frac=0.0052 of range=0.0827)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0619
+        [Trial 0] gen   40  evals= 1640  best=0.0596
+        [Trial 0] gen   60  evals= 2460  best=0.0569
+        [Trial 0] gen   80  evals= 3280  best=0.0535
+        [Trial 0] gen  100  evals= 4100  best=0.0531
+        [Done] Trial 0 best=0.0531
+
+  Winner: Trial 0, loss=0.053081 (46s)
+    Restarts run: 1
+    mu: 83.726152
+    D_mu: 18.571123
+    T0_mu: 2.944155
+    Ly: 2.414025
+    op_x: 0.939224
+    op_y: 0.630560
+    NMSE: 0.037755
+  [Saved] random_IR_0039
+
+============================================================
+[40/200] random_IR_0040.npz
+  GT loss: 0.000000
+  terrain_mean=0.060949  early_threshold=0.000579  (alpha=0.0095)
+  tolfun=0.000317 tolfunhist=0.000317  (frac=0.0052 of range=0.0609)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0427
+        [Trial 0] gen   40  evals= 1640  best=0.0418
+        [Trial 0] gen   60  evals= 2460  best=0.0418
+        [Trial 0] gen   80  evals= 3280  best=0.0410
+        [Trial 0] gen  100  evals= 4100  best=0.0406
+        [Done] Trial 0 best=0.0405
+
+  Winner: Trial 0, loss=0.040538 (214s)
+    Restarts run: 1
+    mu: 7.465808
+    D_mu: 0.800513
+    T0_mu: 132.456174
+    Ly: 3.755955
+    op_x: 0.556605
+    op_y: 0.808684
+    NMSE: 0.086483
+  [Saved] random_IR_0040
+
+============================================================
+[41/200] random_IR_0041.npz
+  GT loss: 0.000000
+  terrain_mean=0.122904  early_threshold=0.001168  (alpha=0.0095)
+  tolfun=0.000639 tolfunhist=0.000639  (frac=0.0052 of range=0.123)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0890
+        [Trial 0] gen   40  evals= 1640  best=0.0829
+        [Trial 0] gen   60  evals= 2460  best=0.0829
+        [Trial 0] gen   80  evals= 3280  best=0.0829
+        [Trial 0] gen  100  evals= 4100  best=0.0829
+        [Trial 0] gen  120  evals= 4920  best=0.0829
+        [Done] Trial 0 best=0.0829
+
+  Winner: Trial 0, loss=0.082928 (67s)
+    Restarts run: 1
+    mu: 32.382837
+    D_mu: 10.744395
+    T0_mu: 27.384864
+    Ly: 1.199518
+    op_x: 0.785123
+    op_y: 0.997932
+    NMSE: 0.064997
+  [Saved] random_IR_0041
+
+============================================================
+[42/200] random_IR_0042.npz
+  GT loss: 0.000000
+  terrain_mean=0.064771  early_threshold=0.000615  (alpha=0.0095)
+  tolfun=0.000337 tolfunhist=0.000337  (frac=0.0052 of range=0.0648)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0495
+        [Trial 0] gen   40  evals= 1640  best=0.0493
+        [Trial 0] gen   60  evals= 2460  best=0.0480
+        [Trial 0] gen   80  evals= 3280  best=0.0416
+        [Trial 0] gen  100  evals= 4100  best=0.0213
+        [Trial 0] gen  120  evals= 4920  best=0.0029
+        [Trial 0] gen  140  evals= 5740  best=0.0023
+        [Done] Trial 0 best=0.0021
+
+  Winner: Trial 0, loss=0.002134 (93s)
+    Restarts run: 1
+    mu: 73.173058
+    D_mu: 7.468848
+    T0_mu: 13.612761
+    Ly: 2.487247
+    op_x: 0.912847
+    op_y: 0.603011
+    NMSE: 0.031726
+  [Saved] random_IR_0042
+
+============================================================
+[43/200] random_IR_0043.npz
+  GT loss: 0.000000
+  terrain_mean=0.117715  early_threshold=0.001118  (alpha=0.0095)
+  tolfun=0.000612 tolfunhist=0.000612  (frac=0.0052 of range=0.118)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0716
+        [Trial 0] gen   40  evals= 1640  best=0.0699
+        [Trial 0] gen   60  evals= 2460  best=0.0687
+        [Trial 0] gen   80  evals= 3280  best=0.0687
+        [Trial 0] gen  100  evals= 4100  best=0.0687
+        [Trial 0] gen  120  evals= 4920  best=0.0687
+        [Done] Trial 0 best=0.0687
+
+  Winner: Trial 0, loss=0.068658 (114s)
+    Restarts run: 1
+    mu: 8.668911
+    D_mu: 4.536650
+    T0_mu: 87.588952
+    Ly: 3.762429
+    op_x: 0.704287
+    op_y: 0.995422
+    NMSE: 0.099956
+  [Saved] random_IR_0043
+
+============================================================
+[44/200] random_IR_0044.npz
+  GT loss: 0.000000
+  terrain_mean=0.061214  early_threshold=0.000582  (alpha=0.0095)
+  tolfun=0.000318 tolfunhist=0.000318  (frac=0.0052 of range=0.0612)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0339
+        [Trial 0] gen   40  evals= 1640  best=0.0339
+        [Trial 0] gen   60  evals= 2460  best=0.0330
+        [Trial 0] gen   80  evals= 3280  best=0.0330
+        [Trial 0] gen  100  evals= 4100  best=0.0330
+        [Done] Trial 0 best=0.0329
+
+  Winner: Trial 0, loss=0.032950 (95s)
+    Restarts run: 1
+    mu: 21.062058
+    D_mu: 0.462857
+    T0_mu: 6.787052
+    Ly: 1.116626
+    op_x: 0.510315
+    op_y: 0.518286
+    NMSE: 0.101691
+  [Saved] random_IR_0044
+
+============================================================
+[45/200] random_IR_0045.npz
+  GT loss: 0.000000
+  terrain_mean=0.058626  early_threshold=0.000557  (alpha=0.0095)
+  tolfun=0.000305 tolfunhist=0.000305  (frac=0.0052 of range=0.0586)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0424
+        [Trial 0] gen   40  evals= 1640  best=0.0423
+        [Trial 0] gen   60  evals= 2460  best=0.0414
+        [Trial 0] gen   80  evals= 3280  best=0.0370
+        [Trial 0] gen  100  evals= 4100  best=0.0361
+        [Done] Trial 0 best=0.0361
+
+  Winner: Trial 0, loss=0.036076 (150s)
+    Restarts run: 1
+    mu: 5.194509
+    D_mu: 1.484423
+    T0_mu: 137.556912
+    Ly: 3.684325
+    op_x: 0.554694
+    op_y: 0.790666
+    NMSE: 0.006230
+  [Saved] random_IR_0045
+
+============================================================
+[46/200] random_IR_0046.npz
+  GT loss: 0.000000
+  terrain_mean=0.061094  early_threshold=0.000580  (alpha=0.0095)
+  tolfun=0.000318 tolfunhist=0.000318  (frac=0.0052 of range=0.0611)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0349
+        [Trial 0] gen   40  evals= 1640  best=0.0347
+        [Trial 0] gen   60  evals= 2460  best=0.0344
+        [Trial 0] gen   80  evals= 3280  best=0.0344
+        [Trial 0] gen  100  evals= 4100  best=0.0339
+        [Trial 0] gen  120  evals= 4920  best=0.0339
+        [Trial 0] gen  140  evals= 5740  best=0.0339
+        [Trial 0] gen  160  evals= 6560  best=0.0338
+        [Done] Trial 0 best=0.0337
+
+  Winner: Trial 0, loss=0.033749 (196s)
+    Restarts run: 1
+    mu: 34.045031
+    D_mu: 2.106025
+    T0_mu: 1.710826
+    Ly: 3.113884
+    op_x: 0.645378
+    op_y: 0.651951
+    NMSE: 0.041844
+  [Saved] random_IR_0046
+
+============================================================
+[47/200] random_IR_0047.npz
+  GT loss: 0.000000
+  terrain_mean=0.060796  early_threshold=0.000578  (alpha=0.0095)
+  tolfun=0.000316 tolfunhist=0.000316  (frac=0.0052 of range=0.0608)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0417
+        [Trial 0] gen   40  evals= 1640  best=0.0415
+        [Trial 0] gen   60  evals= 2460  best=0.0414
+        [Trial 0] gen   80  evals= 3280  best=0.0409
+        [Trial 0] gen  100  evals= 4100  best=0.0403
+        [Trial 0] gen  120  evals= 4920  best=0.0391
+        [Done] Trial 0 best=0.0390
+
+  Winner: Trial 0, loss=0.038973 (152s)
+    Restarts run: 1
+    mu: 22.345282
+    D_mu: 0.438023
+    T0_mu: 29.377172
+    Ly: 1.309946
+    op_x: 0.548632
+    op_y: 0.676861
+    NMSE: 0.064556
+  [Saved] random_IR_0047
+
+============================================================
+[48/200] random_IR_0048.npz
+  GT loss: 0.000000
+  terrain_mean=0.066448  early_threshold=0.000631  (alpha=0.0095)
+  tolfun=0.000346 tolfunhist=0.000346  (frac=0.0052 of range=0.0664)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0496
+        [Trial 0] gen   40  evals= 1640  best=0.0496
+        [Trial 0] gen   60  evals= 2460  best=0.0491
+        [Trial 0] gen   80  evals= 3280  best=0.0481
+        [Trial 0] gen  100  evals= 4100  best=0.0479
+        [Done] Trial 0 best=0.0478
+
+  Winner: Trial 0, loss=0.047804 (62s)
+    Restarts run: 1
+    mu: 4.802003
+    D_mu: 19.730793
+    T0_mu: 124.588410
+    Ly: 3.745930
+    op_x: 0.864971
+    op_y: 0.771043
+    NMSE: 0.057961
+  [Saved] random_IR_0048
+
+============================================================
+[49/200] random_IR_0049.npz
+  GT loss: 0.000000
+  terrain_mean=0.059152  early_threshold=0.000562  (alpha=0.0095)
+  tolfun=0.000308 tolfunhist=0.000308  (frac=0.0052 of range=0.0592)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0372
+        [Trial 0] gen   40  evals= 1640  best=0.0371
+        [Trial 0] gen   60  evals= 2460  best=0.0371
+        [Trial 0] gen   80  evals= 3280  best=0.0370
+        [Trial 0] gen  100  evals= 4100  best=0.0368
+        [Trial 0] gen  120  evals= 4920  best=0.0368
+        [Trial 0] gen  140  evals= 5740  best=0.0366
+        [Trial 0] gen  160  evals= 6560  best=0.0365
+        [Trial 0] gen  180  evals= 7380  best=0.0355
+        [Done] Trial 0 best=0.0355
+
+  Winner: Trial 0, loss=0.035509 (198s)
+    Restarts run: 1
+    mu: 21.944588
+    D_mu: 0.440687
+    T0_mu: 40.419560
+    Ly: 1.480408
+    op_x: 0.638657
+    op_y: 0.528073
+    NMSE: 0.033813
+  [Saved] random_IR_0049
+
+============================================================
+[50/200] random_IR_0050.npz
+  GT loss: 0.000000
+  terrain_mean=0.113052  early_threshold=0.001074  (alpha=0.0095)
+  tolfun=0.000588 tolfunhist=0.000588  (frac=0.0052 of range=0.113)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0773
+        [Trial 0] gen   40  evals= 1640  best=0.0773
+        [Trial 0] gen   60  evals= 2460  best=0.0764
+        [Trial 0] gen   80  evals= 3280  best=0.0756
+        [Trial 0] gen  100  evals= 4100  best=0.0756
+        [Trial 0] gen  120  evals= 4920  best=0.0756
+        [Trial 0] gen  140  evals= 5740  best=0.0750
+        [Done] Trial 0 best=0.0750
+
+  Winner: Trial 0, loss=0.074987 (79s)
+    Restarts run: 1
+    mu: 27.613954
+    D_mu: 1.406039
+    T0_mu: 29.448526
+    Ly: 1.100144
+    op_x: 0.510085
+    op_y: 0.986631
+    NMSE: 0.066005
+  [Saved] random_IR_0050
+
+============================================================
+[51/200] random_IR_0051.npz
+  GT loss: 0.000000
+  terrain_mean=0.056095  early_threshold=0.000533  (alpha=0.0095)
+  tolfun=0.000292 tolfunhist=0.000292  (frac=0.0052 of range=0.0561)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0395
+        [Trial 0] gen   40  evals= 1640  best=0.0389
+        [Trial 0] gen   60  evals= 2460  best=0.0383
+        [Trial 0] gen   80  evals= 3280  best=0.0373
+        [Trial 0] gen  100  evals= 4100  best=0.0368
+        [Done] Trial 0 best=0.0368
+
+  Winner: Trial 0, loss=0.036783 (215s)
+    Restarts run: 1
+    mu: 18.962661
+    D_mu: 0.451769
+    T0_mu: 51.955459
+    Ly: 2.758138
+    op_x: 0.518257
+    op_y: 0.682810
+    NMSE: 0.076296
+  [Saved] random_IR_0051
+
+============================================================
+[52/200] random_IR_0052.npz
+  GT loss: 0.000000
+  terrain_mean=0.059854  early_threshold=0.000569  (alpha=0.0095)
+  tolfun=0.000311 tolfunhist=0.000311  (frac=0.0052 of range=0.0599)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0431
+        [Trial 0] gen   40  evals= 1640  best=0.0431
+        [Trial 0] gen   60  evals= 2460  best=0.0431
+        [Trial 0] gen   80  evals= 3280  best=0.0428
+        [Trial 0] gen  100  evals= 4100  best=0.0428
+        [Done] Trial 0 best=0.0427
+
+  Winner: Trial 0, loss=0.042736 (177s)
+    Restarts run: 1
+    mu: 15.149323
+    D_mu: 0.510828
+    T0_mu: 65.537207
+    Ly: 2.421924
+    op_x: 0.681084
+    op_y: 0.627959
+    NMSE: 0.033545
+  [Saved] random_IR_0052
+
+============================================================
+[53/200] random_IR_0053.npz
+  GT loss: 0.000000
+  terrain_mean=0.061556  early_threshold=0.000585  (alpha=0.0095)
+  tolfun=0.00032 tolfunhist=0.00032  (frac=0.0052 of range=0.0616)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0442
+        [Trial 0] gen   40  evals= 1640  best=0.0442
+        [Trial 0] gen   60  evals= 2460  best=0.0442
+        [Trial 0] gen   80  evals= 3280  best=0.0440
+        [Trial 0] gen  100  evals= 4100  best=0.0431
+        [Trial 0] gen  120  evals= 4920  best=0.0431
+        [Done] Trial 0 best=0.0430
+
+  Winner: Trial 0, loss=0.043028 (134s)
+    Restarts run: 1
+    mu: 7.577407
+    D_mu: 3.260926
+    T0_mu: 109.545295
+    Ly: 3.999572
+    op_x: 0.644871
+    op_y: 0.751513
+    NMSE: 0.052128
+  [Saved] random_IR_0053
+
+============================================================
+[54/200] random_IR_0054.npz
+  GT loss: 0.000000
+  terrain_mean=0.110152  early_threshold=0.001046  (alpha=0.0095)
+  tolfun=0.000573 tolfunhist=0.000573  (frac=0.0052 of range=0.11)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0685
+        [Trial 0] gen   40  evals= 1640  best=0.0685
+        [Trial 0] gen   60  evals= 2460  best=0.0676
+        [Trial 0] gen   80  evals= 3280  best=0.0657
+        [Trial 0] gen  100  evals= 4100  best=0.0657
+        [Trial 0] gen  120  evals= 4920  best=0.0657
+        [Trial 0] gen  140  evals= 5740  best=0.0657
+        [Trial 0] gen  160  evals= 6560  best=0.0652
+        [Done] Trial 0 best=0.0652
+
+  Winner: Trial 0, loss=0.065174 (117s)
+    Restarts run: 1
+    mu: 5.491834
+    D_mu: 2.117938
+    T0_mu: 177.450216
+    Ly: 1.973359
+    op_x: 0.799738
+    op_y: 0.986555
+    NMSE: 0.039708
+  [Saved] random_IR_0054
+
+============================================================
+[55/200] random_IR_0055.npz
+  GT loss: 0.000000
+  terrain_mean=0.065407  early_threshold=0.000621  (alpha=0.0095)
+  tolfun=0.00034 tolfunhist=0.00034  (frac=0.0052 of range=0.0654)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0497
+        [Trial 0] gen   40  evals= 1640  best=0.0497
+        [Trial 0] gen   60  evals= 2460  best=0.0492
+        [Trial 0] gen   80  evals= 3280  best=0.0484
+        [Trial 0] gen  100  evals= 4100  best=0.0477
+        [Trial 0] gen  120  evals= 4920  best=0.0467
+        [Trial 0] gen  140  evals= 5740  best=0.0459
+        [Done] Trial 0 best=0.0459
+
+  Winner: Trial 0, loss=0.045903 (145s)
+    Restarts run: 1
+    mu: 4.410360
+    D_mu: 3.427575
+    T0_mu: 222.664507
+    Ly: 3.221007
+    op_x: 0.853570
+    op_y: 0.664172
+    NMSE: 0.114543
+  [Saved] random_IR_0055
+
+============================================================
+[56/200] random_IR_0056.npz
+  GT loss: 0.000000
+  terrain_mean=0.060239  early_threshold=0.000572  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0602)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0379
+        [Trial 0] gen   40  evals= 1640  best=0.0378
+        [Trial 0] gen   60  evals= 2460  best=0.0367
+        [Trial 0] gen   80  evals= 3280  best=0.0363
+        [Trial 0] gen  100  evals= 4100  best=0.0361
+        [Trial 0] gen  120  evals= 4920  best=0.0355
+        [Done] Trial 0 best=0.0353
+
+  Winner: Trial 0, loss=0.035263 (108s)
+    Restarts run: 1
+    mu: 54.984881
+    D_mu: 5.552246
+    T0_mu: 9.423154
+    Ly: 2.937574
+    op_x: 0.510048
+    op_y: 0.714966
+    NMSE: 0.014172
+  [Saved] random_IR_0056
+
+============================================================
+[57/200] random_IR_0057.npz
+  GT loss: 0.000000
+  terrain_mean=0.059783  early_threshold=0.000568  (alpha=0.0095)
+  tolfun=0.000311 tolfunhist=0.000311  (frac=0.0052 of range=0.0598)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0369
+        [Trial 0] gen   40  evals= 1640  best=0.0369
+        [Trial 0] gen   60  evals= 2460  best=0.0369
+        [Trial 0] gen   80  evals= 3280  best=0.0365
+        [Trial 0] gen  100  evals= 4100  best=0.0360
+        [Trial 0] gen  120  evals= 4920  best=0.0360
+        [Trial 0] gen  140  evals= 5740  best=0.0355
+        [Trial 0] gen  160  evals= 6560  best=0.0355
+        [Trial 0] gen  180  evals= 7380  best=0.0355
+        [Done] Trial 0 best=0.0355
+
+  Winner: Trial 0, loss=0.035501 (190s)
+    Restarts run: 1
+    mu: 29.157707
+    D_mu: 0.706681
+    T0_mu: 18.492320
+    Ly: 1.318011
+    op_x: 0.651534
+    op_y: 0.525181
+    NMSE: 0.064348
+  [Saved] random_IR_0057
+
+============================================================
+[58/200] random_IR_0058.npz
+  GT loss: 0.000000
+  terrain_mean=0.077285  early_threshold=0.000734  (alpha=0.0095)
+  tolfun=0.000402 tolfunhist=0.000402  (frac=0.0052 of range=0.0773)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0573
+        [Trial 0] gen   40  evals= 1640  best=0.0573
+        [Trial 0] gen   60  evals= 2460  best=0.0573
+        [Trial 0] gen   80  evals= 3280  best=0.0571
+        [Trial 0] gen  100  evals= 4100  best=0.0561
+        [Trial 0] gen  120  evals= 4920  best=0.0561
+        [Trial 0] gen  140  evals= 5740  best=0.0558
+        [Done] Trial 0 best=0.0558
+
+  Winner: Trial 0, loss=0.055762 (72s)
+    Restarts run: 1
+    mu: 16.371828
+    D_mu: 2.719079
+    T0_mu: 20.890750
+    Ly: 1.260689
+    op_x: 0.748985
+    op_y: 0.969556
+    NMSE: 0.073292
+  [Saved] random_IR_0058
+
+============================================================
+[59/200] random_IR_0059.npz
+  GT loss: 0.000000
+  terrain_mean=0.064482  early_threshold=0.000613  (alpha=0.0095)
+  tolfun=0.000335 tolfunhist=0.000335  (frac=0.0052 of range=0.0645)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0363
+        [Trial 0] gen   40  evals= 1640  best=0.0360
+        [Trial 0] gen   60  evals= 2460  best=0.0359
+        [Trial 0] gen   80  evals= 3280  best=0.0353
+        [Trial 0] gen  100  evals= 4100  best=0.0352
+        [Trial 0] gen  120  evals= 4920  best=0.0352
+        [Trial 0] gen  140  evals= 5740  best=0.0351
+        [Done] Trial 0 best=0.0349
+
+  Winner: Trial 0, loss=0.034945 (143s)
+    Restarts run: 1
+    mu: 22.440576
+    D_mu: 0.683544
+    T0_mu: 25.200065
+    Ly: 1.573552
+    op_x: 0.652644
+    op_y: 0.518494
+    NMSE: 0.018628
+  [Saved] random_IR_0059
+
+============================================================
+[60/200] random_IR_0060.npz
+  GT loss: 0.000000
+  terrain_mean=0.060212  early_threshold=0.000572  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0602)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0368
+        [Trial 0] gen   40  evals= 1640  best=0.0361
+        [Trial 0] gen   60  evals= 2460  best=0.0357
+        [Trial 0] gen   80  evals= 3280  best=0.0357
+        [Trial 0] gen  100  evals= 4100  best=0.0357
+        [Trial 0] gen  120  evals= 4920  best=0.0357
+        [Done] Trial 0 best=0.0357
+
+  Winner: Trial 0, loss=0.035675 (102s)
+    Restarts run: 1
+    mu: 27.520275
+    D_mu: 3.636167
+    T0_mu: 12.025762
+    Ly: 2.669797
+    op_x: 0.679524
+    op_y: 0.653579
+    NMSE: 0.045887
+  [Saved] random_IR_0060
+
+============================================================
+[61/200] random_IR_0061.npz
+  GT loss: 0.000000
+  terrain_mean=0.140360  early_threshold=0.001333  (alpha=0.0095)
+  tolfun=0.00073 tolfunhist=0.00073  (frac=0.0052 of range=0.14)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0798
+        [Trial 0] gen   40  evals= 1640  best=0.0798
+        [Trial 0] gen   60  evals= 2460  best=0.0795
+        [Trial 0] gen   80  evals= 3280  best=0.0793
+        [Done] Trial 0 best=0.0793
+
+  Winner: Trial 0, loss=0.079303 (34s)
+    Restarts run: 1
+    mu: 56.249131
+    D_mu: 37.182508
+    T0_mu: 15.264719
+    Ly: 3.999964
+    op_x: 0.644523
+    op_y: 0.999474
+    NMSE: 0.024245
+  [Saved] random_IR_0061
+
+============================================================
+[62/200] random_IR_0062.npz
+  GT loss: 0.000000
+  terrain_mean=0.069501  early_threshold=0.000660  (alpha=0.0095)
+  tolfun=0.000361 tolfunhist=0.000361  (frac=0.0052 of range=0.0695)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0534
+        [Trial 0] gen   40  evals= 1640  best=0.0531
+        [Trial 0] gen   60  evals= 2460  best=0.0527
+        [Trial 0] gen   80  evals= 3280  best=0.0523
+        [Trial 0] gen  100  evals= 4100  best=0.0517
+        [Trial 0] gen  120  evals= 4920  best=0.0517
+        [Trial 0] gen  140  evals= 5740  best=0.0515
+        [Trial 0] gen  160  evals= 6560  best=0.0511
+        [Done] Trial 0 best=0.0511
+
+  Winner: Trial 0, loss=0.051051 (85s)
+    Restarts run: 1
+    mu: 2.844548
+    D_mu: 5.361449
+    T0_mu: 221.714260
+    Ly: 2.215837
+    op_x: 0.634425
+    op_y: 0.678009
+    NMSE: 0.093002
+  [Saved] random_IR_0062
+
+============================================================
+[63/200] random_IR_0063.npz
+  GT loss: 0.000000
+  terrain_mean=0.062944  early_threshold=0.000598  (alpha=0.0095)
+  tolfun=0.000327 tolfunhist=0.000327  (frac=0.0052 of range=0.0629)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0423
+        [Trial 0] gen   40  evals= 1640  best=0.0422
+        [Trial 0] gen   60  evals= 2460  best=0.0408
+        [Trial 0] gen   80  evals= 3280  best=0.0408
+        [Trial 0] gen  100  evals= 4100  best=0.0403
+        [Done] Trial 0 best=0.0402
+
+  Winner: Trial 0, loss=0.040176 (112s)
+    Restarts run: 1
+    mu: 16.359653
+    D_mu: 0.861584
+    T0_mu: 53.714153
+    Ly: 1.805204
+    op_x: 0.645905
+    op_y: 0.623624
+    NMSE: 0.020287
+  [Saved] random_IR_0063
+
+============================================================
+[64/200] random_IR_0064.npz
+  GT loss: 0.000000
+  terrain_mean=0.141416  early_threshold=0.001343  (alpha=0.0095)
+  tolfun=0.000735 tolfunhist=0.000735  (frac=0.0052 of range=0.141)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0815
+        [Trial 0] gen   40  evals= 1640  best=0.0774
+        [Trial 0] gen   60  evals= 2460  best=0.0774
+        [Trial 0] gen   80  evals= 3280  best=0.0769
+        [Trial 0] gen  100  evals= 4100  best=0.0762
+        [Trial 0] gen  120  evals= 4920  best=0.0752
+        [Done] Trial 0 best=0.0748
+
+  Winner: Trial 0, loss=0.074773 (119s)
+    Restarts run: 1
+    mu: 19.250738
+    D_mu: 0.481096
+    T0_mu: 51.751713
+    Ly: 1.137063
+    op_x: 0.918744
+    op_y: 0.994840
+    NMSE: 0.120848
+  [Saved] random_IR_0064
+
+============================================================
+[65/200] random_IR_0065.npz
+  GT loss: 0.000000
+  terrain_mean=0.063787  early_threshold=0.000606  (alpha=0.0095)
+  tolfun=0.000332 tolfunhist=0.000332  (frac=0.0052 of range=0.0638)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0473
+        [Trial 0] gen   40  evals= 1640  best=0.0466
+        [Trial 0] gen   60  evals= 2460  best=0.0459
+        [Trial 0] gen   80  evals= 3280  best=0.0455
+        [Trial 0] gen  100  evals= 4100  best=0.0448
+        [Trial 0] gen  120  evals= 4920  best=0.0448
+        [Done] Trial 0 best=0.0446
+
+  Winner: Trial 0, loss=0.044627 (236s)
+    Restarts run: 1
+    mu: 8.293248
+    D_mu: 1.051284
+    T0_mu: 80.935554
+    Ly: 3.897386
+    op_x: 0.900358
+    op_y: 0.744879
+    NMSE: 0.245824
+  [Saved] random_IR_0065
+
+============================================================
+[66/200] random_IR_0066.npz
+  GT loss: 0.000000
+  terrain_mean=0.061627  early_threshold=0.000585  (alpha=0.0095)
+  tolfun=0.00032 tolfunhist=0.00032  (frac=0.0052 of range=0.0616)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0390
+        [Trial 0] gen   40  evals= 1640  best=0.0386
+        [Trial 0] gen   60  evals= 2460  best=0.0386
+        [Trial 0] gen   80  evals= 3280  best=0.0386
+        [Trial 0] gen  100  evals= 4100  best=0.0386
+        [Trial 0] gen  120  evals= 4920  best=0.0379
+        [Trial 0] gen  140  evals= 5740  best=0.0379
+        [Done] Trial 0 best=0.0379
+
+  Winner: Trial 0, loss=0.037867 (150s)
+    Restarts run: 1
+    mu: 33.759028
+    D_mu: 0.782181
+    T0_mu: 29.006611
+    Ly: 1.842152
+    op_x: 0.654584
+    op_y: 0.686799
+    NMSE: 0.013223
+  [Saved] random_IR_0066
+
+============================================================
+[67/200] random_IR_0067.npz
+  GT loss: 0.000000
+  terrain_mean=0.066839  early_threshold=0.000635  (alpha=0.0095)
+  tolfun=0.000348 tolfunhist=0.000348  (frac=0.0052 of range=0.0668)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0494
+        [Trial 0] gen   40  evals= 1640  best=0.0494
+        [Trial 0] gen   60  evals= 2460  best=0.0491
+        [Trial 0] gen   80  evals= 3280  best=0.0478
+        [Trial 0] gen  100  evals= 4100  best=0.0470
+        [Done] Trial 0 best=0.0469
+
+  Winner: Trial 0, loss=0.046933 (74s)
+    Restarts run: 1
+    mu: 6.560094
+    D_mu: 8.672550
+    T0_mu: 124.818213
+    Ly: 3.507478
+    op_x: 0.534355
+    op_y: 0.961557
+    NMSE: 0.066089
+  [Saved] random_IR_0067
+
+============================================================
+[68/200] random_IR_0068.npz
+  GT loss: 0.000000
+  terrain_mean=0.118185  early_threshold=0.001123  (alpha=0.0095)
+  tolfun=0.000615 tolfunhist=0.000615  (frac=0.0052 of range=0.118)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0735
+        [Trial 0] gen   40  evals= 1640  best=0.0735
+        [Trial 0] gen   60  evals= 2460  best=0.0734
+        [Trial 0] gen   80  evals= 3280  best=0.0720
+        [Trial 0] gen  100  evals= 4100  best=0.0695
+        [Trial 0] gen  120  evals= 4920  best=0.0677
+        [Trial 0] gen  140  evals= 5740  best=0.0665
+        [Done] Trial 0 best=0.0662
+
+  Winner: Trial 0, loss=0.066156 (118s)
+    Restarts run: 1
+    mu: 34.545148
+    D_mu: 11.158398
+    T0_mu: 15.598405
+    Ly: 3.314115
+    op_x: 0.971653
+    op_y: 0.688981
+    NMSE: 0.072032
+  [Saved] random_IR_0068
+
+============================================================
+[69/200] random_IR_0069.npz
+  GT loss: 0.000000
+  terrain_mean=0.059350  early_threshold=0.000564  (alpha=0.0095)
+  tolfun=0.000309 tolfunhist=0.000309  (frac=0.0052 of range=0.0594)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0398
+        [Trial 0] gen   40  evals= 1640  best=0.0397
+        [Trial 0] gen   60  evals= 2460  best=0.0397
+        [Trial 0] gen   80  evals= 3280  best=0.0395
+        [Trial 0] gen  100  evals= 4100  best=0.0390
+        [Trial 0] gen  120  evals= 4920  best=0.0379
+        [Trial 0] gen  140  evals= 5740  best=0.0376
+        [Done] Trial 0 best=0.0376
+
+  Winner: Trial 0, loss=0.037568 (188s)
+    Restarts run: 1
+    mu: 16.971488
+    D_mu: 0.366350
+    T0_mu: 39.630586
+    Ly: 1.700276
+    op_x: 0.574593
+    op_y: 0.720751
+    NMSE: 0.079294
+  [Saved] random_IR_0069
+
+============================================================
+[70/200] random_IR_0070.npz
+  GT loss: 0.000000
+  terrain_mean=0.122381  early_threshold=0.001163  (alpha=0.0095)
+  tolfun=0.000636 tolfunhist=0.000636  (frac=0.0052 of range=0.122)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0767
+        [Trial 0] gen   40  evals= 1640  best=0.0721
+        [Trial 0] gen   60  evals= 2460  best=0.0721
+        [Trial 0] gen   80  evals= 3280  best=0.0721
+        [Trial 0] gen  100  evals= 4100  best=0.0721
+        [Trial 0] gen  120  evals= 4920  best=0.0721
+        [Trial 0] gen  140  evals= 5740  best=0.0721
+        [Trial 0] gen  160  evals= 6560  best=0.0718
+        [Trial 0] gen  180  evals= 7380  best=0.0718
+        [Trial 0] gen  200  evals= 8200  best=0.0718
+        [Trial 0] gen  220  evals= 9020  best=0.0716
+        [Done] Trial 0 best=0.0714
+
+  Winner: Trial 0, loss=0.071443 (211s)
+    Restarts run: 1
+    mu: 14.921040
+    D_mu: 1.223955
+    T0_mu: 11.747638
+    Ly: 1.676319
+    op_x: 0.659095
+    op_y: 0.994463
+    NMSE: 0.114778
+  [Saved] random_IR_0070
+
+============================================================
+[71/200] random_IR_0071.npz
+  GT loss: 0.000000
+  terrain_mean=0.060682  early_threshold=0.000576  (alpha=0.0095)
+  tolfun=0.000316 tolfunhist=0.000316  (frac=0.0052 of range=0.0607)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0399
+        [Trial 0] gen   40  evals= 1640  best=0.0396
+        [Trial 0] gen   60  evals= 2460  best=0.0396
+        [Trial 0] gen   80  evals= 3280  best=0.0393
+        [Trial 0] gen  100  evals= 4100  best=0.0385
+        [Trial 0] gen  120  evals= 4920  best=0.0380
+        [Done] Trial 0 best=0.0379
+
+  Winner: Trial 0, loss=0.037873 (192s)
+    Restarts run: 1
+    mu: 19.817808
+    D_mu: 0.318315
+    T0_mu: 44.708726
+    Ly: 1.842927
+    op_x: 0.674454
+    op_y: 0.687378
+    NMSE: 0.006528
+  [Saved] random_IR_0071
+
+============================================================
+[72/200] random_IR_0072.npz
+  GT loss: 0.000000
+  terrain_mean=0.058126  early_threshold=0.000552  (alpha=0.0095)
+  tolfun=0.000302 tolfunhist=0.000302  (frac=0.0052 of range=0.0581)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0382
+        [Trial 0] gen   40  evals= 1640  best=0.0380
+        [Trial 0] gen   60  evals= 2460  best=0.0378
+        [Trial 0] gen   80  evals= 3280  best=0.0372
+        [Trial 0] gen  100  evals= 4100  best=0.0372
+        [Done] Trial 0 best=0.0372
+
+  Winner: Trial 0, loss=0.037245 (179s)
+    Restarts run: 1
+    mu: 23.854688
+    D_mu: 0.698655
+    T0_mu: 20.767324
+    Ly: 2.351484
+    op_x: 0.688508
+    op_y: 0.703365
+    NMSE: 0.026598
+  [Saved] random_IR_0072
+
+============================================================
+[73/200] random_IR_0073.npz
+  GT loss: 0.000000
+  terrain_mean=0.064147  early_threshold=0.000609  (alpha=0.0095)
+  tolfun=0.000334 tolfunhist=0.000334  (frac=0.0052 of range=0.0641)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0434
+        [Trial 0] gen   40  evals= 1640  best=0.0434
+        [Trial 0] gen   60  evals= 2460  best=0.0425
+        [Trial 0] gen   80  evals= 3280  best=0.0417
+        [Trial 0] gen  100  evals= 4100  best=0.0417
+        [Done] Trial 0 best=0.0412
+
+  Winner: Trial 0, loss=0.041221 (62s)
+    Restarts run: 1
+    mu: 40.822506
+    D_mu: 9.459956
+    T0_mu: 21.422857
+    Ly: 2.586705
+    op_x: 0.704654
+    op_y: 0.569404
+    NMSE: 0.028068
+  [Saved] random_IR_0073
+
+============================================================
+[74/200] random_IR_0074.npz
+  GT loss: 0.000000
+  terrain_mean=0.062462  early_threshold=0.000593  (alpha=0.0095)
+  tolfun=0.000325 tolfunhist=0.000325  (frac=0.0052 of range=0.0625)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0383
+        [Trial 0] gen   40  evals= 1640  best=0.0383
+        [Trial 0] gen   60  evals= 2460  best=0.0383
+        [Trial 0] gen   80  evals= 3280  best=0.0382
+        [Trial 0] gen  100  evals= 4100  best=0.0382
+        [Trial 0] gen  120  evals= 4920  best=0.0374
+        [Done] Trial 0 best=0.0372
+
+  Winner: Trial 0, loss=0.037199 (182s)
+    Restarts run: 1
+    mu: 13.928788
+    D_mu: 0.796307
+    T0_mu: 21.096827
+    Ly: 2.288364
+    op_x: 0.527110
+    op_y: 0.677374
+    NMSE: 0.034026
+  [Saved] random_IR_0074
+
+============================================================
+[75/200] random_IR_0075.npz
+  GT loss: 0.000000
+  terrain_mean=0.062407  early_threshold=0.000593  (alpha=0.0095)
+  tolfun=0.000325 tolfunhist=0.000325  (frac=0.0052 of range=0.0624)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0412
+        [Trial 0] gen   40  evals= 1640  best=0.0408
+        [Trial 0] gen   60  evals= 2460  best=0.0405
+        [Trial 0] gen   80  evals= 3280  best=0.0405
+        [Trial 0] gen  100  evals= 4100  best=0.0402
+        [Trial 0] gen  120  evals= 4920  best=0.0402
+        [Done] Trial 0 best=0.0400
+
+  Winner: Trial 0, loss=0.039963 (132s)
+    Restarts run: 1
+    mu: 19.532634
+    D_mu: 0.366987
+    T0_mu: 24.243180
+    Ly: 1.101855
+    op_x: 0.510014
+    op_y: 0.745768
+    NMSE: 0.202378
+  [Saved] random_IR_0075
+
+============================================================
+[76/200] random_IR_0076.npz
+  GT loss: 0.000000
+  terrain_mean=0.059387  early_threshold=0.000564  (alpha=0.0095)
+  tolfun=0.000309 tolfunhist=0.000309  (frac=0.0052 of range=0.0594)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0426
+        [Trial 0] gen   40  evals= 1640  best=0.0426
+        [Trial 0] gen   60  evals= 2460  best=0.0426
+        [Trial 0] gen   80  evals= 3280  best=0.0424
+        [Trial 0] gen  100  evals= 4100  best=0.0415
+        [Done] Trial 0 best=0.0415
+
+  Winner: Trial 0, loss=0.041472 (101s)
+    Restarts run: 1
+    mu: 8.903991
+    D_mu: 1.144376
+    T0_mu: 76.300832
+    Ly: 1.885974
+    op_x: 0.597901
+    op_y: 0.664224
+    NMSE: 0.008923
+  [Saved] random_IR_0076
+
+============================================================
+[77/200] random_IR_0077.npz
+  GT loss: 0.000000
+  terrain_mean=0.064234  early_threshold=0.000610  (alpha=0.0095)
+  tolfun=0.000334 tolfunhist=0.000334  (frac=0.0052 of range=0.0642)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0497
+        [Trial 0] gen   40  evals= 1640  best=0.0493
+        [Trial 0] gen   60  evals= 2460  best=0.0490
+        [Trial 0] gen   80  evals= 3280  best=0.0484
+        [Trial 0] gen  100  evals= 4100  best=0.0484
+        [Trial 0] gen  120  evals= 4920  best=0.0470
+        [Trial 0] gen  140  evals= 5740  best=0.0469
+        [Trial 0] gen  160  evals= 6560  best=0.0463
+        [Done] Trial 0 best=0.0463
+
+  Winner: Trial 0, loss=0.046318 (230s)
+    Restarts run: 1
+    mu: 12.190065
+    D_mu: 0.756245
+    T0_mu: 62.459193
+    Ly: 2.528945
+    op_x: 0.924826
+    op_y: 0.685457
+    NMSE: 0.025435
+  [Saved] random_IR_0077
+
+============================================================
+[78/200] random_IR_0078.npz
+  GT loss: 0.000000
+  terrain_mean=0.104621  early_threshold=0.000994  (alpha=0.0095)
+  tolfun=0.000544 tolfunhist=0.000544  (frac=0.0052 of range=0.105)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0684
+        [Trial 0] gen   40  evals= 1640  best=0.0665
+        [Trial 0] gen   60  evals= 2460  best=0.0663
+        [Trial 0] gen   80  evals= 3280  best=0.0652
+        [Trial 0] gen  100  evals= 4100  best=0.0645
+        [Trial 0] gen  120  evals= 4920  best=0.0645
+        [Done] Trial 0 best=0.0645
+
+  Winner: Trial 0, loss=0.064516 (79s)
+    Restarts run: 1
+    mu: 26.942220
+    D_mu: 3.092540
+    T0_mu: 3.823112
+    Ly: 2.003280
+    op_x: 0.510300
+    op_y: 0.986766
+    NMSE: 0.378836
+  [Saved] random_IR_0078
+
+============================================================
+[79/200] random_IR_0079.npz
+  GT loss: 0.000000
+  terrain_mean=0.063940  early_threshold=0.000607  (alpha=0.0095)
+  tolfun=0.000332 tolfunhist=0.000332  (frac=0.0052 of range=0.0639)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0434
+        [Trial 0] gen   40  evals= 1640  best=0.0432
+        [Trial 0] gen   60  evals= 2460  best=0.0425
+        [Trial 0] gen   80  evals= 3280  best=0.0420
+        [Trial 0] gen  100  evals= 4100  best=0.0419
+        [Done] Trial 0 best=0.0419
+
+  Winner: Trial 0, loss=0.041939 (68s)
+    Restarts run: 1
+    mu: 32.690733
+    D_mu: 14.663374
+    T0_mu: 30.566099
+    Ly: 3.435794
+    op_x: 0.678047
+    op_y: 0.611646
+    NMSE: 0.023450
+  [Saved] random_IR_0079
+
+============================================================
+[80/200] random_IR_0080.npz
+  GT loss: 0.000000
+  terrain_mean=0.064511  early_threshold=0.000613  (alpha=0.0095)
+  tolfun=0.000335 tolfunhist=0.000335  (frac=0.0052 of range=0.0645)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0479
+        [Trial 0] gen   40  evals= 1640  best=0.0474
+        [Trial 0] gen   60  evals= 2460  best=0.0459
+        [Trial 0] gen   80  evals= 3280  best=0.0459
+        [Trial 0] gen  100  evals= 4100  best=0.0455
+        [Done] Trial 0 best=0.0453
+
+  Winner: Trial 0, loss=0.045260 (133s)
+    Restarts run: 1
+    mu: 18.458084
+    D_mu: 2.116513
+    T0_mu: 52.350418
+    Ly: 3.477147
+    op_x: 0.895944
+    op_y: 0.703574
+    NMSE: 0.064950
+  [Saved] random_IR_0080
+
+============================================================
+[81/200] random_IR_0081.npz
+  GT loss: 0.000000
+  terrain_mean=0.070318  early_threshold=0.000668  (alpha=0.0095)
+  tolfun=0.000366 tolfunhist=0.000366  (frac=0.0052 of range=0.0703)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0527
+        [Trial 0] gen   40  evals= 1640  best=0.0501
+        [Trial 0] gen   60  evals= 2460  best=0.0501
+        [Trial 0] gen   80  evals= 3280  best=0.0393
+        [Trial 0] gen  100  evals= 4100  best=0.0118
+        [Trial 0] gen  120  evals= 4920  best=0.0010
+        [Trial 0] gen  140  evals= 5740  best=0.0001
+        [Done] Trial 0 best=0.0001
+    --> Early stop triggered: trial 0 reached loss=0.000078 < 0.000668
+
+  Winner: Trial 0, loss=0.000078 (179s)
+    Restarts run: 1
+    mu: 29.341085
+    D_mu: 1.599231
+    T0_mu: 33.980042
+    Ly: 2.894608
+    op_x: 0.961951
+    op_y: 0.775278
+    NMSE: 0.000003
+  [Saved] random_IR_0081
+
+============================================================
+[82/200] random_IR_0082.npz
+  GT loss: 0.000000
+  terrain_mean=0.057331  early_threshold=0.000545  (alpha=0.0095)
+  tolfun=0.000298 tolfunhist=0.000298  (frac=0.0052 of range=0.0573)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0380
+        [Trial 0] gen   40  evals= 1640  best=0.0370
+        [Trial 0] gen   60  evals= 2460  best=0.0370
+        [Trial 0] gen   80  evals= 3280  best=0.0370
+        [Trial 0] gen  100  evals= 4100  best=0.0369
+        [Trial 0] gen  120  evals= 4920  best=0.0362
+        [Done] Trial 0 best=0.0362
+
+  Winner: Trial 0, loss=0.036213 (121s)
+    Restarts run: 1
+    mu: 65.572844
+    D_mu: 2.716388
+    T0_mu: 10.594646
+    Ly: 2.978809
+    op_x: 0.512101
+    op_y: 0.697153
+    NMSE: 0.023508
+  [Saved] random_IR_0082
+
+============================================================
+[83/200] random_IR_0083.npz
+  GT loss: 0.000000
+  terrain_mean=0.068014  early_threshold=0.000646  (alpha=0.0095)
+  tolfun=0.000354 tolfunhist=0.000354  (frac=0.0052 of range=0.068)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0466
+        [Trial 0] gen   40  evals= 1640  best=0.0466
+        [Trial 0] gen   60  evals= 2460  best=0.0466
+        [Trial 0] gen   80  evals= 3280  best=0.0466
+        [Trial 0] gen  100  evals= 4100  best=0.0466
+        [Trial 0] gen  120  evals= 4920  best=0.0466
+        [Done] Trial 0 best=0.0466
+
+  Winner: Trial 0, loss=0.046623 (167s)
+    Restarts run: 1
+    mu: 21.338877
+    D_mu: 2.973667
+    T0_mu: 38.175011
+    Ly: 3.815152
+    op_x: 0.953272
+    op_y: 0.589037
+    NMSE: 0.007823
+  [Saved] random_IR_0083
+
+============================================================
+[84/200] random_IR_0084.npz
+  GT loss: 0.000000
+  terrain_mean=0.062717  early_threshold=0.000596  (alpha=0.0095)
+  tolfun=0.000326 tolfunhist=0.000326  (frac=0.0052 of range=0.0627)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0333
+        [Trial 0] gen   40  evals= 1640  best=0.0321
+        [Trial 0] gen   60  evals= 2460  best=0.0321
+        [Trial 0] gen   80  evals= 3280  best=0.0311
+        [Trial 0] gen  100  evals= 4100  best=0.0308
+        [Done] Trial 0 best=0.0307
+
+  Winner: Trial 0, loss=0.030700 (101s)
+    Restarts run: 1
+    mu: 34.103658
+    D_mu: 1.403853
+    T0_mu: 8.891832
+    Ly: 2.110569
+    op_x: 0.515301
+    op_y: 0.524543
+    NMSE: 0.017862
+  [Saved] random_IR_0084
+
+============================================================
+[85/200] random_IR_0085.npz
+  GT loss: 0.000000
+  terrain_mean=0.066661  early_threshold=0.000633  (alpha=0.0095)
+  tolfun=0.000347 tolfunhist=0.000347  (frac=0.0052 of range=0.0667)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0427
+        [Trial 0] gen   40  evals= 1640  best=0.0420
+        [Trial 0] gen   60  evals= 2460  best=0.0420
+        [Trial 0] gen   80  evals= 3280  best=0.0415
+        [Trial 0] gen  100  evals= 4100  best=0.0403
+        [Done] Trial 0 best=0.0401
+
+  Winner: Trial 0, loss=0.040141 (106s)
+    Restarts run: 1
+    mu: 21.005427
+    D_mu: 1.400804
+    T0_mu: 43.796354
+    Ly: 2.237890
+    op_x: 0.641327
+    op_y: 0.510004
+    NMSE: 0.119860
+  [Saved] random_IR_0085
+
+============================================================
+[86/200] random_IR_0086.npz
+  GT loss: 0.000000
+  terrain_mean=0.059088  early_threshold=0.000561  (alpha=0.0095)
+  tolfun=0.000307 tolfunhist=0.000307  (frac=0.0052 of range=0.0591)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0393
+        [Trial 0] gen   40  evals= 1640  best=0.0388
+        [Trial 0] gen   60  evals= 2460  best=0.0386
+        [Trial 0] gen   80  evals= 3280  best=0.0383
+        [Trial 0] gen  100  evals= 4100  best=0.0379
+        [Done] Trial 0 best=0.0377
+
+  Winner: Trial 0, loss=0.037661 (160s)
+    Restarts run: 1
+    mu: 18.154193
+    D_mu: 0.721705
+    T0_mu: 40.212842
+    Ly: 2.520349
+    op_x: 0.591985
+    op_y: 0.680270
+    NMSE: 0.044467
+  [Saved] random_IR_0086
+
+============================================================
+[87/200] random_IR_0087.npz
+  GT loss: 0.000000
+  terrain_mean=0.060278  early_threshold=0.000573  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0603)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0351
+        [Trial 0] gen   40  evals= 1640  best=0.0335
+        [Trial 0] gen   60  evals= 2460  best=0.0310
+        [Trial 0] gen   80  evals= 3280  best=0.0130
+        [Trial 0] gen  100  evals= 4100  best=0.0074
+        [Trial 0] gen  120  evals= 4920  best=0.0008
+        [Trial 0] gen  140  evals= 5740  best=0.0001
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000045 < 0.000573
+
+  Winner: Trial 0, loss=0.000045 (202s)
+    Restarts run: 1
+    mu: 23.345380
+    D_mu: 1.350612
+    T0_mu: 42.432035
+    Ly: 3.073012
+    op_x: 0.626821
+    op_y: 0.762113
+    NMSE: 0.001269
+  [Saved] random_IR_0087
+
+============================================================
+[88/200] random_IR_0088.npz
+  GT loss: 0.000000
+  terrain_mean=0.064201  early_threshold=0.000610  (alpha=0.0095)
+  tolfun=0.000334 tolfunhist=0.000334  (frac=0.0052 of range=0.0642)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0334
+        [Trial 0] gen   40  evals= 1640  best=0.0332
+        [Trial 0] gen   60  evals= 2460  best=0.0328
+        [Trial 0] gen   80  evals= 3280  best=0.0325
+        [Trial 0] gen  100  evals= 4100  best=0.0318
+        [Trial 0] gen  120  evals= 4920  best=0.0318
+        [Trial 0] gen  140  evals= 5740  best=0.0318
+        [Done] Trial 0 best=0.0318
+
+  Winner: Trial 0, loss=0.031765 (139s)
+    Restarts run: 1
+    mu: 24.328742
+    D_mu: 0.912208
+    T0_mu: 0.596072
+    Ly: 1.838773
+    op_x: 0.536237
+    op_y: 0.640229
+    NMSE: 0.021512
+  [Saved] random_IR_0088
+
+============================================================
+[89/200] random_IR_0089.npz
+  GT loss: 0.000000
+  terrain_mean=0.062140  early_threshold=0.000590  (alpha=0.0095)
+  tolfun=0.000323 tolfunhist=0.000323  (frac=0.0052 of range=0.0621)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0429
+        [Trial 0] gen   40  evals= 1640  best=0.0429
+        [Trial 0] gen   60  evals= 2460  best=0.0429
+        [Trial 0] gen   80  evals= 3280  best=0.0429
+        [Trial 0] gen  100  evals= 4100  best=0.0429
+        [Trial 0] gen  120  evals= 4920  best=0.0424
+        [Done] Trial 0 best=0.0424
+
+  Winner: Trial 0, loss=0.042386 (171s)
+    Restarts run: 1
+    mu: 7.716243
+    D_mu: 2.497424
+    T0_mu: 83.248955
+    Ly: 3.980535
+    op_x: 0.510903
+    op_y: 0.757425
+    NMSE: 0.196980
+  [Saved] random_IR_0089
+
+============================================================
+[90/200] random_IR_0090.npz
+  GT loss: 0.000000
+  terrain_mean=0.060193  early_threshold=0.000572  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0602)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0412
+        [Trial 0] gen   40  evals= 1640  best=0.0407
+        [Trial 0] gen   60  evals= 2460  best=0.0406
+        [Trial 0] gen   80  evals= 3280  best=0.0406
+        [Trial 0] gen  100  evals= 4100  best=0.0404
+        [Trial 0] gen  120  evals= 4920  best=0.0401
+        [Trial 0] gen  140  evals= 5740  best=0.0387
+        [Trial 0] gen  160  evals= 6560  best=0.0384
+        [Done] Trial 0 best=0.0384
+
+  Winner: Trial 0, loss=0.038440 (228s)
+    Restarts run: 1
+    mu: 19.345182
+    D_mu: 0.431013
+    T0_mu: 38.337658
+    Ly: 1.874478
+    op_x: 0.605127
+    op_y: 0.695998
+    NMSE: 0.126305
+  [Saved] random_IR_0090
+
+============================================================
+[91/200] random_IR_0091.npz
+  GT loss: 0.000000
+  terrain_mean=0.100349  early_threshold=0.000953  (alpha=0.0095)
+  tolfun=0.000522 tolfunhist=0.000522  (frac=0.0052 of range=0.1)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0691
+        [Trial 0] gen   40  evals= 1640  best=0.0680
+        [Trial 0] gen   60  evals= 2460  best=0.0674
+        [Trial 0] gen   80  evals= 3280  best=0.0674
+        [Trial 0] gen  100  evals= 4100  best=0.0663
+        [Trial 0] gen  120  evals= 4920  best=0.0661
+        [Done] Trial 0 best=0.0661
+
+  Winner: Trial 0, loss=0.066123 (58s)
+    Restarts run: 1
+    mu: 65.451521
+    D_mu: 11.432100
+    T0_mu: 13.074188
+    Ly: 2.716477
+    op_x: 0.741045
+    op_y: 0.987740
+    NMSE: 0.229647
+  [Saved] random_IR_0091
+
+============================================================
+[92/200] random_IR_0092.npz
+  GT loss: 0.000000
+  terrain_mean=0.137909  early_threshold=0.001310  (alpha=0.0095)
+  tolfun=0.000717 tolfunhist=0.000717  (frac=0.0052 of range=0.138)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0864
+        [Trial 0] gen   40  evals= 1640  best=0.0838
+        [Trial 0] gen   60  evals= 2460  best=0.0816
+        [Trial 0] gen   80  evals= 3280  best=0.0808
+        [Trial 0] gen  100  evals= 4100  best=0.0808
+        [Trial 0] gen  120  evals= 4920  best=0.0808
+        [Trial 0] gen  140  evals= 5740  best=0.0808
+        [Done] Trial 0 best=0.0808
+
+  Winner: Trial 0, loss=0.080820 (89s)
+    Restarts run: 1
+    mu: 19.575455
+    D_mu: 1.055571
+    T0_mu: 3.671589
+    Ly: 1.110442
+    op_x: 0.515252
+    op_y: 0.998756
+    NMSE: 0.247041
+  [Saved] random_IR_0092
+
+============================================================
+[93/200] random_IR_0093.npz
+  GT loss: 0.000000
+  terrain_mean=0.058660  early_threshold=0.000557  (alpha=0.0095)
+  tolfun=0.000305 tolfunhist=0.000305  (frac=0.0052 of range=0.0587)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0380
+        [Trial 0] gen   40  evals= 1640  best=0.0375
+        [Trial 0] gen   60  evals= 2460  best=0.0375
+        [Trial 0] gen   80  evals= 3280  best=0.0375
+        [Trial 0] gen  100  evals= 4100  best=0.0368
+        [Trial 0] gen  120  evals= 4920  best=0.0368
+        [Trial 0] gen  140  evals= 5740  best=0.0364
+        [Trial 0] gen  160  evals= 6560  best=0.0360
+        [Done] Trial 0 best=0.0359
+
+  Winner: Trial 0, loss=0.035948 (190s)
+    Restarts run: 1
+    mu: 18.521774
+    D_mu: 0.745425
+    T0_mu: 32.247115
+    Ly: 1.974633
+    op_x: 0.590202
+    op_y: 0.710807
+    NMSE: 0.003475
+  [Saved] random_IR_0093
+
+============================================================
+[94/200] random_IR_0094.npz
+  GT loss: 0.000000
+  terrain_mean=0.067510  early_threshold=0.000641  (alpha=0.0095)
+  tolfun=0.000351 tolfunhist=0.000351  (frac=0.0052 of range=0.0675)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0314
+        [Trial 0] gen   40  evals= 1640  best=0.0314
+        [Trial 0] gen   60  evals= 2460  best=0.0310
+        [Trial 0] gen   80  evals= 3280  best=0.0309
+        [Trial 0] gen  100  evals= 4100  best=0.0301
+        [Done] Trial 0 best=0.0298
+
+  Winner: Trial 0, loss=0.029792 (179s)
+    Restarts run: 1
+    mu: 33.630625
+    D_mu: 1.753020
+    T0_mu: 5.918308
+    Ly: 3.748021
+    op_x: 0.643252
+    op_y: 0.559354
+    NMSE: 0.025125
+  [Saved] random_IR_0094
+
+============================================================
+[95/200] random_IR_0095.npz
+  GT loss: 0.000000
+  terrain_mean=0.060527  early_threshold=0.000575  (alpha=0.0095)
+  tolfun=0.000315 tolfunhist=0.000315  (frac=0.0052 of range=0.0605)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0381
+        [Trial 0] gen   40  evals= 1640  best=0.0381
+        [Trial 0] gen   60  evals= 2460  best=0.0375
+        [Trial 0] gen   80  evals= 3280  best=0.0368
+        [Trial 0] gen  100  evals= 4100  best=0.0362
+        [Done] Trial 0 best=0.0360
+
+  Winner: Trial 0, loss=0.036004 (106s)
+    Restarts run: 1
+    mu: 60.303438
+    D_mu: 7.125648
+    T0_mu: 2.536146
+    Ly: 3.684024
+    op_x: 0.686168
+    op_y: 0.716525
+    NMSE: 0.047598
+  [Saved] random_IR_0095
+
+============================================================
+[96/200] random_IR_0096.npz
+  GT loss: 0.000000
+  terrain_mean=0.057554  early_threshold=0.000547  (alpha=0.0095)
+  tolfun=0.000299 tolfunhist=0.000299  (frac=0.0052 of range=0.0576)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0405
+        [Trial 0] gen   40  evals= 1640  best=0.0405
+        [Trial 0] gen   60  evals= 2460  best=0.0405
+        [Trial 0] gen   80  evals= 3280  best=0.0405
+        [Trial 0] gen  100  evals= 4100  best=0.0405
+        [Trial 0] gen  120  evals= 4920  best=0.0404
+        [Trial 0] gen  140  evals= 5740  best=0.0404
+        [Trial 0] gen  160  evals= 6560  best=0.0400
+        [Done] Trial 0 best=0.0400
+
+  Winner: Trial 0, loss=0.040000 (164s)
+    Restarts run: 1
+    mu: 18.182591
+    D_mu: 2.569518
+    T0_mu: 35.960203
+    Ly: 3.230594
+    op_x: 0.549098
+    op_y: 0.695012
+    NMSE: 0.062552
+  [Saved] random_IR_0096
+
+============================================================
+[97/200] random_IR_0097.npz
+  GT loss: 0.000000
+  terrain_mean=0.061610  early_threshold=0.000585  (alpha=0.0095)
+  tolfun=0.00032 tolfunhist=0.00032  (frac=0.0052 of range=0.0616)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0388
+        [Trial 0] gen   40  evals= 1640  best=0.0383
+        [Trial 0] gen   60  evals= 2460  best=0.0379
+        [Trial 0] gen   80  evals= 3280  best=0.0377
+        [Trial 0] gen  100  evals= 4100  best=0.0372
+        [Trial 0] gen  120  evals= 4920  best=0.0365
+        [Trial 0] gen  140  evals= 5740  best=0.0364
+        [Done] Trial 0 best=0.0364
+
+  Winner: Trial 0, loss=0.036448 (198s)
+    Restarts run: 1
+    mu: 20.978440
+    D_mu: 0.436663
+    T0_mu: 35.257268
+    Ly: 2.054505
+    op_x: 0.596796
+    op_y: 0.595348
+    NMSE: 0.035973
+  [Saved] random_IR_0097
+
+============================================================
+[98/200] random_IR_0098.npz
+  GT loss: 0.000000
+  terrain_mean=0.066311  early_threshold=0.000630  (alpha=0.0095)
+  tolfun=0.000345 tolfunhist=0.000345  (frac=0.0052 of range=0.0663)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0454
+        [Trial 0] gen   40  evals= 1640  best=0.0449
+        [Trial 0] gen   60  evals= 2460  best=0.0443
+        [Trial 0] gen   80  evals= 3280  best=0.0438
+        [Trial 0] gen  100  evals= 4100  best=0.0433
+        [Done] Trial 0 best=0.0431
+
+  Winner: Trial 0, loss=0.043098 (64s)
+    Restarts run: 1
+    mu: 34.704674
+    D_mu: 14.065463
+    T0_mu: 24.759095
+    Ly: 3.748265
+    op_x: 0.610296
+    op_y: 0.722877
+    NMSE: 0.063009
+  [Saved] random_IR_0098
+
+============================================================
+[99/200] random_IR_0099.npz
+  GT loss: 0.000000
+  terrain_mean=0.060208  early_threshold=0.000572  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0602)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0451
+        [Trial 0] gen   40  evals= 1640  best=0.0447
+        [Trial 0] gen   60  evals= 2460  best=0.0439
+        [Trial 0] gen   80  evals= 3280  best=0.0436
+        [Trial 0] gen  100  evals= 4100  best=0.0436
+        [Trial 0] gen  120  evals= 4920  best=0.0435
+        [Trial 0] gen  140  evals= 5740  best=0.0431
+        [Trial 0] gen  160  evals= 6560  best=0.0425
+        [Done] Trial 0 best=0.0425
+
+  Winner: Trial 0, loss=0.042549 (200s)
+    Restarts run: 1
+    mu: 16.447198
+    D_mu: 0.547630
+    T0_mu: 52.841527
+    Ly: 2.007344
+    op_x: 0.535102
+    op_y: 0.761630
+    NMSE: 0.036096
+  [Saved] random_IR_0099
+
+============================================================
+[100/200] random_IR_0100.npz
+  GT loss: 0.000000
+  terrain_mean=0.062345  early_threshold=0.000592  (alpha=0.0095)
+  tolfun=0.000324 tolfunhist=0.000324  (frac=0.0052 of range=0.0623)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0447
+        [Trial 0] gen   40  evals= 1640  best=0.0437
+        [Trial 0] gen   60  evals= 2460  best=0.0437
+        [Trial 0] gen   80  evals= 3280  best=0.0428
+        [Trial 0] gen  100  evals= 4100  best=0.0421
+        [Done] Trial 0 best=0.0421
+
+  Winner: Trial 0, loss=0.042054 (73s)
+    Restarts run: 1
+    mu: 37.196760
+    D_mu: 9.702530
+    T0_mu: 26.132077
+    Ly: 3.940060
+    op_x: 0.758580
+    op_y: 0.748876
+    NMSE: 0.081566
+  [Saved] random_IR_0100
+
+============================================================
+[101/200] random_IR_0101.npz
+  GT loss: 0.000000
+  terrain_mean=0.061447  early_threshold=0.000584  (alpha=0.0095)
+  tolfun=0.00032 tolfunhist=0.00032  (frac=0.0052 of range=0.0614)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0371
+        [Trial 0] gen   40  evals= 1640  best=0.0368
+        [Trial 0] gen   60  evals= 2460  best=0.0366
+        [Trial 0] gen   80  evals= 3280  best=0.0363
+        [Trial 0] gen  100  evals= 4100  best=0.0363
+        [Trial 0] gen  120  evals= 4920  best=0.0356
+        [Trial 0] gen  140  evals= 5740  best=0.0351
+        [Done] Trial 0 best=0.0351
+
+  Winner: Trial 0, loss=0.035086 (127s)
+    Restarts run: 1
+    mu: 25.816236
+    D_mu: 0.594852
+    T0_mu: 13.299936
+    Ly: 1.139697
+    op_x: 0.510010
+    op_y: 0.641671
+    NMSE: 0.028567
+  [Saved] random_IR_0101
+
+============================================================
+[102/200] random_IR_0102.npz
+  GT loss: 0.000000
+  terrain_mean=0.066154  early_threshold=0.000628  (alpha=0.0095)
+  tolfun=0.000344 tolfunhist=0.000344  (frac=0.0052 of range=0.0662)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0485
+        [Trial 0] gen   40  evals= 1640  best=0.0485
+        [Trial 0] gen   60  evals= 2460  best=0.0476
+        [Trial 0] gen   80  evals= 3280  best=0.0475
+        [Trial 0] gen  100  evals= 4100  best=0.0471
+        [Trial 0] gen  120  evals= 4920  best=0.0468
+        [Done] Trial 0 best=0.0468
+
+  Winner: Trial 0, loss=0.046778 (115s)
+    Restarts run: 1
+    mu: 7.461337
+    D_mu: 2.503656
+    T0_mu: 106.174664
+    Ly: 3.306439
+    op_x: 0.894762
+    op_y: 0.676493
+    NMSE: 0.083043
+  [Saved] random_IR_0102
+
+============================================================
+[103/200] random_IR_0103.npz
+  GT loss: 0.000000
+  terrain_mean=0.061347  early_threshold=0.000583  (alpha=0.0095)
+  tolfun=0.000319 tolfunhist=0.000319  (frac=0.0052 of range=0.0613)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0468
+        [Trial 0] gen   40  evals= 1640  best=0.0460
+        [Trial 0] gen   60  evals= 2460  best=0.0452
+        [Trial 0] gen   80  evals= 3280  best=0.0441
+        [Trial 0] gen  100  evals= 4100  best=0.0435
+        [Done] Trial 0 best=0.0431
+
+  Winner: Trial 0, loss=0.043137 (130s)
+    Restarts run: 1
+    mu: 4.188577
+    D_mu: 2.802220
+    T0_mu: 148.663510
+    Ly: 3.518483
+    op_x: 0.816485
+    op_y: 0.693293
+    NMSE: 0.126406
+  [Saved] random_IR_0103
+
+============================================================
+[104/200] random_IR_0104.npz
+  GT loss: 0.000000
+  terrain_mean=0.099331  early_threshold=0.000944  (alpha=0.0095)
+  tolfun=0.000517 tolfunhist=0.000517  (frac=0.0052 of range=0.0993)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0611
+        [Trial 0] gen   40  evals= 1640  best=0.0611
+        [Trial 0] gen   60  evals= 2460  best=0.0598
+        [Trial 0] gen   80  evals= 3280  best=0.0598
+        [Trial 0] gen  100  evals= 4100  best=0.0594
+        [Trial 0] gen  120  evals= 4920  best=0.0593
+        [Trial 0] gen  140  evals= 5740  best=0.0586
+        [Trial 0] gen  160  evals= 6560  best=0.0583
+        [Trial 0] gen  180  evals= 7380  best=0.0578
+        [Done] Trial 0 best=0.0578
+
+  Winner: Trial 0, loss=0.057836 (397s)
+    Restarts run: 1
+    mu: 15.454501
+    D_mu: 0.499573
+    T0_mu: 61.392395
+    Ly: 3.655394
+    op_x: 0.976868
+    op_y: 0.750103
+    NMSE: 0.053758
+  [Saved] random_IR_0104
+
+============================================================
+[105/200] random_IR_0105.npz
+  GT loss: 0.000000
+  terrain_mean=0.060459  early_threshold=0.000574  (alpha=0.0095)
+  tolfun=0.000314 tolfunhist=0.000314  (frac=0.0052 of range=0.0605)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0360
+        [Trial 0] gen   40  evals= 1640  best=0.0354
+        [Trial 0] gen   60  evals= 2460  best=0.0353
+        [Trial 0] gen   80  evals= 3280  best=0.0351
+        [Trial 0] gen  100  evals= 4100  best=0.0348
+        [Trial 0] gen  120  evals= 4920  best=0.0339
+        [Done] Trial 0 best=0.0339
+
+  Winner: Trial 0, loss=0.033863 (124s)
+    Restarts run: 1
+    mu: 15.965601
+    D_mu: 0.596356
+    T0_mu: 39.744904
+    Ly: 1.201716
+    op_x: 0.655526
+    op_y: 0.705540
+    NMSE: 0.090540
+  [Saved] random_IR_0105
+
+============================================================
+[106/200] random_IR_0106.npz
+  GT loss: 0.000000
+  terrain_mean=0.095078  early_threshold=0.000903  (alpha=0.0095)
+  tolfun=0.000494 tolfunhist=0.000494  (frac=0.0052 of range=0.0951)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0612
+        [Trial 0] gen   40  evals= 1640  best=0.0595
+        [Trial 0] gen   60  evals= 2460  best=0.0582
+        [Done] Trial 0 best=0.0581
+
+  Winner: Trial 0, loss=0.058092 (45s)
+    Restarts run: 1
+    mu: 35.701404
+    D_mu: 7.599076
+    T0_mu: 25.676043
+    Ly: 3.026500
+    op_x: 0.951642
+    op_y: 0.950534
+    NMSE: 0.133781
+  [Saved] random_IR_0106
+
+============================================================
+[107/200] random_IR_0107.npz
+  GT loss: 0.000000
+  terrain_mean=0.130157  early_threshold=0.001236  (alpha=0.0095)
+  tolfun=0.000677 tolfunhist=0.000677  (frac=0.0052 of range=0.13)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0876
+        [Trial 0] gen   40  evals= 1640  best=0.0858
+        [Trial 0] gen   60  evals= 2460  best=0.0846
+        [Trial 0] gen   80  evals= 3280  best=0.0837
+        [Trial 0] gen  100  evals= 4100  best=0.0837
+        [Trial 0] gen  120  evals= 4920  best=0.0827
+        [Trial 0] gen  140  evals= 5740  best=0.0819
+        [Done] Trial 0 best=0.0817
+
+  Winner: Trial 0, loss=0.081653 (178s)
+    Restarts run: 1
+    mu: 21.100955
+    D_mu: 1.375931
+    T0_mu: 10.327623
+    Ly: 3.446363
+    op_x: 0.986999
+    op_y: 0.690221
+    NMSE: 0.188579
+  [Saved] random_IR_0107
+
+============================================================
+[108/200] random_IR_0108.npz
+  GT loss: 0.000000
+  terrain_mean=0.062693  early_threshold=0.000596  (alpha=0.0095)
+  tolfun=0.000326 tolfunhist=0.000326  (frac=0.0052 of range=0.0627)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0345
+        [Trial 0] gen   40  evals= 1640  best=0.0345
+        [Trial 0] gen   60  evals= 2460  best=0.0342
+        [Trial 0] gen   80  evals= 3280  best=0.0331
+        [Trial 0] gen  100  evals= 4100  best=0.0330
+        [Done] Trial 0 best=0.0330
+
+  Winner: Trial 0, loss=0.033025 (139s)
+    Restarts run: 1
+    mu: 31.940443
+    D_mu: 0.773274
+    T0_mu: 9.861851
+    Ly: 2.389427
+    op_x: 0.675714
+    op_y: 0.720752
+    NMSE: 0.037085
+  [Saved] random_IR_0108
+
+============================================================
+[109/200] random_IR_0109.npz
+  GT loss: 0.000000
+  terrain_mean=0.060713  early_threshold=0.000577  (alpha=0.0095)
+  tolfun=0.000316 tolfunhist=0.000316  (frac=0.0052 of range=0.0607)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0387
+        [Trial 0] gen   40  evals= 1640  best=0.0387
+        [Trial 0] gen   60  evals= 2460  best=0.0382
+        [Trial 0] gen   80  evals= 3280  best=0.0379
+        [Done] Trial 0 best=0.0374
+
+  Winner: Trial 0, loss=0.037438 (93s)
+    Restarts run: 1
+    mu: 28.453266
+    D_mu: 1.898068
+    T0_mu: 32.633132
+    Ly: 2.110477
+    op_x: 0.619159
+    op_y: 0.702864
+    NMSE: 0.015991
+  [Saved] random_IR_0109
+
+============================================================
+[110/200] random_IR_0110.npz
+  GT loss: 0.000000
+  terrain_mean=0.124371  early_threshold=0.001182  (alpha=0.0095)
+  tolfun=0.000647 tolfunhist=0.000647  (frac=0.0052 of range=0.124)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0804
+        [Trial 0] gen   40  evals= 1640  best=0.0783
+        [Trial 0] gen   60  evals= 2460  best=0.0760
+        [Trial 0] gen   80  evals= 3280  best=0.0716
+        [Trial 0] gen  100  evals= 4100  best=0.0674
+        [Done] Trial 0 best=0.0672
+
+  Winner: Trial 0, loss=0.067180 (76s)
+    Restarts run: 1
+    mu: 12.457134
+    D_mu: 10.678150
+    T0_mu: 32.141412
+    Ly: 3.698705
+    op_x: 0.976243
+    op_y: 0.706834
+    NMSE: 0.184558
+  [Saved] random_IR_0110
+
+============================================================
+[111/200] random_IR_0111.npz
+  GT loss: 0.000000
+  terrain_mean=0.060236  early_threshold=0.000572  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0602)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0396
+        [Trial 0] gen   40  evals= 1640  best=0.0390
+        [Trial 0] gen   60  evals= 2460  best=0.0380
+        [Trial 0] gen   80  evals= 3280  best=0.0380
+        [Trial 0] gen  100  evals= 4100  best=0.0380
+        [Trial 0] gen  120  evals= 4920  best=0.0380
+        [Trial 0] gen  140  evals= 5740  best=0.0380
+        [Trial 0] gen  160  evals= 6560  best=0.0380
+        [Done] Trial 0 best=0.0380
+
+  Winner: Trial 0, loss=0.038029 (292s)
+    Restarts run: 1
+    mu: 21.171095
+    D_mu: 0.451334
+    T0_mu: 37.588855
+    Ly: 2.157649
+    op_x: 0.551647
+    op_y: 0.725438
+    NMSE: 0.026012
+  [Saved] random_IR_0111
+
+============================================================
+[112/200] random_IR_0112.npz
+  GT loss: 0.000000
+  terrain_mean=0.084591  early_threshold=0.000804  (alpha=0.0095)
+  tolfun=0.00044 tolfunhist=0.00044  (frac=0.0052 of range=0.0846)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0611
+        [Trial 0] gen   40  evals= 1640  best=0.0606
+        [Trial 0] gen   60  evals= 2460  best=0.0602
+        [Trial 0] gen   80  evals= 3280  best=0.0576
+        [Trial 0] gen  100  evals= 4100  best=0.0569
+        [Trial 0] gen  120  evals= 4920  best=0.0561
+        [Done] Trial 0 best=0.0560
+
+  Winner: Trial 0, loss=0.055955 (45s)
+    Restarts run: 1
+    mu: 19.198452
+    D_mu: 38.565784
+    T0_mu: 1.354242
+    Ly: 3.566640
+    op_x: 0.915330
+    op_y: 0.934705
+    NMSE: 0.023194
+  [Saved] random_IR_0112
+
+============================================================
+[113/200] random_IR_0113.npz
+  GT loss: 0.000000
+  terrain_mean=0.060757  early_threshold=0.000577  (alpha=0.0095)
+  tolfun=0.000316 tolfunhist=0.000316  (frac=0.0052 of range=0.0608)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0406
+        [Trial 0] gen   40  evals= 1640  best=0.0404
+        [Trial 0] gen   60  evals= 2460  best=0.0398
+        [Trial 0] gen   80  evals= 3280  best=0.0395
+        [Trial 0] gen  100  evals= 4100  best=0.0393
+        [Trial 0] gen  120  evals= 4920  best=0.0386
+        [Trial 0] gen  140  evals= 5740  best=0.0382
+        [Done] Trial 0 best=0.0380
+
+  Winner: Trial 0, loss=0.037967 (110s)
+    Restarts run: 1
+    mu: 49.975097
+    D_mu: 8.970764
+    T0_mu: 14.314370
+    Ly: 2.999709
+    op_x: 0.698290
+    op_y: 0.597958
+    NMSE: 0.119623
+  [Saved] random_IR_0113
+
+============================================================
+[114/200] random_IR_0114.npz
+  GT loss: 0.000000
+  terrain_mean=0.064069  early_threshold=0.000609  (alpha=0.0095)
+  tolfun=0.000333 tolfunhist=0.000333  (frac=0.0052 of range=0.0641)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0366
+        [Trial 0] gen   40  evals= 1640  best=0.0357
+        [Trial 0] gen   60  evals= 2460  best=0.0350
+        [Trial 0] gen   80  evals= 3280  best=0.0350
+        [Trial 0] gen  100  evals= 4100  best=0.0350
+        [Trial 0] gen  120  evals= 4920  best=0.0347
+        [Trial 0] gen  140  evals= 5740  best=0.0346
+        [Trial 0] gen  160  evals= 6560  best=0.0342
+        [Done] Trial 0 best=0.0341
+
+  Winner: Trial 0, loss=0.034117 (152s)
+    Restarts run: 1
+    mu: 15.964734
+    D_mu: 0.777350
+    T0_mu: 12.656201
+    Ly: 1.553675
+    op_x: 0.647156
+    op_y: 0.524256
+    NMSE: 0.057313
+  [Saved] random_IR_0114
+
+============================================================
+[115/200] random_IR_0115.npz
+  GT loss: 0.000000
+  terrain_mean=0.060834  early_threshold=0.000578  (alpha=0.0095)
+  tolfun=0.000316 tolfunhist=0.000316  (frac=0.0052 of range=0.0608)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0390
+        [Trial 0] gen   40  evals= 1640  best=0.0390
+        [Trial 0] gen   60  evals= 2460  best=0.0390
+        [Trial 0] gen   80  evals= 3280  best=0.0385
+        [Trial 0] gen  100  evals= 4100  best=0.0375
+        [Done] Trial 0 best=0.0373
+
+  Winner: Trial 0, loss=0.037290 (160s)
+    Restarts run: 1
+    mu: 19.722463
+    D_mu: 0.704172
+    T0_mu: 48.715127
+    Ly: 2.413328
+    op_x: 0.676847
+    op_y: 0.640981
+    NMSE: 0.066406
+  [Saved] random_IR_0115
+
+============================================================
+[116/200] random_IR_0116.npz
+  GT loss: 0.000000
+  terrain_mean=0.059837  early_threshold=0.000568  (alpha=0.0095)
+  tolfun=0.000311 tolfunhist=0.000311  (frac=0.0052 of range=0.0598)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0404
+        [Trial 0] gen   40  evals= 1640  best=0.0400
+        [Trial 0] gen   60  evals= 2460  best=0.0392
+        [Trial 0] gen   80  evals= 3280  best=0.0386
+        [Done] Trial 0 best=0.0385
+
+  Winner: Trial 0, loss=0.038458 (134s)
+    Restarts run: 1
+    mu: 17.449505
+    D_mu: 0.811741
+    T0_mu: 43.244785
+    Ly: 2.397703
+    op_x: 0.653585
+    op_y: 0.692900
+    NMSE: 0.113803
+  [Saved] random_IR_0116
+
+============================================================
+[117/200] random_IR_0117.npz
+  GT loss: 0.000000
+  terrain_mean=0.065184  early_threshold=0.000619  (alpha=0.0095)
+  tolfun=0.000339 tolfunhist=0.000339  (frac=0.0052 of range=0.0652)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0431
+        [Trial 0] gen   40  evals= 1640  best=0.0431
+        [Trial 0] gen   60  evals= 2460  best=0.0422
+        [Trial 0] gen   80  evals= 3280  best=0.0422
+        [Trial 0] gen  100  evals= 4100  best=0.0413
+        [Trial 0] gen  120  evals= 4920  best=0.0409
+        [Done] Trial 0 best=0.0409
+
+  Winner: Trial 0, loss=0.040902 (211s)
+    Restarts run: 1
+    mu: 22.169540
+    D_mu: 0.486438
+    T0_mu: 42.725871
+    Ly: 2.473262
+    op_x: 0.618825
+    op_y: 0.686172
+    NMSE: 0.040951
+  [Saved] random_IR_0117
+
+============================================================
+[118/200] random_IR_0118.npz
+  GT loss: 0.000000
+  terrain_mean=0.061902  early_threshold=0.000588  (alpha=0.0095)
+  tolfun=0.000322 tolfunhist=0.000322  (frac=0.0052 of range=0.0619)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0465
+        [Trial 0] gen   40  evals= 1640  best=0.0465
+        [Trial 0] gen   60  evals= 2460  best=0.0465
+        [Trial 0] gen   80  evals= 3280  best=0.0465
+        [Trial 0] gen  100  evals= 4100  best=0.0462
+        [Trial 0] gen  120  evals= 4920  best=0.0456
+        [Done] Trial 0 best=0.0455
+
+  Winner: Trial 0, loss=0.045483 (193s)
+    Restarts run: 1
+    mu: 6.332487
+    D_mu: 1.402975
+    T0_mu: 154.609459
+    Ly: 3.993214
+    op_x: 0.815878
+    op_y: 0.692144
+    NMSE: 0.151014
+  [Saved] random_IR_0118
+
+============================================================
+[119/200] random_IR_0119.npz
+  GT loss: 0.000000
+  terrain_mean=0.066942  early_threshold=0.000636  (alpha=0.0095)
+  tolfun=0.000348 tolfunhist=0.000348  (frac=0.0052 of range=0.0669)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0517
+        [Trial 0] gen   40  evals= 1640  best=0.0505
+        [Trial 0] gen   60  evals= 2460  best=0.0497
+        [Trial 0] gen   80  evals= 3280  best=0.0479
+        [Trial 0] gen  100  evals= 4100  best=0.0472
+        [Done] Trial 0 best=0.0471
+
+  Winner: Trial 0, loss=0.047144 (35s)
+    Restarts run: 1
+    mu: 7.264015
+    D_mu: 50.961618
+    T0_mu: 61.452672
+    Ly: 2.753432
+    op_x: 0.677005
+    op_y: 0.707068
+    NMSE: 0.052240
+  [Saved] random_IR_0119
+
+============================================================
+[120/200] random_IR_0120.npz
+  GT loss: 0.000000
+  terrain_mean=0.059951  early_threshold=0.000570  (alpha=0.0095)
+  tolfun=0.000312 tolfunhist=0.000312  (frac=0.0052 of range=0.06)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0381
+        [Trial 0] gen   40  evals= 1640  best=0.0381
+        [Trial 0] gen   60  evals= 2460  best=0.0370
+        [Trial 0] gen   80  evals= 3280  best=0.0370
+        [Trial 0] gen  100  evals= 4100  best=0.0362
+        [Trial 0] gen  120  evals= 4920  best=0.0361
+        [Done] Trial 0 best=0.0361
+
+  Winner: Trial 0, loss=0.036103 (112s)
+    Restarts run: 1
+    mu: 75.033287
+    D_mu: 6.032752
+    T0_mu: 9.674726
+    Ly: 3.762628
+    op_x: 0.640556
+    op_y: 0.816489
+    NMSE: 0.015679
+  [Saved] random_IR_0120
+
+============================================================
+[121/200] random_IR_0121.npz
+  GT loss: 0.000000
+  terrain_mean=0.063175  early_threshold=0.000600  (alpha=0.0095)
+  tolfun=0.000329 tolfunhist=0.000329  (frac=0.0052 of range=0.0632)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0470
+        [Trial 0] gen   40  evals= 1640  best=0.0470
+        [Trial 0] gen   60  evals= 2460  best=0.0468
+        [Trial 0] gen   80  evals= 3280  best=0.0468
+        [Trial 0] gen  100  evals= 4100  best=0.0466
+        [Trial 0] gen  120  evals= 4920  best=0.0463
+        [Done] Trial 0 best=0.0462
+
+  Winner: Trial 0, loss=0.046241 (166s)
+    Restarts run: 1
+    mu: 3.161472
+    D_mu: 1.948829
+    T0_mu: 255.823390
+    Ly: 3.999723
+    op_x: 0.778264
+    op_y: 0.769969
+    NMSE: 0.155824
+  [Saved] random_IR_0121
+
+============================================================
+[122/200] random_IR_0122.npz
+  GT loss: 0.000000
+  terrain_mean=0.060306  early_threshold=0.000573  (alpha=0.0095)
+  tolfun=0.000314 tolfunhist=0.000314  (frac=0.0052 of range=0.0603)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0375
+        [Trial 0] gen   40  evals= 1640  best=0.0375
+        [Trial 0] gen   60  evals= 2460  best=0.0375
+        [Trial 0] gen   80  evals= 3280  best=0.0375
+        [Trial 0] gen  100  evals= 4100  best=0.0373
+        [Trial 0] gen  120  evals= 4920  best=0.0372
+        [Done] Trial 0 best=0.0372
+
+  Winner: Trial 0, loss=0.037197 (140s)
+    Restarts run: 1
+    mu: 41.111357
+    D_mu: 3.180961
+    T0_mu: 18.184749
+    Ly: 3.230193
+    op_x: 0.676133
+    op_y: 0.656057
+    NMSE: 0.063065
+  [Saved] random_IR_0122
+
+============================================================
+[123/200] random_IR_0123.npz
+  GT loss: 0.000000
+  terrain_mean=0.061613  early_threshold=0.000585  (alpha=0.0095)
+  tolfun=0.00032 tolfunhist=0.00032  (frac=0.0052 of range=0.0616)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0450
+        [Trial 0] gen   40  evals= 1640  best=0.0393
+        [Trial 0] gen   60  evals= 2460  best=0.0256
+        [Trial 0] gen   80  evals= 3280  best=0.0146
+        [Trial 0] gen  100  evals= 4100  best=0.0126
+        [Done] Trial 0 best=0.0126
+
+  Winner: Trial 0, loss=0.012560 (81s)
+    Restarts run: 1
+    mu: 5.045001
+    D_mu: 10.023999
+    T0_mu: 161.779443
+    Ly: 3.766483
+    op_x: 0.685784
+    op_y: 0.969208
+    NMSE: 0.048323
+  [Saved] random_IR_0123
+
+============================================================
+[124/200] random_IR_0124.npz
+  GT loss: 0.000000
+  terrain_mean=0.064722  early_threshold=0.000615  (alpha=0.0095)
+  tolfun=0.000337 tolfunhist=0.000337  (frac=0.0052 of range=0.0647)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0373
+        [Trial 0] gen   40  evals= 1640  best=0.0369
+        [Trial 0] gen   60  evals= 2460  best=0.0364
+        [Trial 0] gen   80  evals= 3280  best=0.0364
+        [Trial 0] gen  100  evals= 4100  best=0.0364
+        [Trial 0] gen  120  evals= 4920  best=0.0364
+        [Trial 0] gen  140  evals= 5740  best=0.0361
+        [Trial 0] gen  160  evals= 6560  best=0.0360
+        [Done] Trial 0 best=0.0359
+
+  Winner: Trial 0, loss=0.035862 (183s)
+    Restarts run: 1
+    mu: 32.936645
+    D_mu: 0.864438
+    T0_mu: 6.760506
+    Ly: 1.899921
+    op_x: 0.512041
+    op_y: 0.666498
+    NMSE: 0.074317
+  [Saved] random_IR_0124
+
+============================================================
+[125/200] random_IR_0125.npz
+  GT loss: 0.000000
+  terrain_mean=0.059534  early_threshold=0.000566  (alpha=0.0095)
+  tolfun=0.00031 tolfunhist=0.00031  (frac=0.0052 of range=0.0595)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0414
+        [Trial 0] gen   40  evals= 1640  best=0.0413
+        [Trial 0] gen   60  evals= 2460  best=0.0410
+        [Trial 0] gen   80  evals= 3280  best=0.0410
+        [Trial 0] gen  100  evals= 4100  best=0.0410
+        [Trial 0] gen  120  evals= 4920  best=0.0410
+        [Trial 0] gen  140  evals= 5740  best=0.0407
+        [Done] Trial 0 best=0.0407
+
+  Winner: Trial 0, loss=0.040653 (153s)
+    Restarts run: 1
+    mu: 21.968280
+    D_mu: 0.365242
+    T0_mu: 42.407801
+    Ly: 1.140757
+    op_x: 0.512809
+    op_y: 0.722722
+    NMSE: 0.144464
+  [Saved] random_IR_0125
+
+============================================================
+[126/200] random_IR_0126.npz
+  GT loss: 0.000000
+  terrain_mean=0.058409  early_threshold=0.000555  (alpha=0.0095)
+  tolfun=0.000304 tolfunhist=0.000304  (frac=0.0052 of range=0.0584)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0404
+        [Trial 0] gen   40  evals= 1640  best=0.0404
+        [Trial 0] gen   60  evals= 2460  best=0.0401
+        [Trial 0] gen   80  evals= 3280  best=0.0396
+        [Trial 0] gen  100  evals= 4100  best=0.0396
+        [Trial 0] gen  120  evals= 4920  best=0.0396
+        [Trial 0] gen  140  evals= 5740  best=0.0395
+        [Done] Trial 0 best=0.0393
+
+  Winner: Trial 0, loss=0.039304 (209s)
+    Restarts run: 1
+    mu: 15.872513
+    D_mu: 1.517855
+    T0_mu: 40.821289
+    Ly: 2.973296
+    op_x: 0.537216
+    op_y: 0.673609
+    NMSE: 0.105524
+  [Saved] random_IR_0126
+
+============================================================
+[127/200] random_IR_0127.npz
+  GT loss: 0.000000
+  terrain_mean=0.062888  early_threshold=0.000597  (alpha=0.0095)
+  tolfun=0.000327 tolfunhist=0.000327  (frac=0.0052 of range=0.0629)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0491
+        [Trial 0] gen   40  evals= 1640  best=0.0487
+        [Trial 0] gen   60  evals= 2460  best=0.0486
+        [Trial 0] gen   80  evals= 3280  best=0.0481
+        [Trial 0] gen  100  evals= 4100  best=0.0464
+        [Trial 0] gen  120  evals= 4920  best=0.0463
+        [Trial 0] gen  140  evals= 5740  best=0.0463
+        [Trial 0] gen  160  evals= 6560  best=0.0463
+        [Trial 0] gen  180  evals= 7380  best=0.0460
+        [Trial 0] gen  200  evals= 8200  best=0.0458
+        [Done] Trial 0 best=0.0456
+
+  Winner: Trial 0, loss=0.045556 (200s)
+    Restarts run: 1
+    mu: 2.928162
+    D_mu: 2.083206
+    T0_mu: 336.358209
+    Ly: 2.926328
+    op_x: 0.642246
+    op_y: 0.642838
+    NMSE: 0.158043
+  [Saved] random_IR_0127
+
+============================================================
+[128/200] random_IR_0128.npz
+  GT loss: 0.000000
+  terrain_mean=0.058889  early_threshold=0.000559  (alpha=0.0095)
+  tolfun=0.000306 tolfunhist=0.000306  (frac=0.0052 of range=0.0589)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0409
+        [Trial 0] gen   40  evals= 1640  best=0.0406
+        [Trial 0] gen   60  evals= 2460  best=0.0401
+        [Trial 0] gen   80  evals= 3280  best=0.0399
+        [Trial 0] gen  100  evals= 4100  best=0.0395
+        [Trial 0] gen  120  evals= 4920  best=0.0383
+        [Done] Trial 0 best=0.0381
+
+  Winner: Trial 0, loss=0.038067 (279s)
+    Restarts run: 1
+    mu: 18.354522
+    D_mu: 0.383999
+    T0_mu: 51.858325
+    Ly: 2.843171
+    op_x: 0.614846
+    op_y: 0.632993
+    NMSE: 0.053225
+  [Saved] random_IR_0128
+
+============================================================
+[129/200] random_IR_0129.npz
+  GT loss: 0.000000
+  terrain_mean=0.062202  early_threshold=0.000591  (alpha=0.0095)
+  tolfun=0.000323 tolfunhist=0.000323  (frac=0.0052 of range=0.0622)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0412
+        [Trial 0] gen   40  evals= 1640  best=0.0411
+        [Trial 0] gen   60  evals= 2460  best=0.0409
+        [Trial 0] gen   80  evals= 3280  best=0.0392
+        [Trial 0] gen  100  evals= 4100  best=0.0392
+        [Done] Trial 0 best=0.0392
+
+  Winner: Trial 0, loss=0.039240 (115s)
+    Restarts run: 1
+    mu: 31.529447
+    D_mu: 4.781832
+    T0_mu: 29.723689
+    Ly: 3.387415
+    op_x: 0.685175
+    op_y: 0.688709
+    NMSE: 0.006605
+  [Saved] random_IR_0129
+
+============================================================
+[130/200] random_IR_0130.npz
+  GT loss: 0.000000
+  terrain_mean=0.066685  early_threshold=0.000634  (alpha=0.0095)
+  tolfun=0.000347 tolfunhist=0.000347  (frac=0.0052 of range=0.0667)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0448
+        [Trial 0] gen   40  evals= 1640  best=0.0442
+        [Trial 0] gen   60  evals= 2460  best=0.0442
+        [Trial 0] gen   80  evals= 3280  best=0.0442
+        [Trial 0] gen  100  evals= 4100  best=0.0436
+        [Trial 0] gen  120  evals= 4920  best=0.0425
+        [Trial 0] gen  140  evals= 5740  best=0.0425
+        [Done] Trial 0 best=0.0424
+
+  Winner: Trial 0, loss=0.042444 (70s)
+    Restarts run: 1
+    mu: 37.606839
+    D_mu: 4.494347
+    T0_mu: 25.831785
+    Ly: 1.586339
+    op_x: 0.582674
+    op_y: 0.510416
+    NMSE: 0.015731
+  [Saved] random_IR_0130
+
+============================================================
+[131/200] random_IR_0131.npz
+  GT loss: 0.000000
+  terrain_mean=0.062130  early_threshold=0.000590  (alpha=0.0095)
+  tolfun=0.000323 tolfunhist=0.000323  (frac=0.0052 of range=0.0621)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0415
+        [Trial 0] gen   40  evals= 1640  best=0.0415
+        [Trial 0] gen   60  evals= 2460  best=0.0410
+        [Trial 0] gen   80  evals= 3280  best=0.0403
+        [Trial 0] gen  100  evals= 4100  best=0.0387
+        [Trial 0] gen  120  evals= 4920  best=0.0379
+        [Done] Trial 0 best=0.0379
+
+  Winner: Trial 0, loss=0.037916 (106s)
+    Restarts run: 1
+    mu: 8.406138
+    D_mu: 6.380126
+    T0_mu: 108.896456
+    Ly: 3.686722
+    op_x: 0.666052
+    op_y: 0.695343
+    NMSE: 0.016636
+  [Saved] random_IR_0131
+
+============================================================
+[132/200] random_IR_0132.npz
+  GT loss: 0.000000
+  terrain_mean=0.062074  early_threshold=0.000590  (alpha=0.0095)
+  tolfun=0.000323 tolfunhist=0.000323  (frac=0.0052 of range=0.0621)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0483
+        [Trial 0] gen   40  evals= 1640  best=0.0483
+        [Trial 0] gen   60  evals= 2460  best=0.0477
+        [Trial 0] gen   80  evals= 3280  best=0.0472
+        [Trial 0] gen  100  evals= 4100  best=0.0463
+        [Trial 0] gen  120  evals= 4920  best=0.0459
+        [Done] Trial 0 best=0.0458
+
+  Winner: Trial 0, loss=0.045828 (109s)
+    Restarts run: 1
+    mu: 2.656436
+    D_mu: 4.981193
+    T0_mu: 367.542265
+    Ly: 3.864091
+    op_x: 0.714141
+    op_y: 0.741052
+    NMSE: 0.273441
+  [Saved] random_IR_0132
+
+============================================================
+[133/200] random_IR_0133.npz
+  GT loss: 0.000000
+  terrain_mean=0.072199  early_threshold=0.000686  (alpha=0.0095)
+  tolfun=0.000375 tolfunhist=0.000375  (frac=0.0052 of range=0.0722)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0546
+        [Trial 0] gen   40  evals= 1640  best=0.0545
+        [Trial 0] gen   60  evals= 2460  best=0.0545
+        [Trial 0] gen   80  evals= 3280  best=0.0534
+        [Trial 0] gen  100  evals= 4100  best=0.0534
+        [Trial 0] gen  120  evals= 4920  best=0.0522
+        [Trial 0] gen  140  evals= 5740  best=0.0516
+        [Trial 0] gen  160  evals= 6560  best=0.0514
+        [Done] Trial 0 best=0.0514
+
+  Winner: Trial 0, loss=0.051402 (93s)
+    Restarts run: 1
+    mu: 5.846433
+    D_mu: 15.998755
+    T0_mu: 112.106702
+    Ly: 3.388831
+    op_x: 0.697772
+    op_y: 0.975738
+    NMSE: 0.045478
+  [Saved] random_IR_0133
+
+============================================================
+[134/200] random_IR_0134.npz
+  GT loss: 0.000000
+  terrain_mean=0.063743  early_threshold=0.000606  (alpha=0.0095)
+  tolfun=0.000331 tolfunhist=0.000331  (frac=0.0052 of range=0.0637)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0352
+        [Trial 0] gen   40  evals= 1640  best=0.0351
+        [Trial 0] gen   60  evals= 2460  best=0.0346
+        [Trial 0] gen   80  evals= 3280  best=0.0342
+        [Trial 0] gen  100  evals= 4100  best=0.0341
+        [Done] Trial 0 best=0.0341
+
+  Winner: Trial 0, loss=0.034060 (87s)
+    Restarts run: 1
+    mu: 10.165586
+    D_mu: 0.964776
+    T0_mu: 20.493432
+    Ly: 1.387990
+    op_x: 0.670484
+    op_y: 0.512574
+    NMSE: 0.008845
+  [Saved] random_IR_0134
+
+============================================================
+[135/200] random_IR_0135.npz
+  GT loss: 0.000000
+  terrain_mean=0.065135  early_threshold=0.000619  (alpha=0.0095)
+  tolfun=0.000339 tolfunhist=0.000339  (frac=0.0052 of range=0.0651)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0483
+        [Trial 0] gen   40  evals= 1640  best=0.0479
+        [Trial 0] gen   60  evals= 2460  best=0.0477
+        [Trial 0] gen   80  evals= 3280  best=0.0468
+        [Trial 0] gen  100  evals= 4100  best=0.0461
+        [Trial 0] gen  120  evals= 4920  best=0.0453
+        [Done] Trial 0 best=0.0453
+
+  Winner: Trial 0, loss=0.045271 (117s)
+    Restarts run: 1
+    mu: 5.124594
+    D_mu: 1.482994
+    T0_mu: 188.050843
+    Ly: 2.469163
+    op_x: 0.672661
+    op_y: 0.689257
+    NMSE: 0.069484
+  [Saved] random_IR_0135
+
+============================================================
+[136/200] random_IR_0136.npz
+  GT loss: 0.000000
+  terrain_mean=0.103029  early_threshold=0.000979  (alpha=0.0095)
+  tolfun=0.000536 tolfunhist=0.000536  (frac=0.0052 of range=0.103)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0710
+        [Trial 0] gen   40  evals= 1640  best=0.0710
+        [Trial 0] gen   60  evals= 2460  best=0.0678
+        [Trial 0] gen   80  evals= 3280  best=0.0678
+        [Trial 0] gen  100  evals= 4100  best=0.0673
+        [Trial 0] gen  120  evals= 4920  best=0.0655
+        [Done] Trial 0 best=0.0651
+
+  Winner: Trial 0, loss=0.065114 (65s)
+    Restarts run: 1
+    mu: 6.237928
+    D_mu: 1.435687
+    T0_mu: 114.964039
+    Ly: 1.100021
+    op_x: 0.519330
+    op_y: 0.974290
+    NMSE: 0.084385
+  [Saved] random_IR_0136
+
+============================================================
+[137/200] random_IR_0137.npz
+  GT loss: 0.000000
+  terrain_mean=0.062308  early_threshold=0.000592  (alpha=0.0095)
+  tolfun=0.000324 tolfunhist=0.000324  (frac=0.0052 of range=0.0623)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0449
+        [Trial 0] gen   40  evals= 1640  best=0.0449
+        [Trial 0] gen   60  evals= 2460  best=0.0449
+        [Trial 0] gen   80  evals= 3280  best=0.0449
+        [Trial 0] gen  100  evals= 4100  best=0.0440
+        [Trial 0] gen  120  evals= 4920  best=0.0436
+        [Done] Trial 0 best=0.0434
+
+  Winner: Trial 0, loss=0.043413 (119s)
+    Restarts run: 1
+    mu: 2.465912
+    D_mu: 5.972127
+    T0_mu: 352.298504
+    Ly: 3.964722
+    op_x: 0.685209
+    op_y: 0.793527
+    NMSE: 0.250859
+  [Saved] random_IR_0137
+
+============================================================
+[138/200] random_IR_0138.npz
+  GT loss: 0.000000
+  terrain_mean=0.058442  early_threshold=0.000555  (alpha=0.0095)
+  tolfun=0.000304 tolfunhist=0.000304  (frac=0.0052 of range=0.0584)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0413
+        [Trial 0] gen   40  evals= 1640  best=0.0410
+        [Trial 0] gen   60  evals= 2460  best=0.0400
+        [Trial 0] gen   80  evals= 3280  best=0.0400
+        [Trial 0] gen  100  evals= 4100  best=0.0400
+        [Trial 0] gen  120  evals= 4920  best=0.0398
+        [Trial 0] gen  140  evals= 5740  best=0.0398
+        [Trial 0] gen  160  evals= 6560  best=0.0392
+        [Done] Trial 0 best=0.0392
+
+  Winner: Trial 0, loss=0.039200 (220s)
+    Restarts run: 1
+    mu: 16.328752
+    D_mu: 0.371320
+    T0_mu: 44.847136
+    Ly: 1.611774
+    op_x: 0.578718
+    op_y: 0.668413
+    NMSE: 0.092340
+  [Saved] random_IR_0138
+
+============================================================
+[139/200] random_IR_0139.npz
+  GT loss: 0.000000
+  terrain_mean=0.065218  early_threshold=0.000620  (alpha=0.0095)
+  tolfun=0.000339 tolfunhist=0.000339  (frac=0.0052 of range=0.0652)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0481
+        [Trial 0] gen   40  evals= 1640  best=0.0481
+        [Trial 0] gen   60  evals= 2460  best=0.0481
+        [Trial 0] gen   80  evals= 3280  best=0.0471
+        [Trial 0] gen  100  evals= 4100  best=0.0471
+        [Trial 0] gen  120  evals= 4920  best=0.0471
+        [Done] Trial 0 best=0.0471
+
+  Winner: Trial 0, loss=0.047132 (91s)
+    Restarts run: 1
+    mu: 2.563868
+    D_mu: 3.836426
+    T0_mu: 326.985368
+    Ly: 2.886282
+    op_x: 0.510127
+    op_y: 0.869550
+    NMSE: 0.199874
+  [Saved] random_IR_0139
+
+============================================================
+[140/200] random_IR_0140.npz
+  GT loss: 0.000000
+  terrain_mean=0.057691  early_threshold=0.000548  (alpha=0.0095)
+  tolfun=0.0003 tolfunhist=0.0003  (frac=0.0052 of range=0.0577)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0424
+        [Trial 0] gen   40  evals= 1640  best=0.0419
+        [Trial 0] gen   60  evals= 2460  best=0.0419
+        [Trial 0] gen   80  evals= 3280  best=0.0413
+        [Done] Trial 0 best=0.0413
+
+  Winner: Trial 0, loss=0.041280 (108s)
+    Restarts run: 1
+    mu: 4.634443
+    D_mu: 3.009001
+    T0_mu: 104.019647
+    Ly: 3.997684
+    op_x: 0.738999
+    op_y: 0.767929
+    NMSE: 0.108539
+  [Saved] random_IR_0140
+
+============================================================
+[141/200] random_IR_0141.npz
+  GT loss: 0.000000
+  terrain_mean=0.060175  early_threshold=0.000572  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0602)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0447
+        [Trial 0] gen   40  evals= 1640  best=0.0446
+        [Trial 0] gen   60  evals= 2460  best=0.0446
+        [Trial 0] gen   80  evals= 3280  best=0.0437
+        [Trial 0] gen  100  evals= 4100  best=0.0436
+        [Trial 0] gen  120  evals= 4920  best=0.0433
+        [Done] Trial 0 best=0.0433
+
+  Winner: Trial 0, loss=0.043280 (236s)
+    Restarts run: 1
+    mu: 11.147908
+    D_mu: 0.663544
+    T0_mu: 62.466636
+    Ly: 3.264115
+    op_x: 0.691686
+    op_y: 0.740969
+    NMSE: 0.068808
+  [Saved] random_IR_0141
+
+============================================================
+[142/200] random_IR_0142.npz
+  GT loss: 0.000000
+  terrain_mean=0.059437  early_threshold=0.000565  (alpha=0.0095)
+  tolfun=0.000309 tolfunhist=0.000309  (frac=0.0052 of range=0.0594)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0394
+        [Trial 0] gen   40  evals= 1640  best=0.0394
+        [Trial 0] gen   60  evals= 2460  best=0.0390
+        [Trial 0] gen   80  evals= 3280  best=0.0386
+        [Trial 0] gen  100  evals= 4100  best=0.0377
+        [Trial 0] gen  120  evals= 4920  best=0.0374
+        [Trial 0] gen  140  evals= 5740  best=0.0369
+        [Done] Trial 0 best=0.0369
+
+  Winner: Trial 0, loss=0.036883 (228s)
+    Restarts run: 1
+    mu: 18.065477
+    D_mu: 0.770728
+    T0_mu: 53.158549
+    Ly: 3.045535
+    op_x: 0.673543
+    op_y: 0.616576
+    NMSE: 0.034006
+  [Saved] random_IR_0142
+
+============================================================
+[143/200] random_IR_0143.npz
+  GT loss: 0.000000
+  terrain_mean=0.060838  early_threshold=0.000578  (alpha=0.0095)
+  tolfun=0.000316 tolfunhist=0.000316  (frac=0.0052 of range=0.0608)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0385
+        [Trial 0] gen   40  evals= 1640  best=0.0383
+        [Trial 0] gen   60  evals= 2460  best=0.0378
+        [Trial 0] gen   80  evals= 3280  best=0.0369
+        [Trial 0] gen  100  evals= 4100  best=0.0369
+        [Trial 0] gen  120  evals= 4920  best=0.0369
+        [Done] Trial 0 best=0.0369
+
+  Winner: Trial 0, loss=0.036923 (263s)
+    Restarts run: 1
+    mu: 33.662049
+    D_mu: 0.969048
+    T0_mu: 23.035110
+    Ly: 3.960689
+    op_x: 0.655592
+    op_y: 0.748434
+    NMSE: 0.036866
+  [Saved] random_IR_0143
+
+============================================================
+[144/200] random_IR_0144.npz
+  GT loss: 0.000000
+  terrain_mean=0.067801  early_threshold=0.000644  (alpha=0.0095)
+  tolfun=0.000353 tolfunhist=0.000353  (frac=0.0052 of range=0.0678)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0496
+        [Trial 0] gen   40  evals= 1640  best=0.0495
+        [Trial 0] gen   60  evals= 2460  best=0.0490
+        [Trial 0] gen   80  evals= 3280  best=0.0486
+        [Trial 0] gen  100  evals= 4100  best=0.0486
+        [Trial 0] gen  120  evals= 4920  best=0.0486
+        [Trial 0] gen  140  evals= 5740  best=0.0486
+        [Trial 0] gen  160  evals= 6560  best=0.0484
+        [Done] Trial 0 best=0.0484
+
+  Winner: Trial 0, loss=0.048363 (305s)
+    Restarts run: 1
+    mu: 12.784054
+    D_mu: 0.466900
+    T0_mu: 54.738183
+    Ly: 2.832490
+    op_x: 0.629869
+    op_y: 0.636568
+    NMSE: 0.088054
+  [Saved] random_IR_0144
+
+============================================================
+[145/200] random_IR_0145.npz
+  GT loss: 0.000000
+  terrain_mean=0.065958  early_threshold=0.000627  (alpha=0.0095)
+  tolfun=0.000343 tolfunhist=0.000343  (frac=0.0052 of range=0.066)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0471
+        [Trial 0] gen   40  evals= 1640  best=0.0471
+        [Trial 0] gen   60  evals= 2460  best=0.0460
+        [Trial 0] gen   80  evals= 3280  best=0.0457
+        [Trial 0] gen  100  evals= 4100  best=0.0450
+        [Trial 0] gen  120  evals= 4920  best=0.0450
+        [Trial 0] gen  140  evals= 5740  best=0.0449
+        [Done] Trial 0 best=0.0449
+
+  Winner: Trial 0, loss=0.044858 (117s)
+    Restarts run: 1
+    mu: 9.047488
+    D_mu: 1.290752
+    T0_mu: 86.975937
+    Ly: 1.590751
+    op_x: 0.633293
+    op_y: 0.517736
+    NMSE: 0.023780
+  [Saved] random_IR_0145
+
+============================================================
+[146/200] random_IR_0146.npz
+  GT loss: 0.000000
+  terrain_mean=0.065498  early_threshold=0.000622  (alpha=0.0095)
+  tolfun=0.000341 tolfunhist=0.000341  (frac=0.0052 of range=0.0655)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0403
+        [Trial 0] gen   40  evals= 1640  best=0.0399
+        [Trial 0] gen   60  evals= 2460  best=0.0396
+        [Trial 0] gen   80  evals= 3280  best=0.0392
+        [Trial 0] gen  100  evals= 4100  best=0.0386
+        [Trial 0] gen  120  evals= 4920  best=0.0382
+        [Done] Trial 0 best=0.0380
+
+  Winner: Trial 0, loss=0.038036 (182s)
+    Restarts run: 1
+    mu: 17.765287
+    D_mu: 0.396257
+    T0_mu: 30.012106
+    Ly: 1.875956
+    op_x: 0.647677
+    op_y: 0.689315
+    NMSE: 0.023186
+  [Saved] random_IR_0146
+
+============================================================
+[147/200] random_IR_0147.npz
+  GT loss: 0.000000
+  terrain_mean=0.144564  early_threshold=0.001373  (alpha=0.0095)
+  tolfun=0.000752 tolfunhist=0.000752  (frac=0.0052 of range=0.145)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0824
+        [Trial 0] gen   40  evals= 1640  best=0.0264
+        [Trial 0] gen   60  evals= 2460  best=0.0264
+        [Trial 0] gen   80  evals= 3280  best=0.0264
+        [Trial 0] gen  100  evals= 4100  best=0.0264
+        [Trial 0] gen  120  evals= 4920  best=0.0264
+        [Trial 0] gen  140  evals= 5740  best=0.0264
+        [Done] Trial 0 best=0.0264
+
+  Winner: Trial 0, loss=0.026445 (146s)
+    Restarts run: 1
+    mu: 28.692722
+    D_mu: 15.882819
+    T0_mu: 9.013820
+    Ly: 2.958244
+    op_x: 0.604116
+    op_y: 0.996567
+    NMSE: 0.054707
+  [Saved] random_IR_0147
+
+============================================================
+[148/200] random_IR_0148.npz
+  GT loss: 0.000000
+  terrain_mean=0.058651  early_threshold=0.000557  (alpha=0.0095)
+  tolfun=0.000305 tolfunhist=0.000305  (frac=0.0052 of range=0.0587)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0428
+        [Trial 0] gen   40  evals= 1640  best=0.0425
+        [Trial 0] gen   60  evals= 2460  best=0.0425
+        [Trial 0] gen   80  evals= 3280  best=0.0424
+        [Trial 0] gen  100  evals= 4100  best=0.0416
+        [Trial 0] gen  120  evals= 4920  best=0.0413
+        [Trial 0] gen  140  evals= 5740  best=0.0409
+        [Done] Trial 0 best=0.0409
+
+  Winner: Trial 0, loss=0.040878 (116s)
+    Restarts run: 1
+    mu: 26.130766
+    D_mu: 7.246139
+    T0_mu: 8.139925
+    Ly: 3.956298
+    op_x: 0.761894
+    op_y: 0.721417
+    NMSE: 0.146136
+  [Saved] random_IR_0148
+
+============================================================
+[149/200] random_IR_0149.npz
+  GT loss: 0.000000
+  terrain_mean=0.060792  early_threshold=0.000578  (alpha=0.0095)
+  tolfun=0.000316 tolfunhist=0.000316  (frac=0.0052 of range=0.0608)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0362
+        [Trial 0] gen   40  evals= 1640  best=0.0327
+        [Trial 0] gen   60  evals= 2460  best=0.0061
+        [Trial 0] gen   80  evals= 3280  best=0.0003
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000033 < 0.000578
+
+  Winner: Trial 0, loss=0.000033 (67s)
+    Restarts run: 1
+    mu: 12.489563
+    D_mu: 2.719990
+    T0_mu: 4.952082
+    Ly: 1.837710
+    op_x: 0.665189
+    op_y: 0.817086
+    NMSE: 0.002576
+  [Saved] random_IR_0149
+
+============================================================
+[150/200] random_IR_0150.npz
+  GT loss: 0.000000
+  terrain_mean=0.067840  early_threshold=0.000644  (alpha=0.0095)
+  tolfun=0.000353 tolfunhist=0.000353  (frac=0.0052 of range=0.0678)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0487
+        [Trial 0] gen   40  evals= 1640  best=0.0469
+        [Trial 0] gen   60  evals= 2460  best=0.0469
+        [Trial 0] gen   80  evals= 3280  best=0.0469
+        [Trial 0] gen  100  evals= 4100  best=0.0465
+        [Trial 0] gen  120  evals= 4920  best=0.0459
+        [Done] Trial 0 best=0.0459
+
+  Winner: Trial 0, loss=0.045945 (250s)
+    Restarts run: 1
+    mu: 9.009569
+    D_mu: 0.729926
+    T0_mu: 109.444716
+    Ly: 3.721751
+    op_x: 0.910709
+    op_y: 0.803462
+    NMSE: 0.055116
+  [Saved] random_IR_0150
+
+============================================================
+[151/200] random_IR_0151.npz
+  GT loss: 0.000000
+  terrain_mean=0.061289  early_threshold=0.000582  (alpha=0.0095)
+  tolfun=0.000319 tolfunhist=0.000319  (frac=0.0052 of range=0.0613)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0348
+        [Trial 0] gen   40  evals= 1640  best=0.0267
+        [Trial 0] gen   60  evals= 2460  best=0.0267
+        [Trial 0] gen   80  evals= 3280  best=0.0267
+        [Done] Trial 0 best=0.0267
+
+  Winner: Trial 0, loss=0.026684 (70s)
+    Restarts run: 1
+    mu: 33.383723
+    D_mu: 2.634081
+    T0_mu: 18.383883
+    Ly: 1.863472
+    op_x: 0.627548
+    op_y: 0.657699
+    NMSE: 0.012284
+  [Saved] random_IR_0151
+
+============================================================
+[152/200] random_IR_0152.npz
+  GT loss: 0.000000
+  terrain_mean=0.067006  early_threshold=0.000637  (alpha=0.0095)
+  tolfun=0.000348 tolfunhist=0.000348  (frac=0.0052 of range=0.067)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0371
+        [Trial 0] gen   40  evals= 1640  best=0.0331
+        [Trial 0] gen   60  evals= 2460  best=0.0136
+        [Trial 0] gen   80  evals= 3280  best=0.0019
+        [Trial 0] gen  100  evals= 4100  best=0.0008
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000050 < 0.000637
+
+  Winner: Trial 0, loss=0.000050 (75s)
+    Restarts run: 1
+    mu: 78.096135
+    D_mu: 11.070605
+    T0_mu: 9.242019
+    Ly: 3.394557
+    op_x: 0.512605
+    op_y: 0.515561
+    NMSE: 0.004772
+  [Saved] random_IR_0152
+
+============================================================
+[153/200] random_IR_0153.npz
+  GT loss: 0.000000
+  terrain_mean=0.075263  early_threshold=0.000715  (alpha=0.0095)
+  tolfun=0.000391 tolfunhist=0.000391  (frac=0.0052 of range=0.0753)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0306
+        [Trial 0] gen   40  evals= 1640  best=0.0245
+        [Trial 0] gen   60  evals= 2460  best=0.0029
+        [Trial 0] gen   80  evals= 3280  best=0.0008
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000043 < 0.000715
+
+  Winner: Trial 0, loss=0.000043 (119s)
+    Restarts run: 1
+    mu: 28.862621
+    D_mu: 1.523124
+    T0_mu: 1.866689
+    Ly: 2.582549
+    op_x: 0.584494
+    op_y: 0.510318
+    NMSE: 0.000031
+  [Saved] random_IR_0153
+
+============================================================
+[154/200] random_IR_0154.npz
+  GT loss: 0.000000
+  terrain_mean=0.065509  early_threshold=0.000622  (alpha=0.0095)
+  tolfun=0.000341 tolfunhist=0.000341  (frac=0.0052 of range=0.0655)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0458
+        [Trial 0] gen   40  evals= 1640  best=0.0425
+        [Trial 0] gen   60  evals= 2460  best=0.0425
+        [Trial 0] gen   80  evals= 3280  best=0.0425
+        [Trial 0] gen  100  evals= 4100  best=0.0422
+        [Done] Trial 0 best=0.0420
+
+  Winner: Trial 0, loss=0.042008 (150s)
+    Restarts run: 1
+    mu: 3.207896
+    D_mu: 2.152119
+    T0_mu: 279.621338
+    Ly: 3.776758
+    op_x: 0.643544
+    op_y: 0.933112
+    NMSE: 0.089379
+  [Saved] random_IR_0154
+
+============================================================
+[155/200] random_IR_0155.npz
+  GT loss: 0.000000
+  terrain_mean=0.122180  early_threshold=0.001161  (alpha=0.0095)
+  tolfun=0.000635 tolfunhist=0.000635  (frac=0.0052 of range=0.122)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0726
+        [Trial 0] gen   40  evals= 1640  best=0.0721
+        [Trial 0] gen   60  evals= 2460  best=0.0716
+        [Trial 0] gen   80  evals= 3280  best=0.0700
+        [Trial 0] gen  100  evals= 4100  best=0.0700
+        [Trial 0] gen  120  evals= 4920  best=0.0700
+        [Trial 0] gen  140  evals= 5740  best=0.0694
+        [Done] Trial 0 best=0.0694
+
+  Winner: Trial 0, loss=0.069388 (157s)
+    Restarts run: 1
+    mu: 4.640817
+    D_mu: 3.277415
+    T0_mu: 16.807636
+    Ly: 3.593201
+    op_x: 0.795568
+    op_y: 0.995847
+    NMSE: 0.070958
+  [Saved] random_IR_0155
+
+============================================================
+[156/200] random_IR_0156.npz
+  GT loss: 0.000000
+  terrain_mean=0.060891  early_threshold=0.000578  (alpha=0.0095)
+  tolfun=0.000317 tolfunhist=0.000317  (frac=0.0052 of range=0.0609)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0349
+        [Trial 0] gen   40  evals= 1640  best=0.0332
+        [Trial 0] gen   60  evals= 2460  best=0.0332
+        [Trial 0] gen   80  evals= 3280  best=0.0305
+        [Trial 0] gen  100  evals= 4100  best=0.0305
+        [Trial 0] gen  120  evals= 4920  best=0.0266
+        [Trial 0] gen  140  evals= 5740  best=0.0124
+        [Trial 0] gen  160  evals= 6560  best=0.0015
+        [Trial 0] gen  180  evals= 7380  best=0.0001
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000031 < 0.000578
+
+  Winner: Trial 0, loss=0.000031 (266s)
+    Restarts run: 1
+    mu: 8.898298
+    D_mu: 0.916776
+    T0_mu: 30.488616
+    Ly: 2.891207
+    op_x: 0.683574
+    op_y: 0.568933
+    NMSE: 0.003065
+  [Saved] random_IR_0156
+
+============================================================
+[157/200] random_IR_0157.npz
+  GT loss: 0.000000
+  terrain_mean=0.123310  early_threshold=0.001171  (alpha=0.0095)
+  tolfun=0.000641 tolfunhist=0.000641  (frac=0.0052 of range=0.123)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0740
+        [Trial 0] gen   40  evals= 1640  best=0.0740
+        [Trial 0] gen   60  evals= 2460  best=0.0740
+        [Trial 0] gen   80  evals= 3280  best=0.0736
+        [Trial 0] gen  100  evals= 4100  best=0.0736
+        [Trial 0] gen  120  evals= 4920  best=0.0734
+        [Done] Trial 0 best=0.0734
+
+  Winner: Trial 0, loss=0.073441 (96s)
+    Restarts run: 1
+    mu: 61.244439
+    D_mu: 10.579120
+    T0_mu: 14.776413
+    Ly: 3.999895
+    op_x: 0.702406
+    op_y: 0.997174
+    NMSE: 0.092462
+  [Saved] random_IR_0157
+
+============================================================
+[158/200] random_IR_0158.npz
+  GT loss: 0.000000
+  terrain_mean=0.116780  early_threshold=0.001109  (alpha=0.0095)
+  tolfun=0.000607 tolfunhist=0.000607  (frac=0.0052 of range=0.117)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0787
+        [Trial 0] gen   40  evals= 1640  best=0.0746
+        [Trial 0] gen   60  evals= 2460  best=0.0689
+        [Trial 0] gen   80  evals= 3280  best=0.0685
+        [Trial 0] gen  100  evals= 4100  best=0.0659
+        [Trial 0] gen  120  evals= 4920  best=0.0636
+        [Done] Trial 0 best=0.0633
+
+  Winner: Trial 0, loss=0.063278 (75s)
+    Restarts run: 1
+    mu: 99.419381
+    D_mu: 11.072741
+    T0_mu: 9.143449
+    Ly: 3.629716
+    op_x: 0.986869
+    op_y: 0.785229
+    NMSE: 0.134782
+  [Saved] random_IR_0158
+
+============================================================
+[159/200] random_IR_0159.npz
+  GT loss: 0.000000
+  terrain_mean=0.066407  early_threshold=0.000631  (alpha=0.0095)
+  tolfun=0.000345 tolfunhist=0.000345  (frac=0.0052 of range=0.0664)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0353
+        [Trial 0] gen   40  evals= 1640  best=0.0353
+        [Trial 0] gen   60  evals= 2460  best=0.0350
+        [Trial 0] gen   80  evals= 3280  best=0.0350
+        [Trial 0] gen  100  evals= 4100  best=0.0349
+        [Trial 0] gen  120  evals= 4920  best=0.0347
+        [Trial 0] gen  140  evals= 5740  best=0.0342
+        [Done] Trial 0 best=0.0342
+
+  Winner: Trial 0, loss=0.034183 (200s)
+    Restarts run: 1
+    mu: 12.036603
+    D_mu: 1.277699
+    T0_mu: 27.596296
+    Ly: 3.405329
+    op_x: 0.659127
+    op_y: 0.628594
+    NMSE: 0.017381
+  [Saved] random_IR_0159
+
+============================================================
+[160/200] random_IR_0160.npz
+  GT loss: 0.000000
+  terrain_mean=0.081078  early_threshold=0.000770  (alpha=0.0095)
+  tolfun=0.000422 tolfunhist=0.000422  (frac=0.0052 of range=0.0811)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0576
+        [Trial 0] gen   40  evals= 1640  best=0.0564
+        [Trial 0] gen   60  evals= 2460  best=0.0564
+        [Trial 0] gen   80  evals= 3280  best=0.0558
+        [Done] Trial 0 best=0.0557
+
+  Winner: Trial 0, loss=0.055749 (57s)
+    Restarts run: 1
+    mu: 11.442919
+    D_mu: 0.700454
+    T0_mu: 49.963637
+    Ly: 1.100004
+    op_x: 0.843092
+    op_y: 0.972797
+    NMSE: 0.025334
+  [Saved] random_IR_0160
+
+============================================================
+[161/200] random_IR_0161.npz
+  GT loss: 0.000000
+  terrain_mean=0.221704  early_threshold=0.002106  (alpha=0.0095)
+  tolfun=0.00115 tolfunhist=0.00115  (frac=0.0052 of range=0.222)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.1069
+        [Trial 0] gen   40  evals= 1640  best=0.0994
+        [Trial 0] gen   60  evals= 2460  best=0.0994
+        [Trial 0] gen   80  evals= 3280  best=0.0994
+        [Trial 0] gen  100  evals= 4100  best=0.0956
+        [Trial 0] gen  120  evals= 4920  best=0.0954
+        [Trial 0] gen  140  evals= 5740  best=0.0954
+        [Trial 0] gen  160  evals= 6560  best=0.0954
+        [Trial 0] gen  180  evals= 7380  best=0.0954
+        [Trial 0] gen  200  evals= 8200  best=0.0949
+        [Trial 0] gen  220  evals= 9020  best=0.0922
+        [Trial 0] gen  240  evals= 9840  best=0.0922
+        [Trial 0] gen  260  evals=10660  best=0.0922
+        [Trial 0] gen  280  evals=11480  best=0.0922
+        [Done] Trial 0 best=0.0922
+
+  Winner: Trial 0, loss=0.092245 (109s)
+    Restarts run: 1
+    mu: 4.385964
+    D_mu: 3.888566
+    T0_mu: 162.523139
+    Ly: 1.348376
+    op_x: 0.994178
+    op_y: 0.997521
+    NMSE: 0.067131
+  [Saved] random_IR_0161
+
+============================================================
+[162/200] random_IR_0162.npz
+  GT loss: 0.000000
+  terrain_mean=0.114783  early_threshold=0.001090  (alpha=0.0095)
+  tolfun=0.000597 tolfunhist=0.000597  (frac=0.0052 of range=0.115)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0732
+        [Trial 0] gen   40  evals= 1640  best=0.0717
+        [Trial 0] gen   60  evals= 2460  best=0.0713
+        [Trial 0] gen   80  evals= 3280  best=0.0713
+        [Trial 0] gen  100  evals= 4100  best=0.0703
+        [Trial 0] gen  120  evals= 4920  best=0.0703
+        [Trial 0] gen  140  evals= 5740  best=0.0703
+        [Trial 0] gen  160  evals= 6560  best=0.0703
+        [Trial 0] gen  180  evals= 7380  best=0.0696
+        [Trial 0] gen  200  evals= 8200  best=0.0690
+        [Done] Trial 0 best=0.0689
+
+  Winner: Trial 0, loss=0.068862 (161s)
+    Restarts run: 1
+    mu: 19.743214
+    D_mu: 2.920761
+    T0_mu: 34.750308
+    Ly: 2.532745
+    op_x: 0.645178
+    op_y: 0.995369
+    NMSE: 0.170338
+  [Saved] random_IR_0162
+
+============================================================
+[163/200] random_IR_0163.npz
+  GT loss: 0.000000
+  terrain_mean=0.061837  early_threshold=0.000587  (alpha=0.0095)
+  tolfun=0.000322 tolfunhist=0.000322  (frac=0.0052 of range=0.0618)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0440
+        [Trial 0] gen   40  evals= 1640  best=0.0434
+        [Trial 0] gen   60  evals= 2460  best=0.0434
+        [Trial 0] gen   80  evals= 3280  best=0.0434
+        [Trial 0] gen  100  evals= 4100  best=0.0430
+        [Trial 0] gen  120  evals= 4920  best=0.0424
+        [Trial 0] gen  140  evals= 5740  best=0.0423
+        [Done] Trial 0 best=0.0423
+
+  Winner: Trial 0, loss=0.042304 (168s)
+    Restarts run: 1
+    mu: 12.064440
+    D_mu: 2.915173
+    T0_mu: 82.673153
+    Ly: 3.928215
+    op_x: 0.510118
+    op_y: 0.621570
+    NMSE: 0.136309
+  [Saved] random_IR_0163
+
+============================================================
+[164/200] random_IR_0164.npz
+  GT loss: 0.000000
+  terrain_mean=0.056601  early_threshold=0.000538  (alpha=0.0095)
+  tolfun=0.000294 tolfunhist=0.000294  (frac=0.0052 of range=0.0566)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0383
+        [Trial 0] gen   40  evals= 1640  best=0.0380
+        [Trial 0] gen   60  evals= 2460  best=0.0376
+        [Trial 0] gen   80  evals= 3280  best=0.0371
+        [Trial 0] gen  100  evals= 4100  best=0.0368
+        [Done] Trial 0 best=0.0367
+
+  Winner: Trial 0, loss=0.036667 (109s)
+    Restarts run: 1
+    mu: 50.211074
+    D_mu: 3.340059
+    T0_mu: 18.805740
+    Ly: 3.083859
+    op_x: 0.679819
+    op_y: 0.739059
+    NMSE: 0.046820
+  [Saved] random_IR_0164
+
+============================================================
+[165/200] random_IR_0165.npz
+  GT loss: 0.000000
+  terrain_mean=0.058471  early_threshold=0.000555  (alpha=0.0095)
+  tolfun=0.000304 tolfunhist=0.000304  (frac=0.0052 of range=0.0585)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0420
+        [Trial 0] gen   40  evals= 1640  best=0.0417
+        [Trial 0] gen   60  evals= 2460  best=0.0411
+        [Trial 0] gen   80  evals= 3280  best=0.0387
+        [Trial 0] gen  100  evals= 4100  best=0.0376
+        [Done] Trial 0 best=0.0375
+
+  Winner: Trial 0, loss=0.037494 (94s)
+    Restarts run: 1
+    mu: 11.450888
+    D_mu: 9.328430
+    T0_mu: 44.623880
+    Ly: 3.848428
+    op_x: 0.643408
+    op_y: 0.706749
+    NMSE: 0.117227
+  [Saved] random_IR_0165
+
+============================================================
+[166/200] random_IR_0166.npz
+  GT loss: 0.000000
+  terrain_mean=0.063671  early_threshold=0.000605  (alpha=0.0095)
+  tolfun=0.000331 tolfunhist=0.000331  (frac=0.0052 of range=0.0637)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0465
+        [Trial 0] gen   40  evals= 1640  best=0.0465
+        [Trial 0] gen   60  evals= 2460  best=0.0464
+        [Trial 0] gen   80  evals= 3280  best=0.0463
+        [Trial 0] gen  100  evals= 4100  best=0.0460
+        [Trial 0] gen  120  evals= 4920  best=0.0457
+        [Trial 0] gen  140  evals= 5740  best=0.0443
+        [Done] Trial 0 best=0.0441
+
+  Winner: Trial 0, loss=0.044058 (139s)
+    Restarts run: 1
+    mu: 4.100520
+    D_mu: 3.616187
+    T0_mu: 219.049133
+    Ly: 3.117296
+    op_x: 0.533437
+    op_y: 0.629071
+    NMSE: 0.114377
+  [Saved] random_IR_0166
+
+============================================================
+[167/200] random_IR_0167.npz
+  GT loss: 0.000000
+  terrain_mean=0.071726  early_threshold=0.000681  (alpha=0.0095)
+  tolfun=0.000373 tolfunhist=0.000373  (frac=0.0052 of range=0.0717)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0564
+        [Trial 0] gen   40  evals= 1640  best=0.0564
+        [Trial 0] gen   60  evals= 2460  best=0.0547
+        [Trial 0] gen   80  evals= 3280  best=0.0537
+        [Trial 0] gen  100  evals= 4100  best=0.0530
+        [Trial 0] gen  120  evals= 4920  best=0.0525
+        [Done] Trial 0 best=0.0525
+
+  Winner: Trial 0, loss=0.052529 (58s)
+    Restarts run: 1
+    mu: 21.588435
+    D_mu: 26.067199
+    T0_mu: 38.030188
+    Ly: 3.872412
+    op_x: 0.610378
+    op_y: 0.952889
+    NMSE: 0.085687
+  [Saved] random_IR_0167
+
+============================================================
+[168/200] random_IR_0168.npz
+  GT loss: 0.000000
+  terrain_mean=0.115181  early_threshold=0.001094  (alpha=0.0095)
+  tolfun=0.000599 tolfunhist=0.000599  (frac=0.0052 of range=0.115)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0747
+        [Trial 0] gen   40  evals= 1640  best=0.0697
+        [Trial 0] gen   60  evals= 2460  best=0.0697
+        [Trial 0] gen   80  evals= 3280  best=0.0695
+        [Trial 0] gen  100  evals= 4100  best=0.0687
+        [Trial 0] gen  120  evals= 4920  best=0.0676
+        [Done] Trial 0 best=0.0672
+
+  Winner: Trial 0, loss=0.067159 (227s)
+    Restarts run: 1
+    mu: 12.226253
+    D_mu: 0.626419
+    T0_mu: 13.728341
+    Ly: 3.272996
+    op_x: 0.686495
+    op_y: 0.999759
+    NMSE: 0.087908
+  [Saved] random_IR_0168
+
+============================================================
+[169/200] random_IR_0169.npz
+  GT loss: 0.000000
+  terrain_mean=0.089802  early_threshold=0.000853  (alpha=0.0095)
+  tolfun=0.000467 tolfunhist=0.000467  (frac=0.0052 of range=0.0898)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0659
+        [Trial 0] gen   40  evals= 1640  best=0.0624
+        [Trial 0] gen   60  evals= 2460  best=0.0621
+        [Trial 0] gen   80  evals= 3280  best=0.0603
+        [Done] Trial 0 best=0.0599
+
+  Winner: Trial 0, loss=0.059928 (47s)
+    Restarts run: 1
+    mu: 15.025666
+    D_mu: 8.716894
+    T0_mu: 66.491651
+    Ly: 2.791386
+    op_x: 0.588948
+    op_y: 0.986805
+    NMSE: 0.120561
+  [Saved] random_IR_0169
+
+============================================================
+[170/200] random_IR_0170.npz
+  GT loss: 0.000000
+  terrain_mean=0.088343  early_threshold=0.000839  (alpha=0.0095)
+  tolfun=0.000459 tolfunhist=0.000459  (frac=0.0052 of range=0.0883)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0597
+        [Trial 0] gen   40  evals= 1640  best=0.0591
+        [Trial 0] gen   60  evals= 2460  best=0.0571
+        [Trial 0] gen   80  evals= 3280  best=0.0570
+        [Trial 0] gen  100  evals= 4100  best=0.0423
+        [Trial 0] gen  120  evals= 4920  best=0.0171
+        [Trial 0] gen  140  evals= 5740  best=0.0117
+        [Done] Trial 0 best=0.0114
+
+  Winner: Trial 0, loss=0.011402 (109s)
+    Restarts run: 1
+    mu: 9.782281
+    D_mu: 3.024844
+    T0_mu: 70.849193
+    Ly: 2.326857
+    op_x: 0.964141
+    op_y: 0.934763
+    NMSE: 0.008565
+  [Saved] random_IR_0170
+
+============================================================
+[171/200] random_IR_0171.npz
+  GT loss: 0.000000
+  terrain_mean=0.060059  early_threshold=0.000571  (alpha=0.0095)
+  tolfun=0.000312 tolfunhist=0.000312  (frac=0.0052 of range=0.0601)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0402
+        [Trial 0] gen   40  evals= 1640  best=0.0394
+        [Trial 0] gen   60  evals= 2460  best=0.0388
+        [Trial 0] gen   80  evals= 3280  best=0.0383
+        [Trial 0] gen  100  evals= 4100  best=0.0379
+        [Done] Trial 0 best=0.0378
+
+  Winner: Trial 0, loss=0.037829 (157s)
+    Restarts run: 1
+    mu: 18.514716
+    D_mu: 0.649762
+    T0_mu: 38.675872
+    Ly: 2.476968
+    op_x: 0.701509
+    op_y: 0.755627
+    NMSE: 0.042178
+  [Saved] random_IR_0171
+
+============================================================
+[172/200] random_IR_0172.npz
+  GT loss: 0.000000
+  terrain_mean=0.075288  early_threshold=0.000715  (alpha=0.0095)
+  tolfun=0.000391 tolfunhist=0.000391  (frac=0.0052 of range=0.0753)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0499
+        [Trial 0] gen   40  evals= 1640  best=0.0499
+        [Trial 0] gen   60  evals= 2460  best=0.0499
+        [Trial 0] gen   80  evals= 3280  best=0.0499
+        [Trial 0] gen  100  evals= 4100  best=0.0499
+        [Done] Trial 0 best=0.0499
+
+  Winner: Trial 0, loss=0.049897 (162s)
+    Restarts run: 1
+    mu: 5.976217
+    D_mu: 2.533405
+    T0_mu: 159.599701
+    Ly: 3.863572
+    op_x: 0.941432
+    op_y: 0.763836
+    NMSE: 0.106569
+  [Saved] random_IR_0172
+
+============================================================
+[173/200] random_IR_0173.npz
+  GT loss: 0.000000
+  terrain_mean=0.059436  early_threshold=0.000565  (alpha=0.0095)
+  tolfun=0.000309 tolfunhist=0.000309  (frac=0.0052 of range=0.0594)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0417
+        [Trial 0] gen   40  evals= 1640  best=0.0416
+        [Trial 0] gen   60  evals= 2460  best=0.0416
+        [Trial 0] gen   80  evals= 3280  best=0.0405
+        [Trial 0] gen  100  evals= 4100  best=0.0400
+        [Trial 0] gen  120  evals= 4920  best=0.0399
+        [Done] Trial 0 best=0.0399
+
+  Winner: Trial 0, loss=0.039893 (119s)
+    Restarts run: 1
+    mu: 39.844735
+    D_mu: 5.407329
+    T0_mu: 19.478742
+    Ly: 3.976685
+    op_x: 0.663224
+    op_y: 0.715475
+    NMSE: 0.082901
+  [Saved] random_IR_0173
+
+============================================================
+[174/200] random_IR_0174.npz
+  GT loss: 0.000000
+  terrain_mean=0.061555  early_threshold=0.000585  (alpha=0.0095)
+  tolfun=0.00032 tolfunhist=0.00032  (frac=0.0052 of range=0.0616)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0378
+        [Trial 0] gen   40  evals= 1640  best=0.0374
+        [Trial 0] gen   60  evals= 2460  best=0.0374
+        [Trial 0] gen   80  evals= 3280  best=0.0371
+        [Trial 0] gen  100  evals= 4100  best=0.0369
+        [Trial 0] gen  120  evals= 4920  best=0.0360
+        [Trial 0] gen  140  evals= 5740  best=0.0358
+        [Done] Trial 0 best=0.0357
+
+  Winner: Trial 0, loss=0.035749 (138s)
+    Restarts run: 1
+    mu: 19.464940
+    D_mu: 0.563180
+    T0_mu: 28.803393
+    Ly: 1.549286
+    op_x: 0.588640
+    op_y: 0.541290
+    NMSE: 0.101552
+  [Saved] random_IR_0174
+
+============================================================
+[175/200] random_IR_0175.npz
+  GT loss: 0.000000
+  terrain_mean=0.061803  early_threshold=0.000587  (alpha=0.0095)
+  tolfun=0.000321 tolfunhist=0.000321  (frac=0.0052 of range=0.0618)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0459
+        [Trial 0] gen   40  evals= 1640  best=0.0455
+        [Trial 0] gen   60  evals= 2460  best=0.0453
+        [Trial 0] gen   80  evals= 3280  best=0.0446
+        [Trial 0] gen  100  evals= 4100  best=0.0446
+        [Trial 0] gen  120  evals= 4920  best=0.0446
+        [Trial 0] gen  140  evals= 5740  best=0.0446
+        [Done] Trial 0 best=0.0446
+
+  Winner: Trial 0, loss=0.044628 (166s)
+    Restarts run: 1
+    mu: 2.492624
+    D_mu: 2.400070
+    T0_mu: 389.699973
+    Ly: 3.999504
+    op_x: 0.510001
+    op_y: 0.853002
+    NMSE: 0.226416
+  [Saved] random_IR_0175
+
+============================================================
+[176/200] random_IR_0176.npz
+  GT loss: 0.000000
+  terrain_mean=0.063035  early_threshold=0.000599  (alpha=0.0095)
+  tolfun=0.000328 tolfunhist=0.000328  (frac=0.0052 of range=0.063)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0393
+        [Trial 0] gen   40  evals= 1640  best=0.0388
+        [Trial 0] gen   60  evals= 2460  best=0.0379
+        [Trial 0] gen   80  evals= 3280  best=0.0379
+        [Trial 0] gen  100  evals= 4100  best=0.0378
+        [Trial 0] gen  120  evals= 4920  best=0.0370
+        [Done] Trial 0 best=0.0369
+
+  Winner: Trial 0, loss=0.036866 (96s)
+    Restarts run: 1
+    mu: 34.935103
+    D_mu: 1.152426
+    T0_mu: 8.287619
+    Ly: 1.500103
+    op_x: 0.515004
+    op_y: 0.524437
+    NMSE: 0.014837
+  [Saved] random_IR_0176
+
+============================================================
+[177/200] random_IR_0177.npz
+  GT loss: 0.000000
+  terrain_mean=0.068160  early_threshold=0.000648  (alpha=0.0095)
+  tolfun=0.000354 tolfunhist=0.000354  (frac=0.0052 of range=0.0682)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0327
+        [Trial 0] gen   40  evals= 1640  best=0.0321
+        [Trial 0] gen   60  evals= 2460  best=0.0317
+        [Trial 0] gen   80  evals= 3280  best=0.0313
+        [Trial 0] gen  100  evals= 4100  best=0.0307
+        [Done] Trial 0 best=0.0305
+
+  Winner: Trial 0, loss=0.030493 (92s)
+    Restarts run: 1
+    mu: 18.216093
+    D_mu: 0.769681
+    T0_mu: 11.509825
+    Ly: 1.101417
+    op_x: 0.643458
+    op_y: 0.517579
+    NMSE: 0.007012
+  [Saved] random_IR_0177
+
+============================================================
+[178/200] random_IR_0178.npz
+  GT loss: 0.000000
+  terrain_mean=0.058867  early_threshold=0.000559  (alpha=0.0095)
+  tolfun=0.000306 tolfunhist=0.000306  (frac=0.0052 of range=0.0589)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0403
+        [Trial 0] gen   40  evals= 1640  best=0.0393
+        [Trial 0] gen   60  evals= 2460  best=0.0393
+        [Trial 0] gen   80  evals= 3280  best=0.0391
+        [Trial 0] gen  100  evals= 4100  best=0.0391
+        [Trial 0] gen  120  evals= 4920  best=0.0391
+        [Done] Trial 0 best=0.0389
+
+  Winner: Trial 0, loss=0.038916 (199s)
+    Restarts run: 1
+    mu: 10.577730
+    D_mu: 0.742374
+    T0_mu: 55.433668
+    Ly: 2.704296
+    op_x: 0.535807
+    op_y: 0.714027
+    NMSE: 0.158723
+  [Saved] random_IR_0178
+
+============================================================
+[179/200] random_IR_0179.npz
+  GT loss: 0.000000
+  terrain_mean=0.062696  early_threshold=0.000596  (alpha=0.0095)
+  tolfun=0.000326 tolfunhist=0.000326  (frac=0.0052 of range=0.0627)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0434
+        [Trial 0] gen   40  evals= 1640  best=0.0434
+        [Trial 0] gen   60  evals= 2460  best=0.0434
+        [Trial 0] gen   80  evals= 3280  best=0.0426
+        [Trial 0] gen  100  evals= 4100  best=0.0424
+        [Trial 0] gen  120  evals= 4920  best=0.0414
+        [Done] Trial 0 best=0.0413
+
+  Winner: Trial 0, loss=0.041275 (198s)
+    Restarts run: 1
+    mu: 13.590762
+    D_mu: 0.535104
+    T0_mu: 70.579430
+    Ly: 2.337787
+    op_x: 0.535520
+    op_y: 0.691185
+    NMSE: 0.051401
+  [Saved] random_IR_0179
+
+============================================================
+[180/200] random_IR_0180.npz
+  GT loss: 0.000000
+  terrain_mean=0.063502  early_threshold=0.000603  (alpha=0.0095)
+  tolfun=0.00033 tolfunhist=0.00033  (frac=0.0052 of range=0.0635)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0444
+        [Trial 0] gen   40  evals= 1640  best=0.0444
+        [Trial 0] gen   60  evals= 2460  best=0.0444
+        [Trial 0] gen   80  evals= 3280  best=0.0443
+        [Trial 0] gen  100  evals= 4100  best=0.0443
+        [Trial 0] gen  120  evals= 4920  best=0.0443
+        [Done] Trial 0 best=0.0443
+
+  Winner: Trial 0, loss=0.044346 (96s)
+    Restarts run: 1
+    mu: 3.039217
+    D_mu: 4.526063
+    T0_mu: 311.504042
+    Ly: 3.461047
+    op_x: 0.685825
+    op_y: 0.972064
+    NMSE: 0.132084
+  [Saved] random_IR_0180
+
+============================================================
+[181/200] random_IR_0181.npz
+  GT loss: 0.000000
+  terrain_mean=0.142632  early_threshold=0.001355  (alpha=0.0095)
+  tolfun=0.000742 tolfunhist=0.000742  (frac=0.0052 of range=0.143)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0813
+        [Trial 0] gen   40  evals= 1640  best=0.0798
+        [Trial 0] gen   60  evals= 2460  best=0.0798
+        [Trial 0] gen   80  evals= 3280  best=0.0798
+        [Trial 0] gen  100  evals= 4100  best=0.0797
+        [Trial 0] gen  120  evals= 4920  best=0.0789
+        [Trial 0] gen  140  evals= 5740  best=0.0785
+        [Done] Trial 0 best=0.0785
+
+  Winner: Trial 0, loss=0.078509 (118s)
+    Restarts run: 1
+    mu: 21.019104
+    D_mu: 0.433677
+    T0_mu: 32.033778
+    Ly: 1.104073
+    op_x: 0.658751
+    op_y: 0.998478
+    NMSE: 0.109075
+  [Saved] random_IR_0181
+
+============================================================
+[182/200] random_IR_0182.npz
+  GT loss: 0.000000
+  terrain_mean=0.062355  early_threshold=0.000592  (alpha=0.0095)
+  tolfun=0.000324 tolfunhist=0.000324  (frac=0.0052 of range=0.0624)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0487
+        [Trial 0] gen   40  evals= 1640  best=0.0476
+        [Trial 0] gen   60  evals= 2460  best=0.0476
+        [Trial 0] gen   80  evals= 3280  best=0.0476
+        [Trial 0] gen  100  evals= 4100  best=0.0476
+        [Trial 0] gen  120  evals= 4920  best=0.0476
+        [Trial 0] gen  140  evals= 5740  best=0.0476
+        [Trial 0] gen  160  evals= 6560  best=0.0474
+        [Done] Trial 0 best=0.0474
+
+  Winner: Trial 0, loss=0.047441 (138s)
+    Restarts run: 1
+    mu: 2.457422
+    D_mu: 3.795810
+    T0_mu: 329.333788
+    Ly: 3.019295
+    op_x: 0.510002
+    op_y: 0.725954
+    NMSE: 0.245260
+  [Saved] random_IR_0182
+
+============================================================
+[183/200] random_IR_0183.npz
+  GT loss: 0.000000
+  terrain_mean=0.059638  early_threshold=0.000567  (alpha=0.0095)
+  tolfun=0.00031 tolfunhist=0.00031  (frac=0.0052 of range=0.0596)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0456
+        [Trial 0] gen   40  evals= 1640  best=0.0454
+        [Trial 0] gen   60  evals= 2460  best=0.0448
+        [Trial 0] gen   80  evals= 3280  best=0.0448
+        [Trial 0] gen  100  evals= 4100  best=0.0444
+        [Trial 0] gen  120  evals= 4920  best=0.0444
+        [Done] Trial 0 best=0.0444
+
+  Winner: Trial 0, loss=0.044410 (102s)
+    Restarts run: 1
+    mu: 6.088037
+    D_mu: 5.664915
+    T0_mu: 158.301416
+    Ly: 3.944763
+    op_x: 0.588836
+    op_y: 0.700444
+    NMSE: 0.063947
+  [Saved] random_IR_0183
+
+============================================================
+[184/200] random_IR_0184.npz
+  GT loss: 0.000000
+  terrain_mean=0.066943  early_threshold=0.000636  (alpha=0.0095)
+  tolfun=0.000348 tolfunhist=0.000348  (frac=0.0052 of range=0.0669)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0346
+        [Trial 0] gen   40  evals= 1640  best=0.0344
+        [Trial 0] gen   60  evals= 2460  best=0.0335
+        [Trial 0] gen   80  evals= 3280  best=0.0335
+        [Trial 0] gen  100  evals= 4100  best=0.0335
+        [Trial 0] gen  120  evals= 4920  best=0.0329
+        [Trial 0] gen  140  evals= 5740  best=0.0324
+        [Done] Trial 0 best=0.0324
+
+  Winner: Trial 0, loss=0.032358 (146s)
+    Restarts run: 1
+    mu: 20.072998
+    D_mu: 0.598315
+    T0_mu: 15.417074
+    Ly: 1.449441
+    op_x: 0.568909
+    op_y: 0.735767
+    NMSE: 0.056229
+  [Saved] random_IR_0184
+
+============================================================
+[185/200] random_IR_0185.npz
+  GT loss: 0.000000
+  terrain_mean=0.062286  early_threshold=0.000592  (alpha=0.0095)
+  tolfun=0.000324 tolfunhist=0.000324  (frac=0.0052 of range=0.0623)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0313
+        [Trial 0] gen   40  evals= 1640  best=0.0313
+        [Trial 0] gen   60  evals= 2460  best=0.0313
+        [Trial 0] gen   80  evals= 3280  best=0.0308
+        [Trial 0] gen  100  evals= 4100  best=0.0308
+        [Trial 0] gen  120  evals= 4920  best=0.0308
+        [Trial 0] gen  140  evals= 5740  best=0.0305
+        [Done] Trial 0 best=0.0303
+
+  Winner: Trial 0, loss=0.030337 (108s)
+    Restarts run: 1
+    mu: 30.088102
+    D_mu: 1.904701
+    T0_mu: 3.460764
+    Ly: 1.384372
+    op_x: 0.654839
+    op_y: 0.510755
+    NMSE: 0.006217
+  [Saved] random_IR_0185
+
+============================================================
+[186/200] random_IR_0186.npz
+  GT loss: 0.000000
+  terrain_mean=0.069726  early_threshold=0.000662  (alpha=0.0095)
+  tolfun=0.000363 tolfunhist=0.000363  (frac=0.0052 of range=0.0697)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0530
+        [Trial 0] gen   40  evals= 1640  best=0.0517
+        [Trial 0] gen   60  evals= 2460  best=0.0453
+        [Trial 0] gen   80  evals= 3280  best=0.0228
+        [Trial 0] gen  100  evals= 4100  best=0.0071
+        [Trial 0] gen  120  evals= 4920  best=0.0040
+        [Trial 0] gen  140  evals= 5740  best=0.0009
+        [Trial 0] gen  160  evals= 6560  best=0.0001
+        [Done] Trial 0 best=0.0001
+    --> Early stop triggered: trial 0 reached loss=0.000092 < 0.000662
+
+  Winner: Trial 0, loss=0.000092 (145s)
+    Restarts run: 1
+    mu: 51.645657
+    D_mu: 4.588969
+    T0_mu: 1.998818
+    Ly: 3.510005
+    op_x: 0.934878
+    op_y: 0.654188
+    NMSE: 0.010002
+  [Saved] random_IR_0186
+
+============================================================
+[187/200] random_IR_0187.npz
+  GT loss: 0.000000
+  terrain_mean=0.065060  early_threshold=0.000618  (alpha=0.0095)
+  tolfun=0.000338 tolfunhist=0.000338  (frac=0.0052 of range=0.0651)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0466
+        [Trial 0] gen   40  evals= 1640  best=0.0462
+        [Trial 0] gen   60  evals= 2460  best=0.0457
+        [Trial 0] gen   80  evals= 3280  best=0.0457
+        [Trial 0] gen  100  evals= 4100  best=0.0451
+        [Trial 0] gen  120  evals= 4920  best=0.0451
+        [Done] Trial 0 best=0.0451
+
+  Winner: Trial 0, loss=0.045055 (78s)
+    Restarts run: 1
+    mu: 3.673827
+    D_mu: 11.268905
+    T0_mu: 247.766162
+    Ly: 2.973235
+    op_x: 0.697745
+    op_y: 0.844203
+    NMSE: 0.184033
+  [Saved] random_IR_0187
+
+============================================================
+[188/200] random_IR_0188.npz
+  GT loss: 0.000000
+  terrain_mean=0.065016  early_threshold=0.000618  (alpha=0.0095)
+  tolfun=0.000338 tolfunhist=0.000338  (frac=0.0052 of range=0.065)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0494
+        [Trial 0] gen   40  evals= 1640  best=0.0487
+        [Trial 0] gen   60  evals= 2460  best=0.0485
+        [Trial 0] gen   80  evals= 3280  best=0.0485
+        [Trial 0] gen  100  evals= 4100  best=0.0485
+        [Trial 0] gen  120  evals= 4920  best=0.0479
+        [Trial 0] gen  140  evals= 5740  best=0.0479
+        [Trial 0] gen  160  evals= 6560  best=0.0479
+        [Trial 0] gen  180  evals= 7380  best=0.0475
+        [Done] Trial 0 best=0.0473
+
+  Winner: Trial 0, loss=0.047293 (293s)
+    Restarts run: 1
+    mu: 6.041794
+    D_mu: 1.323838
+    T0_mu: 164.024890
+    Ly: 3.982025
+    op_x: 0.867568
+    op_y: 0.709469
+    NMSE: 0.066535
+  [Saved] random_IR_0188
+
+============================================================
+[189/200] random_IR_0189.npz
+  GT loss: 0.000000
+  terrain_mean=0.069498  early_threshold=0.000660  (alpha=0.0095)
+  tolfun=0.000361 tolfunhist=0.000361  (frac=0.0052 of range=0.0695)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0370
+        [Trial 0] gen   40  evals= 1640  best=0.0367
+        [Trial 0] gen   60  evals= 2460  best=0.0361
+        [Trial 0] gen   80  evals= 3280  best=0.0348
+        [Done] Trial 0 best=0.0343
+
+  Winner: Trial 0, loss=0.034331 (76s)
+    Restarts run: 1
+    mu: 53.911600
+    D_mu: 4.098031
+    T0_mu: 10.529918
+    Ly: 2.898460
+    op_x: 0.522031
+    op_y: 0.521953
+    NMSE: 0.049167
+  [Saved] random_IR_0189
+
+============================================================
+[190/200] random_IR_0190.npz
+  GT loss: 0.000000
+  terrain_mean=0.065408  early_threshold=0.000621  (alpha=0.0095)
+  tolfun=0.00034 tolfunhist=0.00034  (frac=0.0052 of range=0.0654)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0492
+        [Trial 0] gen   40  evals= 1640  best=0.0491
+        [Trial 0] gen   60  evals= 2460  best=0.0479
+        [Trial 0] gen   80  evals= 3280  best=0.0479
+        [Trial 0] gen  100  evals= 4100  best=0.0474
+        [Done] Trial 0 best=0.0474
+
+  Winner: Trial 0, loss=0.047355 (136s)
+    Restarts run: 1
+    mu: 5.723869
+    D_mu: 1.954676
+    T0_mu: 111.643349
+    Ly: 3.979951
+    op_x: 0.879329
+    op_y: 0.718479
+    NMSE: 0.309245
+  [Saved] random_IR_0190
+
+============================================================
+[191/200] random_IR_0191.npz
+  GT loss: 0.000000
+  terrain_mean=0.062300  early_threshold=0.000592  (alpha=0.0095)
+  tolfun=0.000324 tolfunhist=0.000324  (frac=0.0052 of range=0.0623)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0426
+        [Trial 0] gen   40  evals= 1640  best=0.0425
+        [Trial 0] gen   60  evals= 2460  best=0.0417
+        [Trial 0] gen   80  evals= 3280  best=0.0417
+        [Trial 0] gen  100  evals= 4100  best=0.0405
+        [Trial 0] gen  120  evals= 4920  best=0.0401
+        [Done] Trial 0 best=0.0401
+
+  Winner: Trial 0, loss=0.040120 (192s)
+    Restarts run: 1
+    mu: 17.133236
+    D_mu: 0.473679
+    T0_mu: 55.185804
+    Ly: 2.340234
+    op_x: 0.677076
+    op_y: 0.655338
+    NMSE: 0.045241
+  [Saved] random_IR_0191
+
+============================================================
+[192/200] random_IR_0192.npz
+  GT loss: 0.000000
+  terrain_mean=0.070493  early_threshold=0.000670  (alpha=0.0095)
+  tolfun=0.000367 tolfunhist=0.000367  (frac=0.0052 of range=0.0705)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0528
+        [Trial 0] gen   40  evals= 1640  best=0.0527
+        [Trial 0] gen   60  evals= 2460  best=0.0519
+        [Trial 0] gen   80  evals= 3280  best=0.0513
+        [Trial 0] gen  100  evals= 4100  best=0.0504
+        [Trial 0] gen  120  evals= 4920  best=0.0490
+        [Trial 0] gen  140  evals= 5740  best=0.0487
+        [Done] Trial 0 best=0.0487
+
+  Winner: Trial 0, loss=0.048676 (273s)
+    Restarts run: 1
+    mu: 16.596695
+    D_mu: 0.533716
+    T0_mu: 7.047447
+    Ly: 3.373026
+    op_x: 0.959601
+    op_y: 0.631400
+    NMSE: 0.101011
+  [Saved] random_IR_0192
+
+============================================================
+[193/200] random_IR_0193.npz
+  GT loss: 0.000000
+  terrain_mean=0.061332  early_threshold=0.000583  (alpha=0.0095)
+  tolfun=0.000319 tolfunhist=0.000319  (frac=0.0052 of range=0.0613)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0467
+        [Trial 0] gen   40  evals= 1640  best=0.0431
+        [Trial 0] gen   60  evals= 2460  best=0.0431
+        [Trial 0] gen   80  evals= 3280  best=0.0431
+        [Trial 0] gen  100  evals= 4100  best=0.0431
+        [Trial 0] gen  120  evals= 4920  best=0.0431
+        [Done] Trial 0 best=0.0431
+
+  Winner: Trial 0, loss=0.043131 (60s)
+    Restarts run: 1
+    mu: 72.063768
+    D_mu: 21.209489
+    T0_mu: 2.166875
+    Ly: 3.105119
+    op_x: 0.826876
+    op_y: 0.644194
+    NMSE: 0.017256
+  [Saved] random_IR_0193
+
+============================================================
+[194/200] random_IR_0194.npz
+  GT loss: 0.000000
+  terrain_mean=0.061806  early_threshold=0.000587  (alpha=0.0095)
+  tolfun=0.000321 tolfunhist=0.000321  (frac=0.0052 of range=0.0618)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0360
+        [Trial 0] gen   40  evals= 1640  best=0.0360
+        [Trial 0] gen   60  evals= 2460  best=0.0360
+        [Trial 0] gen   80  evals= 3280  best=0.0360
+        [Trial 0] gen  100  evals= 4100  best=0.0360
+        [Trial 0] gen  120  evals= 4920  best=0.0353
+        [Trial 0] gen  140  evals= 5740  best=0.0349
+        [Done] Trial 0 best=0.0348
+
+  Winner: Trial 0, loss=0.034848 (134s)
+    Restarts run: 1
+    mu: 36.331924
+    D_mu: 3.122608
+    T0_mu: 23.328392
+    Ly: 2.694105
+    op_x: 0.651124
+    op_y: 0.600141
+    NMSE: 0.023568
+  [Saved] random_IR_0194
+
+============================================================
+[195/200] random_IR_0195.npz
+  GT loss: 0.000000
+  terrain_mean=0.060554  early_threshold=0.000575  (alpha=0.0095)
+  tolfun=0.000315 tolfunhist=0.000315  (frac=0.0052 of range=0.0606)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0409
+        [Trial 0] gen   40  evals= 1640  best=0.0409
+        [Trial 0] gen   60  evals= 2460  best=0.0409
+        [Trial 0] gen   80  evals= 3280  best=0.0398
+        [Trial 0] gen  100  evals= 4100  best=0.0387
+        [Done] Trial 0 best=0.0386
+
+  Winner: Trial 0, loss=0.038564 (101s)
+    Restarts run: 1
+    mu: 15.021295
+    D_mu: 5.755358
+    T0_mu: 32.290842
+    Ly: 3.987645
+    op_x: 0.655398
+    op_y: 0.715977
+    NMSE: 0.058362
+  [Saved] random_IR_0195
+
+============================================================
+[196/200] random_IR_0196.npz
+  GT loss: 0.000000
+  terrain_mean=0.060202  early_threshold=0.000572  (alpha=0.0095)
+  tolfun=0.000313 tolfunhist=0.000313  (frac=0.0052 of range=0.0602)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0444
+        [Trial 0] gen   40  evals= 1640  best=0.0433
+        [Trial 0] gen   60  evals= 2460  best=0.0428
+        [Trial 0] gen   80  evals= 3280  best=0.0417
+        [Trial 0] gen  100  evals= 4100  best=0.0408
+        [Done] Trial 0 best=0.0408
+
+  Winner: Trial 0, loss=0.040802 (61s)
+    Restarts run: 1
+    mu: 37.628554
+    D_mu: 19.509221
+    T0_mu: 21.778605
+    Ly: 3.530320
+    op_x: 0.653083
+    op_y: 0.853349
+    NMSE: 0.049635
+  [Saved] random_IR_0196
+
+============================================================
+[197/200] random_IR_0197.npz
+  GT loss: 0.000000
+  terrain_mean=0.062948  early_threshold=0.000598  (alpha=0.0095)
+  tolfun=0.000327 tolfunhist=0.000327  (frac=0.0052 of range=0.0629)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0307
+        [Trial 0] gen   40  evals= 1640  best=0.0305
+        [Trial 0] gen   60  evals= 2460  best=0.0296
+        [Trial 0] gen   80  evals= 3280  best=0.0217
+        [Trial 0] gen  100  evals= 4100  best=0.0046
+        [Trial 0] gen  120  evals= 4920  best=0.0009
+        [Trial 0] gen  140  evals= 5740  best=0.0001
+        [Done] Trial 0 best=0.0000
+    --> Early stop triggered: trial 0 reached loss=0.000041 < 0.000598
+
+  Winner: Trial 0, loss=0.000041 (299s)
+    Restarts run: 1
+    mu: 16.878036
+    D_mu: 0.560461
+    T0_mu: 7.743459
+    Ly: 3.837699
+    op_x: 0.762904
+    op_y: 0.617732
+    NMSE: 0.000076
+  [Saved] random_IR_0197
+
+============================================================
+[198/200] random_IR_0198.npz
+  GT loss: 0.000000
+  terrain_mean=0.063412  early_threshold=0.000602  (alpha=0.0095)
+  tolfun=0.00033 tolfunhist=0.00033  (frac=0.0052 of range=0.0634)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0363
+        [Trial 0] gen   40  evals= 1640  best=0.0357
+        [Trial 0] gen   60  evals= 2460  best=0.0357
+        [Trial 0] gen   80  evals= 3280  best=0.0352
+        [Trial 0] gen  100  evals= 4100  best=0.0352
+        [Trial 0] gen  120  evals= 4920  best=0.0352
+        [Trial 0] gen  140  evals= 5740  best=0.0352
+        [Trial 0] gen  160  evals= 6560  best=0.0352
+        [Trial 0] gen  180  evals= 7380  best=0.0349
+        [Done] Trial 0 best=0.0349
+
+  Winner: Trial 0, loss=0.034947 (299s)
+    Restarts run: 1
+    mu: 17.572271
+    D_mu: 0.719565
+    T0_mu: 5.141849
+    Ly: 3.175782
+    op_x: 0.657869
+    op_y: 0.682402
+    NMSE: 0.090914
+  [Saved] random_IR_0198
+
+============================================================
+[199/200] random_IR_0199.npz
+  GT loss: 0.000000
+  terrain_mean=0.061692  early_threshold=0.000586  (alpha=0.0095)
+  tolfun=0.000321 tolfunhist=0.000321  (frac=0.0052 of range=0.0617)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0394
+        [Trial 0] gen   40  evals= 1640  best=0.0391
+        [Trial 0] gen   60  evals= 2460  best=0.0387
+        [Trial 0] gen   80  evals= 3280  best=0.0385
+        [Trial 0] gen  100  evals= 4100  best=0.0374
+        [Done] Trial 0 best=0.0371
+
+  Winner: Trial 0, loss=0.037124 (82s)
+    Restarts run: 1
+    mu: 24.379027
+    D_mu: 1.828974
+    T0_mu: 31.561848
+    Ly: 1.575619
+    op_x: 0.639557
+    op_y: 0.669751
+    NMSE: 0.053884
+  [Saved] random_IR_0199
+
+============================================================
+[200/200] random_IR_0200.npz
+  GT loss: 0.000000
+  terrain_mean=0.091840  early_threshold=0.000872  (alpha=0.0095)
+  tolfun=0.000478 tolfunhist=0.000478  (frac=0.0052 of range=0.0918)
+    --> Trial 0 | pop=41 seed=95072 x0_norm_min=-0.951 x0_norm_max=0.812
+        [Trial 0] gen   20  evals=  820  best=0.0632
+        [Trial 0] gen   40  evals= 1640  best=0.0624
+        [Trial 0] gen   60  evals= 2460  best=0.0606
+        [Trial 0] gen   80  evals= 3280  best=0.0565
+        [Trial 0] gen  100  evals= 4100  best=0.0528
+        [Trial 0] gen  120  evals= 4920  best=0.0521
+        [Done] Trial 0 best=0.0521
+
+  Winner: Trial 0, loss=0.052123 (91s)
+    Restarts run: 1
+    mu: 36.853642
+    D_mu: 2.041572
+    T0_mu: 25.980035
+    Ly: 1.939739
+    op_x: 0.969540
+    op_y: 0.884368
+    NMSE: 0.094338
+  [Saved] random_IR_0200

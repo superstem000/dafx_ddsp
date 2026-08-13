@@ -1,0 +1,60 @@
+# Masuda & Saito's in-domain setting, transcribed into DiffMoog.
+#
+# Their schedule is indexed in optimizer steps: param_w holds at 10 through
+# step 12500, then ramps 10 -> 0 while sw_w ramps 0 -> 1, both finishing at
+# step 50000; training then continues spectral-only to step 100000 (their
+# pretrain run followed by resume_synth). With 16000 training examples at
+# batch 64 and accumulate_grad_batches=1 that is 250 steps/epoch, so steps
+# 12500 / 50000 / 100000 land exactly on epochs 50 / 200 / 400 and DiffMoog's
+# epoch-indexed ramp reproduces the step-indexed one without any code change.
+#
+# apply_loss_normalization is off deliberately: diffsynth weights the two
+# losses by fixed constants (10 and 1) and does not renormalise them, and the
+# normalisation is what the ramp would otherwise be fighting.
+model:
+  arch: simple
+  backbone: gru
+  chain: SAW_SQUARE_MIX_FILTER
+  num_workers: 8
+  batch_size: 64
+  num_epochs: 400
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+
+  optimizer:
+    base_lr: 0.001
+    optimizer: adam
+    scheduler: exponential
+    gamma: 0.99
+
+loss:
+  loss_preset: diffsynth_mss
+  control_spec_preset: cumsum_time
+  parameters_loss_norm: L1
+
+  apply_loss_normalization: false
+  parameters_loss_weight: 10
+  spectrogram_loss_weight: 1
+
+  spectrogram_loss_warmup_epochs: 50
+  loss_switch_epochs: 150
+  min_parameters_loss_decay: 0
+  in_domain_epochs: 400
+
+  use_chain_loss: false
+  chain_loss_weight: 1.0
+  use_gradual_chain_loss: false
+  chain_warmup_factor: 5
+
+synth:
+  chain: SAW_SQUARE_MIX_FILTER
+  transform: MEL
+  apply_log_transform_to_input: true
+  use_multi_spec_input: false
+  signal_duration: 4.0
+  note_off_time: 3.0
+  added_noise_std: 0.0
+  log_filter_freq: true
+
+logging:
+  n_images_to_log: 0

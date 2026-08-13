@@ -1,0 +1,44 @@
+[2026-07-28 21:34:48] === standard_sweep START ===
+[2026-07-28 21:34:48] REPO_ROOT=/home/bhpark3/dafxchal
+[2026-07-28 21:34:48] DSET_ROOT=/home/bhpark3/dafxchal/random-IR-200-0.2s  N_SAMPLES=200
+[2026-07-28 21:34:48] RESULT_ROOT=/home/bhpark3/dafxchal/results/ladder_1restart
+[2026-07-28 21:34:48] DTYPE=float32
+[2026-07-28 21:34:48] LOSSES (6): L1_STFT L1_STFT_log L1_STFT_c2 L1_STFT_pow MSS SmoothMSS
+[2026-07-28 21:34:48] ----- [L1_STFT] (slug=l1_stft) START -----
+[2026-07-28 21:34:48] [L1_STFT] watch:  tail -f /home/bhpark3/dafxchal/results/ladder_1restart/l1_stft/stage1.log
+[2026-07-28 21:34:48] [L1_STFT] stage 1: CMA-ES
+[2026-07-29 00:29:24] [L1_STFT] stage 2: ternary mu
+[2026-07-29 00:35:04] [L1_STFT] DONE in 10816s
+[2026-07-29 00:35:04] ----- [L1_STFT_log] (slug=l1_stft_log) START -----
+[2026-07-29 00:35:04] [L1_STFT_log] watch:  tail -f /home/bhpark3/dafxchal/results/ladder_1restart/l1_stft_log/stage1.log
+[2026-07-29 00:35:04] [L1_STFT_log] stage 1: CMA-ES
+[2026-07-29 21:05:16] [L1_STFT_log] stage 2: ternary mu
+[2026-07-29 21:19:21] [L1_STFT_log] DONE in 74657s
+[2026-07-29 21:19:21] ----- [L1_STFT_c2] (slug=l1_stft_c2) START -----
+[2026-07-29 21:19:21] [L1_STFT_c2] watch:  tail -f /home/bhpark3/dafxchal/results/ladder_1restart/l1_stft_c2/stage1.log
+[2026-07-29 21:19:21] [L1_STFT_c2] stage 1: CMA-ES
+[2026-07-30 05:21:39] [L1_STFT_c2] stage 2: ternary mu
+[2026-07-30 05:32:52] [L1_STFT_c2] DONE in 29611s
+[2026-07-30 05:32:52] ----- [L1_STFT_pow] (slug=l1_stft_pow) START -----
+[2026-07-30 05:32:52] [L1_STFT_pow] watch:  tail -f /home/bhpark3/dafxchal/results/ladder_1restart/l1_stft_pow/stage1.log
+[2026-07-30 05:32:52] [L1_STFT_pow] stage 1: CMA-ES
+[2026-07-30 18:15:44] [L1_STFT_pow] stage 2: ternary mu
+[2026-07-30 18:26:21] [L1_STFT_pow] DONE in 46409s
+[2026-07-30 18:26:21] ----- [MSS] (slug=mss) START -----
+[2026-07-30 18:26:21] [MSS] watch:  tail -f /home/bhpark3/dafxchal/results/ladder_1restart/mss/stage1.log
+[2026-07-30 18:26:21] [MSS] stage 1: CMA-ES
+[2026-07-31 00:12:23] [MSS] stage 2: ternary mu
+[2026-07-31 00:18:31] [MSS] DONE in 21130s
+[2026-07-31 00:18:31] ----- [SmoothMSS] (slug=smoothmss) START -----
+[2026-07-31 00:18:31] [SmoothMSS] watch:  tail -f /home/bhpark3/dafxchal/results/ladder_1restart/smoothmss/stage1.log
+[2026-07-31 00:18:31] [SmoothMSS] stage 1: CMA-ES
+[2026-07-31 03:35:15] [SmoothMSS] stage 2: ternary mu
+[2026-07-31 03:41:40] [SmoothMSS] DONE in 12189s
+[2026-07-31 03:41:40] === standard_sweep FINISHED ===
+[2026-07-31 03:41:40]   L1_STFT: OK (10816s)
+[2026-07-31 03:41:40]   L1_STFT_log: OK (74657s)
+[2026-07-31 03:41:40]   L1_STFT_c2: OK (29611s)
+[2026-07-31 03:41:40]   L1_STFT_pow: OK (46409s)
+[2026-07-31 03:41:40]   MSS: OK (21130s)
+[2026-07-31 03:41:40]   SmoothMSS: OK (12189s)
+[2026-07-31 03:41:40] Aggregate:  /home/bhpark3/dafxenv/bin/python src/standard_sweep/aggregate_sweep.py --root /home/bhpark3/dafxchal/results/ladder_1restart --plot
