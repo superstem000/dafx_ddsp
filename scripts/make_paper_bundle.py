@@ -33,24 +33,23 @@ from pathlib import Path
 MANIFEST = [
     dict(
         section="plate",
-        slug="01_cmaes_full_l1stft",
-        title="CMA-ES, L1-STFT, full restart budget",
-        sources=[
-            "results/cmaes_norm_es_lessdigit/l1_stft",
-            "results/cmaes_norm_es_lessdigit/l1_stft_tolfun",
-            "results/cmaes_norm_es/l1_stft_tolfun",
-        ],
-        scripts=[
-            "scripts/cmaes_norm_es/l1stft.sh",
-            "scripts/cmaes_norm_es/l1stft_tolfun.sh",
-        ],
+        slug="01_cmaes_full",
+        title="CMA-ES, 20 restarts, all losses (the 'CMA-ES full' row)",
+        sources=["results/standard_sweep"],
+        scripts=["scripts/standard_sweep/run_standard_sweep.sh"],
         note=(
-            "100 IRs from data/random-IR-100-1.0s, via "
-            "src.cmaes.fit_7param_norm_es at sigma0 0.6 with early stop at "
-            "loss 0.01. Three directories because three variants exist and "
-            "which one the paper quotes is not recorded anywhere: the plain "
-            "run, the tolfun-stopped run, and the later _lessdigit "
-            "reporting. CONFIRM WHICH, then cut this entry down to one."
+            "src/analysis/compare_methods.py line 228 reads "
+            "results/standard_sweep/l1_stft for the row it labels 'CMA-ES "
+            "full L1_STFT', so this is that run and cmaes_norm_es* is not. "
+            "50 IRs from data/random-IR-100-1.0s at float32, 14 losses, two "
+            "stages each -- sweep_run.log records DSET_ROOT, N_SAMPLES=50 and "
+            "DTYPE per run along with wall clock, so the invocation is "
+            "recovered rather than assumed. Everything else comes from "
+            "fit_7param_norm_es defaults: n_trials 400, budget 25000, sigma0 "
+            "0.6, tolfun 1e-5, lhs_seed 42, popsize 30-60, early stop at "
+            "0.01. All 14 losses are kept, not just L1_STFT: the cross-loss "
+            "comparison at a full restart budget is the counterpart to the "
+            "one-restart ladder."
         ),
     ),
     dict(
@@ -58,11 +57,15 @@ MANIFEST = [
         slug="02_cmaes_ladder_1restart",
         title="CMA-ES compression ladder, one restart per IR",
         sources=["results/ladder_1restart"],
-        scripts=["scripts/cmaes_norm_es/l1stft.sh"],
+        scripts=["scripts/ladder_1restart.sh"],
         note=(
-            "linear / c2 / log / pow, plus mss and smoothmss, each in two "
-            "stages. One restart per IR is the point: it removes the restart "
-            "budget as a confound between losses."
+            "200 IRs, linear / c2 / log / pow plus mss and smoothmss, each in "
+            "two stages, --n_trials 1 against the standard sweep's 20. One "
+            "restart per IR is the point: it removes the restart budget as a "
+            "confound between losses. compare_methods scores these at stage 2 "
+            "using stage2/mu_refined_summary.csv's refined_* columns, so the "
+            "figure's medians (l1_stft 1.00e-3) do not match stage1 "
+            "summary.csv's nmse (1.59e-2) -- read the right stage."
         ),
     ),
     dict(
@@ -139,6 +142,11 @@ MANIFEST = [
             # The resolved config and the git commit + argv each run actually
             # used. configs/ is the input; config_dump/ is what happened.
             "external/diffmoog/experiments/current/q_*/config_dump/*",
+            # create_data.py writes commit_and_args.txt beside each split; it
+            # is the only record of how the dataset was generated, since the
+            # training run's own commit_and_args only says "-d fixed10k".
+            "external/diffmoog/data/fixed10k/*/commit_and_args.txt",
+            "external/diffmoog/data/fixed10k/*/params_dataset.csv",
         ],
         note=(
             "The q_* runs are the ladder: ploss, linear at two rates, the eps "
@@ -154,6 +162,13 @@ MANIFEST = [
 # trace would be more precise and would also be one more thing that can be
 # subtly wrong.
 ANALYSIS = [
+    # THE generator for the paper's table and ECDF figure. Reads
+    # standard_sweep/l1_stft as "CMA-ES full", every ladder_1restart/* as
+    # "CMA-ES 1rst", and the encoder from --ddsp-ckpt. Scores CMA-ES at stage 2
+    # via the refined_* columns when mu_refined_summary.csv exists, which is
+    # why a stage-1 median read straight off summary.csv does not reproduce the
+    # figure's numbers.
+    "src/analysis/compare_methods.py",
     # Produces the cross-loss comparison tables; lives under results/ rather
     # than src/, so nothing else in the manifest would pick it up.
     "results/cmaes/compare_all_losses.py",
@@ -162,6 +177,23 @@ ANALYSIS = [
     # record that survives for the full CMA-ES run.
     "docs/figures/nmse_per_ir.csv",
     "docs/figures/nmse_ecdf.pdf",
+]
+
+# The original numpy plate and its dataset generator. random-IR-100-1.0s and
+# random-IR-200-0.2s -- the CMA-ES and gradient-descent sets -- came from
+# DatasetGen.py, not from src/data/make_dataset.py, and nothing else in the
+# manifest reaches it.
+GENERATORS = [
+    ("ModalPlate", "datasets/generators/ModalPlate"),
+    # Re-render an existing dataset's IRs through the torch plate, so target
+    # and model share a code path. Referenced by train_encoder's docstring as
+    # what was done for the fitting datasets.
+    ("gen_torch_targets.py", "datasets/generators/gen_torch_targets.py"),
+    ("gen_torch_targets_200.py", "datasets/generators/gen_torch_targets_200.py"),
+    # The diagnostic that found the float32 target/synthesis disagreement in
+    # the first place.
+    ("confirm_f32_gt.py", "datasets/generators/confirm_f32_gt.py"),
+    ("src/data/make_dataset.py", "datasets/generators/make_dataset.py"),
 ]
 
 CODE = [
@@ -189,6 +221,113 @@ DATASET_GLOBS = [
 
 
 SKIP = ["*.pt", "*.ckpt", "*.db", "__pycache__", "events.out.tfevents.*"]
+
+
+GENERATORS_MD = """# Which script made which dataset, and which ones have a floor
+
+Three generators produced the data in this paper, and they are not
+interchangeable. `docs/DATASETS.md` covers the flags; this covers which script.
+
+## `generators/ModalPlate/DatasetGen.py`
+
+The original numpy plate. Produced the per-IR fitting sets:
+
+| set | IRs | duration | generated |
+|---|---|---|---|
+| `random-IR-100-1.0s` | 100 | 1.0 s | 2026-04-24 |
+| `random-IR-200-0.2s` | 200 | 0.25 s | 2026-07-28 |
+
+These are what the CMA-ES sweeps and the gradient-descent runs fit. Each ships a
+`generation_summary.txt` recording the parameter ranges, which are identical
+between them: Lx 1.0 and nu 0.25 fixed, Ly [1.1, 4.0], h [0.001, 0.005],
+T0 [0.01, 1000], rho [2430, 21230], E [6.7e10, 2.2e11].
+
+## `generators/gen_torch_targets*.py` -- and the one that matters most
+
+Re-render an existing set's IRs through the *torch* plate, so a target and the
+model that fits it share a code path exactly. `gen_torch_targets.py` says what
+that buys in its own docstring: "targets from the SAME torch synth the fitter
+uses as candidate, so gt_loss ~ 0 (matched-model / inverse-crime diagnostic)".
+
+**`gen_torch_targets_200.py` writes back into `random-IR-200-0.2s` in place**
+(`out_dir = Path(src_dir)`). So that set's `.npz` files are torch-rendered while
+its `generation_summary.txt` still records DatasetGen and 2026-07-28 -- the
+summary describes the *parameters*, not the current rendering. Do not read it as
+provenance for the audio.
+
+That single fact separates the two CMA-ES results:
+
+| run | IRs | dataset | rendering | `gt_loss` median |
+|---|---|---|---|---|
+| `standard_sweep/l1_stft` ("CMA-ES full") | 50 | `data/random-IR-100-1.0s` | numpy | **1.37e-05** |
+| `ladder_1restart/*` (1 restart) | 200 | `random-IR-200-0.2s` | torch | **exactly 0** |
+| `on_separate_50ir/phase1` | 50 | numpy | numpy | 1.33e-05 |
+
+### Why this decides which comparison is usable
+
+On the numpy targets the floor is not small, and it is not the same size for
+every loss. Median across the 50 IRs of `standard_sweep`:
+
+| loss | `gt_loss` | `best_loss` | floor as a fraction of what was achieved |
+|---|---|---|---|
+| L2 | 3.0e-12 | 8.6e-08 | 0.00 |
+| ESR | 2.5e-11 | 9.8e-08 | 0.00 |
+| L1 | 1.28e-06 | 1.35e-06 | 0.95 |
+| L1_STFT | 1.37e-05 | 1.39e-05 | 0.98 |
+| Mel | 0.188 | 0.522 | 0.36 |
+| MSS | 0.818 | 1.073 | 0.76 |
+| SC+LogMag | 0.409 | 0.474 | 0.86 |
+| LSD | 13.7 | 10.05 | **1.36** |
+
+LSD's optimizer found a loss *below* the value at the true parameters: on those
+targets the ground truth is not the minimum, so "LSD did badly" there is partly
+a statement about the targets. MSS and SC+LogMag are three quarters floor. The
+compressed and perceptual losses take the mismatch hardest, which is the same
+asymmetry `docs/DATASETS.md` measures for the encoder -- so a cross-loss
+comparison run on numpy targets is confounded in exactly the direction the paper
+is arguing about.
+
+`ladder_1restart` has `gt_loss` **exactly 0.0 for all six arms**, so its
+cross-loss comparison carries no floor at all. That makes it the trustworthy one
+-- and it also forecloses an obvious objection: the ladder shows log losing to
+linear with no target/synthesis disagreement anywhere in the picture, so the
+result cannot be attributed to one.
+
+The cost is that a zero floor is a matched-model result, the "inverse crime" the
+generator names. It is the right control for comparing losses and the wrong
+setting for claiming an absolute accuracy, so quote the ladder for the former
+and say plainly which targets it used.
+
+## `generators/make_dataset.py`
+
+The encoder datasets. Its `--render-path` is the flag that separates the two
+generations of them:
+
+- `direct` -- the historical path, builds plate14 straight from the CSV. Leaves
+  `T0` quantised by its *range* rather than its value, a ~6e-5 quantum on a
+  range of (0.01, 1000), which is ~1e-4 on the mode frequencies. Invisible to a
+  linear loss and **19.8% of saturation to log(x + 1e-7)**.
+- `training` -- renders through the float32 `z` the encoder emits, so targets
+  and training synthesis agree bit-for-bit.
+
+`--fixed-mode-grid` is the second axis. Without it `n_modes` follows the batch
+maximum, so an IR renders differently depending on which batch it lands in:
+6.1% of saturation for log against ~0 for linear.
+
+| set | grid pinned | `gt_loss` observed |
+|---|---|---|
+| `train-100000-0.25s`, `val-1000-0.25s` | no | **1.2490e-05** |
+| `*-v3` | (107, 403) | 0.0 |
+| `train-p99`, `val-p99` | (86, 282) | 0.0 |
+
+The 250k linear run (`l1_stft_tgtnorm`) is on the first row; the 120k sweep and
+the eps ladder are on the last. That is why their numbers are not on the same
+footing, and why `diag_gt_floor` has to read `0.0000e+00` on the SHUFFLED row
+before a sweep is attributable at all.
+
+Audio is not shipped. `datasets/` carries the parameter CSVs; the commands in
+`docs/DATASETS.md` regenerate the audio, and every flag in them is load-bearing.
+"""
 
 
 def copy(src: Path, dst: Path, skip=None) -> tuple[int, int]:
@@ -318,6 +457,15 @@ def main() -> None:
             missing.append(pat)
         else:
             print(f"{'datasets/' + sub:<32} {len(hits):>5} files")
+    for src, dst in GENERATORS:
+        sp = root / src
+        if sp.exists():
+            f, b = copy(sp, args.out / dst)
+            print(f"{dst:<32} {f:>5} files  {human(b):>9}")
+        else:
+            missing.append(src)
+    (args.out / "datasets").mkdir(parents=True, exist_ok=True)
+    (args.out / "datasets" / "GENERATORS.md").write_text(GENERATORS_MD)
     for a in ANALYSIS:
         s = root / a
         if s.exists():
