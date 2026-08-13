@@ -30,10 +30,10 @@
 # nmse ~ 0.045 by step 2000 with sat 0.00, so if leakytanh does not track that
 # the parameterization is the problem and the other six are wasted GPU-days.
 # Release the rest once it has cleared step 2000 looking like the baseline.
-NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT" scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1" scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e1" scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e3" scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e4" scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e5" scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=leakytanh HEAD_GRAD_FLOOR=0.05 HEAD_HINGE=0 OUT=results/ddsp/eps_ladder_leaky ARMS="L1_STFT_eps1e7" scripts/eps_ladder.sh "{gpu}"
+scripts/ladder_leaky.sh "{gpu}" "L1_STFT"
+scripts/ladder_leaky.sh "{gpu}" "L1_STFT_eps1"
+scripts/ladder_leaky.sh "{gpu}" "L1_STFT_eps1e1"
+scripts/ladder_leaky.sh "{gpu}" "L1_STFT_eps1e3"
+scripts/ladder_leaky.sh "{gpu}" "L1_STFT_eps1e4"
+scripts/ladder_leaky.sh "{gpu}" "L1_STFT_eps1e5"
+scripts/ladder_leaky.sh "{gpu}" "L1_STFT_eps1e7"

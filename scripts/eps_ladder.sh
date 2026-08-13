@@ -136,6 +136,35 @@ echo "for log) on the SHUFFLED row before any sweep is attributable. If you have
 echo "not run it against $VAL since these datasets were built, stop and run it."
 echo
 
+# Refuse to write into a directory that already holds results, BEFORE anything
+# is written -- sweep_command.txt included, since that is the provenance record
+# and clobbering it is the expensive half of the mistake.
+#
+# This exists because a mistyped invocation launched the default arms into the
+# default OUT, which is the published tanh ladder. Every variable was on the
+# command line and every one of them was silently ignored, so the only warning
+# was a header nobody reads until afterwards.
+#
+# FORCE=1 to overwrite deliberately.
+if [[ "${FORCE:-0}" != "1" ]]; then
+  clash=()
+  for arm in "${ARM_ARR[@]}"; do
+    [[ -e "$OUT/$arm/history.json" ]] && clash+=("$arm")
+  done
+  if (( ${#clash[@]} )); then
+    echo "ERROR: $OUT already has results for: ${clash[*]}"
+    echo
+    echo "Refusing to overwrite them. This is usually a sign the environment"
+    echo "variables did not reach the script -- check the header above says the"
+    echo "OUT, ARMS, NORM and HEAD_BOUND you intended. A blank line after a"
+    echo "trailing backslash ends the continuation, which turns VAR=x into an"
+    echo "unexported shell variable the script cannot see."
+    echo
+    echo "Set OUT to a fresh directory, or FORCE=1 to overwrite on purpose."
+    exit 1
+  fi
+fi
+
 # The 120k sweep's arguments were never written down, which is the whole reason
 # EXTRA has to be guessed at. Record this one's before it starts.
 {
