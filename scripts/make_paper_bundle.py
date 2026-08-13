@@ -421,8 +421,20 @@ def main() -> None:
                 absent.append(s)
         for pat in e.get("extra_globs", []):
             hits = sorted(root.glob(pat))
+            # config_dump/config.yaml and commit_and_args.txt carry the same
+            # basename in every one of the nine runs, and params_dataset.csv in
+            # both splits. Flattening on basename kept one of each and dropped
+            # the rest without a word. Widen the name by whole path components
+            # until every hit in this glob is distinct, so the naming is uniform
+            # rather than "whichever one landed first keeps the short name".
+            depth = 1
+            while depth < 5:
+                names = {"_".join(h.parts[-depth:]) for h in hits}
+                if len(names) == len(hits):
+                    break
+                depth += 1
             for h in hits:
-                f, b = copy(h, base / "scripts" / h.name)
+                f, b = copy(h, base / "scripts" / "_".join(h.parts[-depth:]))
                 nf, nb = nf + f, nb + b
             got.append(f"{pat} ({len(hits)} files)")
 

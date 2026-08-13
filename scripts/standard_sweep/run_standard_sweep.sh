@@ -22,6 +22,17 @@
 # next loss (deliberately no `set -e` across the loop). Worst case = one loss
 # missing, never a wasted night.
 #
+# CORRECTED to what results/standard_sweep was actually produced with. The file
+# had drifted after the run and would no longer reproduce it: it read
+# --n_trials 1 and defaulted N_SAMPLES to 100, where the run used 20 and 50.
+#
+# Neither the script nor sweep_run.log recorded the difference -- the log carries
+# DSET_ROOT, N_SAMPLES and DTYPE only. The results do: n_restarts_run is the
+# count of terminal Optuna trials, and it caps at exactly 20 for every one of
+# the 14 losses, with LSD, Mel, MSS and SC+LogMag sitting at 20 on all 50 IRs
+# without ever early-stopping. A ceiling of exactly 20 on every loss is
+# --n_trials 20 and nothing else. N_SAMPLES=50 is logged directly.
+#
 # Optional overrides (env vars):
 #   PYTHON_BIN, DSET_ROOT, N_SAMPLES, RESULT_ROOT, DTYPE
 #   LOSSES_OVERRIDE="L1_STFT MSS"   # run only a subset, in this order
@@ -36,7 +47,7 @@ cd "${REPO_ROOT}"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 DSET_ROOT="${DSET_ROOT:-${REPO_ROOT}/data/random-IR-100-1.0s}"
-N_SAMPLES="${N_SAMPLES:-100}"
+N_SAMPLES="${N_SAMPLES:-50}"
 RESULT_ROOT="${RESULT_ROOT:-${REPO_ROOT}/results/standard_sweep}"
 DTYPE="${DTYPE:-float32}"
 LOG="${RESULT_ROOT}/sweep_run.log"
@@ -92,7 +103,7 @@ for loss in "${LOSSES[@]}"; do
     --dtype "${DTYPE}" \
     --early_stop_loss 0.01 \
     --budget 30000 \
-    --n_trials 1 \
+    --n_trials 20 \
     --lhs_seed 42 \
     --tolfun 1e-5 \
     --tolfunhist 1e-5 \
