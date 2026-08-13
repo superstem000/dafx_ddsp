@@ -1,0 +1,2 @@
+Git commit: 65e19bf8ed5854cef110304245b84ec9a91d4731
+Arguments: -e cn_magnitude_lr3e4 -d narrow10k -c loss_study/cn_magnitude_lr3e4.yaml -g 0

@@ -1,0 +1,41 @@
+model:
+  arch: simple
+  backbone: gru
+  chain: SAW_NARROW_FILTER
+  num_workers: 8
+  batch_size: 64
+  num_epochs: 200
+  optimizer:
+    base_lr: 0.0001
+    optimizer: adam
+    scheduler: exponential
+    gamma: 0.99
+loss:
+  loss_preset: mss_ddsp
+  control_spec_preset: cumsum_time
+  parameters_loss_norm: L1
+  apply_loss_normalization: false
+  parameters_loss_weight: 0
+  spectrogram_loss_weight: 1
+  spectrogram_loss_warmup_epochs: 0
+  loss_switch_epochs: 0
+  min_parameters_loss_decay: 0
+  in_domain_epochs: 200
+  use_chain_loss: false
+  chain_loss_weight: 1.0
+  use_gradual_chain_loss: false
+  chain_warmup_factor: 5
+synth:
+  chain: SAW_NARROW_FILTER
+  transform: MEL
+  apply_log_transform_to_input: true
+  use_multi_spec_input: false
+  signal_duration: 4.0
+  note_off_time: 3.0
+  added_noise_std: 0.0001
+logging:
+  n_images_to_log: 0
+exp_dir: /home/bhpark3/dafx_ddsp/external/diffmoog/experiments/current/cn_mssddsp_lr1e4/
+data_dir: /home/bhpark3/dafx_ddsp/external/diffmoog/data/narrow10k/
+ckpts_dir: /home/bhpark3/dafx_ddsp/external/diffmoog/experiments/current/cn_mssddsp_lr1e4/checkpoints/
+logs_dir: /home/bhpark3/dafx_ddsp/external/diffmoog/experiments/current/cn_mssddsp_lr1e4/tensorboard/
