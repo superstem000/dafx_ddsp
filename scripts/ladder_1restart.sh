@@ -18,6 +18,14 @@
 #   Targets: random-IR-200-0.2s           Ternary iterations: 50
 #   Sanity grid check: on                 mu bounds [2.430, 106.150]
 #
+# The last three stage-1 flags (--early_stop_loss, --budget, --lhs_seed) are
+# NOT printed in the logs. They come from scripts/cmaes_norm_es/l1stft_tolfun.sh,
+# the template this ladder shares its tolfun 1e-5 with, and from
+# run_standard_sweep.sh which uses the same three. With --n_trials 1 the budget
+# is not load-bearing -- one trial cannot exhaust 30000 evaluations -- so the
+# only one that could change a result is --lhs_seed, and the verification below
+# catches that: a wrong seed changes the printed per-trial seed and popsize.
+#
 # TARGETS: random-IR-200-0.2s carries TORCH-rendered IRs, not the numpy ones
 # DatasetGen wrote -- gen_torch_targets_200.py re-rendered them in place, which
 # is why gt_loss is exactly 0.0 for every arm here and ~1.4e-05 in
@@ -81,6 +89,9 @@ for loss in "${LOSSES[@]}"; do
     --dtype "${DTYPE}" \
     --tolfun 1e-5 \
     --tolfunhist 1e-5 \
+    --early_stop_loss 0.01 \
+    --budget 30000 \
+    --lhs_seed 42 \
     > "${RESULT_ROOT}/${slug}/stage1.log" 2>&1
   logline "[${loss}] stage 1 rc=$?"
 

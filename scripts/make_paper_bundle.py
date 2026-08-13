@@ -49,7 +49,16 @@ MANIFEST = [
             "0.6, tolfun 1e-5, lhs_seed 42, popsize 30-60, early stop at "
             "0.01. All 14 losses are kept, not just L1_STFT: the cross-loss "
             "comparison at a full restart budget is the counterpart to the "
-            "one-restart ladder."
+            "one-restart ladder.\n\n"
+            "    WARNING -- the bundled run_standard_sweep.sh will NOT "
+            "reproduce this run. It reads --n_trials 1 and defaults N_SAMPLES "
+            "to 100; the run used 20 and 50. The script was edited after the "
+            "fact and sweep_run.log records only DSET_ROOT, N_SAMPLES and "
+            "DTYPE, so neither artifact catches it. The data does: "
+            "n_restarts_run is len(terminal Optuna trials) and it caps at "
+            "exactly 20 for every one of the 14 losses, with LSD, Mel, MSS and "
+            "SC+LogMag sitting at 20 on all 50 IRs -- a ceiling that can only "
+            "be --n_trials 20. Set --n_trials 20 and N_SAMPLES=50 to rerun."
         ),
     ),
     dict(
