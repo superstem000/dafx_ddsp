@@ -1,9 +1,12 @@
-# stclamp ladder: one arm per GPU, picked up as cards free
-HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT"        scripts/eps_ladder.sh "{gpu}"
-HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1"   scripts/eps_ladder.sh "{gpu}"
-HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e1" scripts/eps_ladder.sh "{gpu}"
-HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e3" scripts/eps_ladder.sh "{gpu}"
-HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e4" scripts/eps_ladder.sh "{gpu}"
-HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e5" scripts/eps_ladder.sh "{gpu}"
-HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e7" scripts/eps_ladder.sh "{gpu}"
-# then the lr grid, which skips cells already in results/ddsp/lr_*
+# stclamp ladder: one arm per GPU, picked up as cards free.
+# NORM=batch is not optional -- the tanh ladder these are compared against
+# ran --norm batch, and eps_ladder.sh defaults NORM to group. Leaving it out
+# changes two things at once and makes the run unattributable.
+# Every other setting is eps_ladder.sh's default, which is the tanh ladder's.
+NORM=batch HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e1" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e3" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e4" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e5" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=stclamp OUT=results/ddsp/eps_ladder_stclamp ARMS="L1_STFT_eps1e7" scripts/eps_ladder.sh "{gpu}"
