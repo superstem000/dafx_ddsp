@@ -56,15 +56,31 @@ def save_to_board(i, name, writer, orig_audio, resyn_audio, plot_num=4, sr=16000
     writer.add_figure('plot_recon_{0}'.format(name), fig, i)
 
 class AudioLogger(Callback):
-    def __init__(self, batch_frequency=1000):
+    """Log example audio and spectrogram figures, occasionally.
+
+    epoch_frequency exists because batch_frequency alone does not bound this.
+    There are 250 train batches per epoch, so `batch_idx % 1000 == 0` is only
+    ever true at batch 0 -- i.e. it fires EVERY epoch, three times over (train,
+    val_id, val_ood), each writing 8 audio clips and a 15x30in figure. Over 400
+    epochs that is gigabytes of event file, and it makes reading the scalars
+    back out take minutes.
+
+    Every 25th epoch keeps the qualitative check without that cost. This is
+    logging only; nothing about training changes.
+    """
+
+    def __init__(self, batch_frequency=1000, epoch_frequency=25):
         super().__init__()
         self.batch_freq = batch_frequency
+        self.epoch_freq = epoch_frequency
 
     @rank_zero_only
     def log_local(self, writer, name, current_epoch, orig_audio, resyn_audio):
         save_to_board(current_epoch, name, writer, orig_audio, resyn_audio)
 
     def log_audio(self, pl_module, batch, batch_idx, name="train"):
+        if self.epoch_freq and pl_module.current_epoch % self.epoch_freq:
+            return
         if batch_idx % self.batch_freq == 0:
             is_train = pl_module.training
             if is_train:

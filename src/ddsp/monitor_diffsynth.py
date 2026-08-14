@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import os
 from pathlib import Path
 
@@ -58,8 +59,30 @@ def load(run_dir: str) -> dict | None:
             "(it is in external/diffsynth/requirements-modern.txt)"
         )
     tb = os.path.join(run_dir, "tb_logs")
-    if not glob.glob(os.path.join(tb, "**", "events.out.tfevents.*"), recursive=True):
+    files = sorted(glob.glob(os.path.join(tb, "**", "events.out.tfevents.*"),
+                             recursive=True))
+    if not files:
         return None
+
+    # Parsing is slow because the event files are mostly not scalars: AudioLogger
+    # writes 8 audio clips and a 15x30in figure for train, val_id and val_ood
+    # every epoch, so a 400-epoch run leaves gigabytes that EventAccumulator has
+    # to walk through to reach the numbers. Cache the extracted series against
+    # the files' size and mtime -- a finished run is then read once, and only
+    # runs still being written to are re-parsed.
+    fp = [[f, os.path.getsize(f), int(os.path.getmtime(f))] for f in files]
+    cache_path = os.path.join(run_dir, ".monitor_cache.json")
+    try:
+        cached = json.load(open(cache_path))
+        if cached.get("fp") == fp:
+            c = cached["data"]
+            c["series"] = {k: {int(st): v for st, v in d.items()}
+                           for k, d in c["series"].items()}
+            c["steps"] = [int(x) for x in c["steps"]]
+            return c
+    except Exception:
+        pass
+
     ea = EventAccumulator(tb, size_guidance={"scalars": 0})
     ea.Reload()
     have = set(ea.Tags().get("scalars", []))
@@ -87,13 +110,19 @@ def load(run_dir: str) -> dict | None:
             max_epochs = yaml.safe_load(open(cfg))["trainer"]["max_epochs"]
         except Exception:
             pass
-    return {
+    out = {
         "series": series,
         "steps": steps,
         "elapsed": (ev[-1].wall_time - ev[0].wall_time) if len(ev) > 1 else 0.0,
         "n_ev": len(ev),
         "max_epochs": max_epochs,
     }
+    try:
+        with open(cache_path, "w") as fh:
+            json.dump({"fp": fp, "data": out}, fh)
+    except Exception:
+        pass    # a read-only or racing run directory is not worth failing over
+    return out
 
 
 
