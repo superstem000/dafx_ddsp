@@ -19,6 +19,14 @@ exactly one GPU.
     EOF
     python scripts/gpu_queue.py --jobs jobs.txt
 
+STAGES. A line of the form `# STAGE <label>` starts a new stage, and stages are
+barriers: nothing in stage N+1 starts until every job in stage N has exited,
+and if any of them failed the remaining stages are abandoned rather than
+launched against outputs that were never written. That is what lets a dependent
+pipeline be one file and one command -- a 50-epoch base, five branches that
+resume from its checkpoint, then eight resumes from theirs. A file with no
+STAGE lines is a single stage, which is exactly the previous behaviour.
+
 Ctrl-C stops the queue and terminates running jobs. Jobs already finished stay
 finished; re-running with the same file starts everything again, so trim the
 file or use the sweep scripts' own skip logic if that matters.
@@ -28,10 +36,9 @@ from __future__ import annotations
 
 import argparse
 import os
-import shlex
+import re
 import signal
 import subprocess
-import sys
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -55,10 +62,31 @@ def gpu_memory() -> dict[int, int]:
     return used
 
 
+def parse_stages(path: Path) -> list[tuple[str, list[str]]]:
+    """[(label, [command, ...]), ...] -- one entry per '# STAGE' section."""
+    stages: list[tuple[str, list[str]]] = []
+    label, cur = "all", []
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        m = re.match(r"^#\s*STAGE\b[:\s]*(.*)$", line, re.I)
+        if m:
+            if cur:
+                stages.append((label, cur))
+                cur = []
+            label = m.group(1).strip() or f"stage{len(stages)}"
+            continue
+        if line and not line.startswith("#"):
+            cur.append(line)
+    if cur:
+        stages.append((label, cur))
+    return stages
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--jobs", type=Path, required=True,
-                   help="One shell command per line, {gpu} for the device index")
+                   help="One shell command per line, {gpu} for the device index; "
+                        "'# STAGE <label>' introduces a dependency barrier")
     p.add_argument("--gpus", default=None,
                    help="Space-separated indices to use; default is every GPU")
     p.add_argument("--poll", type=int, default=60, help="Seconds between polls")
@@ -71,84 +99,125 @@ def main() -> None:
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
-    jobs = [l.strip() for l in args.jobs.read_text().splitlines()]
-    jobs = [l for l in jobs if l and not l.startswith("#")]
-    if not jobs:
+    stages = parse_stages(args.jobs)
+    if not stages:
         print("no jobs"); raise SystemExit(1)
+    n_jobs = sum(len(js) for _, js in stages)
 
     try:
         all_gpus = sorted(gpu_memory())
     except (FileNotFoundError, subprocess.CalledProcessError) as e:
-        print(f"cannot read nvidia-smi: {e}"); raise SystemExit(1)
+        # --dry-run is for checking the jobs file parses into the stages you
+        # meant, which is worth being able to do anywhere -- including on a
+        # machine with no GPU.
+        if not args.dry_run:
+            print(f"cannot read nvidia-smi: {e}"); raise SystemExit(1)
+        print(f"(no nvidia-smi: {e} -- dry run continues)")
+        all_gpus = []
     gpus = [int(g) for g in args.gpus.split()] if args.gpus else all_gpus
 
     logdir = args.logdir.expanduser()
     logdir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[{stamp()}] {len(jobs)} jobs, gpus {gpus}, "
+    print(f"[{stamp()}] {n_jobs} job(s) in {len(stages)} stage(s), gpus {gpus}, "
           f"free<{args.free_mib}MiB for {args.stable} polls of {args.poll}s")
-    for i, j in enumerate(jobs):
-        print(f"    {i}: {j}")
+    i = 0
+    for label, js in stages:
+        print(f"  --- stage '{label}'")
+        for j in js:
+            print(f"    {i}: {j}")
+            i += 1
     if args.dry_run:
         return
 
-    pending = list(enumerate(jobs))
+    state = {"stopping": False}
     running: dict[int, tuple[int, subprocess.Popen]] = {}   # gpu -> (idx, proc)
-    free_streak: dict[int, int] = defaultdict(int)
-    stopping = False
+    failed: list[tuple[int, int]] = []
 
     def stop(_s, _f):
-        nonlocal stopping
-        stopping = True
+        state["stopping"] = True
         print(f"\n[{stamp()}] interrupted -- terminating {len(running)} running job(s)")
         for _g, (_i, pr) in running.items():
             pr.terminate()
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
-    while (pending or running) and not stopping:
+    def run_stage(label: str, js: list[str], base: int) -> None:
+        """Schedule this stage's jobs, then wait for every one of them."""
+        print(f"\n[{stamp()}] === stage '{label}' -- {len(js)} job(s)")
+        pending = list(enumerate(js, start=base))
+        free_streak: dict[int, int] = defaultdict(int)
+
+        while (pending or running) and not state["stopping"]:
+            for g, (idx, pr) in list(running.items()):
+                if pr.poll() is not None:
+                    print(f"[{stamp()}] job {idx} on gpu {g} exited rc={pr.returncode}")
+                    if pr.returncode:
+                        failed.append((idx, pr.returncode))
+                    del running[g]
+                    free_streak[g] = 0      # let it settle before reuse
+
+            if pending:
+                try:
+                    used = gpu_memory()
+                except subprocess.CalledProcessError:
+                    used = {}
+                for g in gpus:
+                    if g in running or g not in used:
+                        continue
+                    free_streak[g] = free_streak[g] + 1 if used[g] < args.free_mib else 0
+
+                for g in gpus:
+                    if not pending or g in running:
+                        continue
+                    if free_streak[g] < args.stable:
+                        continue
+                    idx, cmd = pending.pop(0)
+                    real = cmd.replace("{gpu}", str(g))
+                    log = logdir / f"job{idx}_gpu{g}.log"
+                    print(f"[{stamp()}] job {idx} -> gpu {g}  ({log})")
+                    print(f"           {real}")
+                    with log.open("w") as fh:
+                        fh.write(f"# {real}\n\n"); fh.flush()
+                        pr = subprocess.Popen(real, shell=True, stdout=fh,
+                                              stderr=subprocess.STDOUT,
+                                              preexec_fn=os.setsid)
+                    running[g] = (idx, pr)
+                    free_streak[g] = 0
+
+            if pending or running:
+                time.sleep(args.poll)
+
+        # The barrier: this stage is not finished until nothing of it is left
+        # running, whether we got here normally or via Ctrl-C.
         for g, (idx, pr) in list(running.items()):
-            if pr.poll() is not None:
-                print(f"[{stamp()}] job {idx} on gpu {g} exited rc={pr.returncode}")
-                del running[g]
-                free_streak[g] = 0          # let it settle before reuse
+            pr.wait()
+            print(f"[{stamp()}] job {idx} on gpu {g} exited rc={pr.returncode}")
+            if pr.returncode:
+                failed.append((idx, pr.returncode))
+            del running[g]
 
-        if pending:
-            try:
-                used = gpu_memory()
-            except subprocess.CalledProcessError:
-                used = {}
-            for g in gpus:
-                if g in running or g not in used:
-                    continue
-                free_streak[g] = free_streak[g] + 1 if used[g] < args.free_mib else 0
+    base = 0
+    for si, (label, js) in enumerate(stages):
+        run_stage(label, js, base)
+        base += len(js)
+        if state["stopping"]:
+            break
+        bad = [(j, rc) for j, rc in failed if base - len(js) <= j < base]
+        if bad and si + 1 < len(stages):
+            # Later stages resume from checkpoints these jobs were supposed to
+            # write, so continuing would launch them against files that do not
+            # exist -- a cascade of fast confusing failures instead of one clear
+            # one.
+            print(f"\n[{stamp()}] stage '{label}' had {len(bad)} failure(s): "
+                  + ", ".join(f"job {j} (rc={rc})" for j, rc in bad))
+            print(f"[{stamp()}] NOT starting the remaining {len(stages) - si - 1} "
+                  f"stage(s) -- they depend on this one.")
+            print(f"[{stamp()}] logs: {logdir}")
+            break
 
-            for g in gpus:
-                if not pending or g in running:
-                    continue
-                if free_streak[g] < args.stable:
-                    continue
-                idx, cmd = pending.pop(0)
-                real = cmd.replace("{gpu}", str(g))
-                log = logdir / f"job{idx}_gpu{g}.log"
-                print(f"[{stamp()}] job {idx} -> gpu {g}  ({log})")
-                print(f"           {real}")
-                with log.open("w") as fh:
-                    fh.write(f"# {real}\n\n"); fh.flush()
-                    pr = subprocess.Popen(real, shell=True, stdout=fh,
-                                          stderr=subprocess.STDOUT,
-                                          preexec_fn=os.setsid)
-                running[g] = (idx, pr)
-                free_streak[g] = 0
-
-        if pending or running:
-            time.sleep(args.poll)
-
-    for g, (idx, pr) in running.items():
-        pr.wait()
-        print(f"[{stamp()}] job {idx} on gpu {g} exited rc={pr.returncode}")
-    print(f"[{stamp()}] queue {'stopped' if stopping else 'complete'}; "
-          f"{len(pending)} job(s) never started")
+    print(f"\n[{stamp()}] queue {'stopped' if state['stopping'] else 'finished'}; "
+          f"{len(failed)} job(s) failed")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,50 @@
+# Masuda & Saito's design recreated in DiffMoog, plus the linear swap.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth.txt
+#
+# REQUIRES the SAW_SQUARE_MIX_FILTER dataset. The eps ladder ran on `fixed10k`
+# (SAW_FIXED_FILTER, 10000 train / 1000 val) and these configs need a different
+# chain and size -- 16000 train so that batch 64 gives 250 steps/epoch, which
+# is what makes DiffMoog's epoch-indexed ramp land on their step-indexed one
+# (12500 / 50000 / 100000 -> epochs 50 / 200 / 400). Generate it once:
+#
+#   cd external/diffmoog
+#   python src/dataset/create_data.py -s train -k 16000 -n ds16k -c SAW_SQUARE_MIX_FILTER -g 0
+#   python src/dataset/create_data.py -s val   -k  1600 -n ds16k -c SAW_SQUARE_MIX_FILTER -g 0
+#
+# signal_duration 4.0 and note_off 3.0 are create_data's defaults and match the
+# configs, so they do not need passing. Check `ls external/diffmoog/data/ds16k`
+# before queueing -- every arm below will fail on a missing dataset, and it
+# will fail seven times.
+#
+# Budget: 400 epochs x 250 steps = 100000 optimizer steps per arm. These are
+# long. Run the three recreation arms first and look at them before paying for
+# the four swap arms.
+#
+# `< /dev/null` on every line is load-bearing. main.py calls input() to confirm
+# overwriting an existing experiment directory; under a detached queue that
+# would block forever with no output. With stdin closed it raises EOFError and
+# the job fails loudly instead of hanging a card all night.
+
+# --- their design, as published ---
+# ds_ploss   parameter loss only, their p-loss baseline
+# ds_spec    spectral only, their hybrid loss (mag + log at equal weight)
+# ds_switch  the real one: p-loss holds to epoch 50, then ramps to 0 while
+#            spectral ramps in, finishing at epoch 200, spectral-only to 400
+cd external/diffmoog && python src/main.py -e ds_ploss  -d ds16k -c loss_study/ds_ploss.yaml  -g {gpu} < /dev/null
+cd external/diffmoog && python src/main.py -e ds_spec   -d ds16k -c loss_study/ds_spec.yaml   -g {gpu} < /dev/null
+cd external/diffmoog && python src/main.py -e ds_switch -d ds16k -c loss_study/ds_switch.yaml -g {gpu} < /dev/null
+
+# --- the swap, on their schedule ---
+# Same config as ds_switch in every respect except the loss preset, so the
+# comparison is against their own design running their own p-loss ramp rather
+# than against a spectral-only run no published table contains. This is the
+# experiment; the two below it are the spectral-only version of the same split.
+cd external/diffmoog && python src/main.py -e ds_switch_mag -d ds16k -c loss_study/ds_switch_mag.yaml -g {gpu} < /dev/null
+cd external/diffmoog && python src/main.py -e ds_switch_log -d ds16k -c loss_study/ds_switch_log.yaml -g {gpu} < /dev/null
+
+# --- the swap, spectral-only ---
+# Isolates the loss from the schedule: if mag beats log here but not under the
+# switch, the p-loss phase is doing the work rather than the compression.
+cd external/diffmoog && python src/main.py -e ds_spec_mag -d ds16k -c loss_study/ds_spec_mag.yaml -g {gpu} < /dev/null
+cd external/diffmoog && python src/main.py -e ds_spec_log -d ds16k -c loss_study/ds_spec_log.yaml -g {gpu} < /dev/null

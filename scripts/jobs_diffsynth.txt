@@ -1,50 +1,69 @@
-# Masuda & Saito's design recreated in DiffMoog, plus the linear swap.
+# Masuda & Saito, end to end: one base, four loss variants, both resumes each.
 #
 #   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth.txt
 #
-# REQUIRES the SAW_SQUARE_MIX_FILTER dataset. The eps ladder ran on `fixed10k`
-# (SAW_FIXED_FILTER, 10000 train / 1000 val) and these configs need a different
-# chain and size -- 16000 train so that batch 64 gives 250 steps/epoch, which
-# is what makes DiffMoog's epoch-indexed ramp land on their step-indexed one
-# (12500 / 50000 / 100000 -> epochs 50 / 200 / 400). Generate it once:
+# Three stages with barriers between them, so this is one command rather than
+# three launches watched by hand. gpu_queue.py holds each stage until every job
+# in it has exited, and abandons the rest if any failed -- which is the right
+# behaviour here, since every later job resumes from a checkpoint an earlier one
+# writes.
 #
-#   cd external/diffmoog
-#   python src/dataset/create_data.py -s train -k 16000 -n ds16k -c SAW_SQUARE_MIX_FILTER -g 0
-#   python src/dataset/create_data.py -s val   -k  1600 -n ds16k -c SAW_SQUARE_MIX_FILTER -g 0
+# THE BASE. Epochs 0-50 are identical for every model in the paper: param.yaml
+# is constant at param_w 10, and switch.yaml's linear_anneal returns start_v for
+# any step below its start of 12500. So the same 50 epochs were being trained
+# five times, and -- because trainer.deterministic cannot be enabled here
+# (upsample_linear1d_backward has no deterministic CUDA kernel; see
+# configs/trainer/default.yaml) -- five times with slightly different answers.
+# Measured before this change: ~1% spread in Param and ~0.2 in val_id/lsd
+# between runs that were computing the same loss.
 #
-# signal_duration 4.0 and note_off 3.0 are create_data's defaults and match the
-# configs, so they do not need passing. Check `ls external/diffmoog/data/ds16k`
-# before queueing -- every arm below will fail on a missing dataset, and it
-# will fail seven times.
+# Training it once and branching removes that divergence entirely, and it is
+# also the more faithful reading: the paper describes those 50 epochs as one
+# procedure every model undergoes, not as five independent pretrainings.
 #
-# Budget: 400 epochs x 250 steps = 100000 optimizer steps per arm. These are
-# long. Run the three recreation arms first and look at them before paying for
-# the four swap arms.
+# It does NOT make the arms bitwise comparable afterwards. Nondeterminism still
+# accumulates over epochs 50-400. What it removes is the head start on that
+# accumulation, and the awkwardness of arms that began from different places.
 #
-# `< /dev/null` on every line is load-bearing. main.py calls input() to confirm
-# overwriting an existing experiment directory; under a detached queue that
-# would block forever with no output. With stdin closed it raises EOFError and
-# the job fails loudly instead of hanging a card all night.
+# Lightning restores optimizer moments, the ExponentialLR state and the RNG
+# state on resume, so a branch continues rather than restarts. The schedule is
+# rebuilt from the new config rather than the checkpoint, which is what lets
+# ploss branch off with param.yaml while the pretrains use switch.yaml.
 
-# --- their design, as published ---
-# ds_ploss   parameter loss only, their p-loss baseline
-# ds_spec    spectral only, their hybrid loss (mag + log at equal weight)
-# ds_switch  the real one: p-loss holds to epoch 50, then ramps to 0 while
-#            spectral ramps in, finishing at epoch 200, spectral-only to 400
-cd external/diffmoog && python src/main.py -e ds_ploss  -d ds16k -c loss_study/ds_ploss.yaml  -g {gpu} < /dev/null
-cd external/diffmoog && python src/main.py -e ds_spec   -d ds16k -c loss_study/ds_spec.yaml   -g {gpu} < /dev/null
-cd external/diffmoog && python src/main.py -e ds_switch -d ds16k -c loss_study/ds_switch.yaml -g {gpu} < /dev/null
+# STAGE base
+# 50 epochs, param loss only, no audio rendered (model.py:143 skips synthesis
+# while sw_w is 0) -- so this is the cheap phase and it only runs once.
+scripts/ds_run.sh pre_base pretrain "{gpu}" trainer.max_epochs=50
 
-# --- the swap, on their schedule ---
-# Same config as ds_switch in every respect except the loss preset, so the
-# comparison is against their own design running their own p-loss ramp rather
-# than against a spectral-only run no published table contains. This is the
-# experiment; the two below it are the spectral-only version of the same split.
-cd external/diffmoog && python src/main.py -e ds_switch_mag -d ds16k -c loss_study/ds_switch_mag.yaml -g {gpu} < /dev/null
-cd external/diffmoog && python src/main.py -e ds_switch_log -d ds16k -c loss_study/ds_switch_log.yaml -g {gpu} < /dev/null
+# STAGE variants
+# All five branch from pre_base at epoch 50.
+#
+#   ploss           param loss to 400            the paper's P-loss row
+#   pre_hybrid      their mag+log to 200         the reproduction
+#   pre_mag         log_mag_w=0                  the claim
+#   pre_log         mag_w=0                      the other half
+#   pre_mag_halfw   log_mag_w=0, sw_w end 0.5    the normalisation control
+#
+# mag_halfw exists because loss.py:60 divides by len(fft_sizes)*(mag_w +
+# log_mag_w): zeroing log_mag_w takes the divisor from 12 to 6 and doubles the
+# weight the surviving term carries. Adam absorbs a constant; gradient_clip_val
+# 1.0 does not. Halving sw_w restores 1/12 per term exactly.
+RESUME=pre_base scripts/ds_run.sh ploss         ploss    "{gpu}"
+RESUME=pre_base scripts/ds_run.sh pre_hybrid    pretrain "{gpu}"
+RESUME=pre_base scripts/ds_run.sh pre_mag       pretrain "{gpu}" model.sw_loss.log_mag_w=0
+RESUME=pre_base scripts/ds_run.sh pre_log       pretrain "{gpu}" model.sw_loss.mag_w=0
+RESUME=pre_base scripts/ds_run.sh pre_mag_halfw pretrain "{gpu}" model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
 
-# --- the swap, spectral-only ---
-# Isolates the loss from the schedule: if mag beats log here but not under the
-# switch, the p-loss phase is doing the work rather than the compression.
-cd external/diffmoog && python src/main.py -e ds_spec_mag -d ds16k -c loss_study/ds_spec_mag.yaml -g {gpu} < /dev/null
-cd external/diffmoog && python src/main.py -e ds_spec_log -d ds16k -c loss_study/ds_spec_log.yaml -g {gpu} < /dev/null
+# STAGE resumes
+# Each pretrain branches twice, to epoch 400. resume_synth continues in-domain
+# (the paper's "Synth"); resume_real switches the training loader to NSynth
+# (the paper's "Real"). Both keep validating on both domains, which is where
+# val_id/* and val_ood/* come from.
+RESUME=pre_hybrid    scripts/ds_run.sh synth_hybrid    resume_synth "{gpu}"
+RESUME=pre_hybrid    scripts/ds_run.sh real_hybrid     resume_real  "{gpu}"
+RESUME=pre_mag       scripts/ds_run.sh synth_mag       resume_synth "{gpu}" model.sw_loss.log_mag_w=0
+RESUME=pre_mag       scripts/ds_run.sh real_mag        resume_real  "{gpu}" model.sw_loss.log_mag_w=0
+RESUME=pre_log       scripts/ds_run.sh synth_log       resume_synth "{gpu}" model.sw_loss.mag_w=0
+RESUME=pre_log       scripts/ds_run.sh real_log        resume_real  "{gpu}" model.sw_loss.mag_w=0
+RESUME=pre_mag_halfw scripts/ds_run.sh synth_mag_halfw resume_synth "{gpu}" model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
+RESUME=pre_mag_halfw scripts/ds_run.sh real_mag_halfw  resume_real  "{gpu}" model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
