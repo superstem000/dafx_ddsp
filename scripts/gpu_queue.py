@@ -134,11 +134,26 @@ def main() -> None:
     running: dict[int, tuple[int, subprocess.Popen]] = {}   # gpu -> (idx, proc)
     failed: list[tuple[int, int]] = []
 
+    def terminate(pr: subprocess.Popen) -> None:
+        """Signal the job's whole process group, not just its shell.
+
+        Jobs start with preexec_fn=os.setsid, so each gets its own process
+        group. pr.terminate() then reaches only the shell wrapper -- the python
+        training process underneath survives, holds its GPU, and keeps writing
+        results after the queue is gone. That happened: killing the queue left
+        three trainings running for another two hours, invisible to every
+        pattern anyone thought to pkill.
+        """
+        try:
+            os.killpg(os.getpgid(pr.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pr.terminate()
+
     def stop(_s, _f):
         state["stopping"] = True
         print(f"\n[{stamp()}] interrupted -- terminating {len(running)} running job(s)")
         for _g, (_i, pr) in running.items():
-            pr.terminate()
+            terminate(pr)
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
