@@ -16,7 +16,14 @@ differently, which is exactly the ambiguity worth not repeating.
 
     python -m src.ddsp.monitor_diffsynth
     python -m src.ddsp.monitor_diffsynth --table
-    python -m src.ddsp.monitor_diffsynth --root results/diffsynth --tail 10
+    python -m src.ddsp.monitor_diffsynth --root results/diffsynth --rows 16
+
+Trajectories are shown at milestones across the whole run, not as the last few
+epochs. Adjacent epochs differ by noise -- val_ood/lsd moves ~0.1 between
+neighbours while a run's total improvement may be ~2 -- so reading recent rows
+tells you almost nothing. Each milestone is a local mean, epochs 50 and 200 are
+always included as the phase boundaries, and a verdict line says whether each
+metric is still moving, judged against its own recent scatter.
 """
 
 from __future__ import annotations
@@ -89,6 +96,55 @@ def load(run_dir: str) -> dict | None:
     }
 
 
+
+def pairs(r: dict, key: str, spe: int):
+    """(epoch, value) sorted, for one metric of one run."""
+    return sorted((st // spe, v) for st, v in r["series"].get(key, {}).items())
+
+
+def around(pts, ep, half=2):
+    """Mean of the values within +-half epochs of ep, or nan."""
+    vals = [v for e, v in pts if abs(e - ep) <= half]
+    return sum(vals) / len(vals) if vals else float("nan")
+
+
+def stdev(vals):
+    if len(vals) < 2:
+        return float("nan")
+    m = sum(vals) / len(vals)
+    return (sum((v - m) ** 2 for v in vals) / (len(vals) - 1)) ** 0.5
+
+
+def trend(pts):
+    """Compare the last tenth of the run against the tenth before it.
+
+    Epoch-to-epoch values here are dominated by noise -- val_ood/lsd moves by
+    ~0.1 between adjacent epochs while the whole run's improvement may be ~2 --
+    so a single latest number says almost nothing. Two block means, with the
+    verdict gated on the recent scatter, answers "is this still moving" without
+    anyone eyeballing rows.
+    """
+    if len(pts) < 10:
+        return None
+    n = max(3, len(pts) // 10)
+    last = [v for _, v in pts[-n:]]
+    prev = [v for _, v in pts[-2 * n:-n]]
+    if not prev:
+        return None
+    lm, pm = sum(last) / len(last), sum(prev) / len(prev)
+    noise = stdev(last)
+    delta = lm - pm
+    if noise == noise and abs(delta) < 0.5 * noise:
+        verdict = "flat"
+    elif delta < 0:
+        verdict = "improving"
+    else:
+        verdict = "WORSENING"
+    best_e, best_v = min(pts, key=lambda p: p[1])
+    return {"n": n, "last": lm, "prev": pm, "delta": delta, "noise": noise,
+            "verdict": verdict, "best_v": best_v, "best_e": best_e}
+
+
 def at(d: dict, step: int, key: str) -> float:
     return d["series"].get(key, {}).get(step, float("nan"))
 
@@ -98,7 +154,8 @@ def main() -> None:
     p.add_argument("--root", default="results/diffsynth")
     p.add_argument("--table", action="store_true",
                    help="Table 1 shape at best and final epoch, rather than progress")
-    p.add_argument("--tail", type=int, default=8, help="Trajectory rows to show")
+    p.add_argument("--rows", type=int, default=10,
+                   help="Roughly how many milestone rows to show across the run")
     p.add_argument("--steps-per-epoch", type=int, default=250,
                    help="16000 train / batch 64; only used to label epochs")
     args = p.parse_args()
@@ -151,20 +208,43 @@ def main() -> None:
               f"{at(r, last, 'param'):>9.4f}")
 
     for key, label in (("ood_lsd", "val_ood/lsd  (what the checkpoint selects on)"),
-                       ("param", "val_id/param (the paper's Param column)")):
+                       ("id_lsd", "val_id/lsd"),
+                       ("param", "val_id/param  (the paper's Param column)")):
         names = [n for n in runs if key in runs[n]["series"]]
         if not names:
             continue
-        print(f"\n=== {label}")
-        allsteps = sorted({s for n in names for s in runs[n]["series"][key]})[-args.tail:]
-        w = max(10, max(len(n) for n in names) + 2)
-        print(f"{'epoch':>7}" + "".join(f"{n:>{w}}" for n in names))
-        for s in allsteps:
+        P = {n: pairs(runs[n], key, args.steps_per_epoch) for n in names}
+        w = max(11, max(len(n) for n in names) + 2)
+
+        # Milestones rather than the last N epochs. Adjacent epochs differ by
+        # noise; what carries information is the shape across the whole run, and
+        # the two phase boundaries -- 50, where the spectral loss starts being
+        # introduced, and 200, where the ramp completes and the resume begins.
+        top = max(e for n in names for e, _ in P[n])
+        marks = {1, 50, 200, top}
+        marks |= {round(top * i / args.rows) for i in range(1, args.rows)}
+        marks = sorted(e for e in marks if 0 < e <= top)
+
+        print(f"\n=== {label}   (mean over +-2 epochs; * marks a phase boundary)")
+        print(f"{'epoch':>7} " + "".join(f"{n:>{w}}" for n in names))
+        for e in marks:
             cells = []
             for n in names:
-                v = runs[n]["series"][key].get(s)
-                cells.append(f"{v:>{w}.4f}" if v is not None else f"{'-':>{w}}")
-            print(f"{s // args.steps_per_epoch:>7}" + "".join(cells))
+                v = around(P[n], e)
+                cells.append(f"{v:>{w}.4f}" if v == v else f"{'-':>{w}}")
+            flag = "*" if e in (50, 200) else " "
+            print(f"{e:>7}{flag}" + "".join(cells))
+
+        print(f"\n{'':7} {'best (epoch)':>18}{'last':>10}{'prev':>10}"
+              f"{'change':>10}{'noise':>9}  verdict")
+        for n in names:
+            t = trend(P[n])
+            if t is None:
+                print(f"{n:<18} too few points yet")
+                continue
+            print(f"{n:<18}{t['best_v']:>9.4f} ({t['best_e']:>3}){t['last']:>10.4f}"
+                  f"{t['prev']:>10.4f}{t['delta']:>+10.4f}{t['noise']:>9.4f}"
+                  f"  {t['verdict']}")
 
 
 if __name__ == "__main__":
