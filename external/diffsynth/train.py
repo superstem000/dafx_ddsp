@@ -1,3 +1,5 @@
+import os
+
 import hydra
 import pytorch_lightning as pl
 from plot import AudioLogger
@@ -12,6 +14,18 @@ from diffsynth.model import EstimatorSynth
 def main(cfg):
     pl.seed_everything(0, workers=True)
     warnings.simplefilter('ignore', RuntimeWarning)
+    # Hydra chdirs into outputs/<date>/<time>/ before main() runs, which is what
+    # keeps each run's tb_logs and checkpoints separate. The side effect is that
+    # every relative path in the config -- including one passed on the command
+    # line as data.id_dir=data/foo -- resolves against the run directory rather
+    # than where the command was typed. The failure mode is quiet: the dataset
+    # globs nothing, prints "loaded 0 files", and dies later on a missing
+    # param dir. Re-anchor the data paths to the launch directory instead.
+    for _k in ('id_dir', 'ood_dir'):
+        _v = cfg.data.get(_k, None)
+        if _v is not None and not os.path.isabs(_v):
+            cfg.data[_k] = os.path.join(hydra.utils.get_original_cwd(), _v)
+
     model = EstimatorSynth(cfg.model, cfg.synth, cfg.schedule)
     logger = pl.loggers.TensorBoardLogger("tb_logs", "", default_hp_metric=False, version='')
     hparams = {'data': cfg.data.train_type, 'schedule': cfg.schedule.name, 'synth': cfg.synth.name}
