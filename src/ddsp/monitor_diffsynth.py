@@ -134,7 +134,16 @@ def trend(pts):
     lm, pm = sum(last) / len(last), sum(prev) / len(prev)
     noise = stdev(last)
     delta = lm - pm
-    if noise == noise and abs(delta) < 0.5 * noise:
+
+    # Compare the change to the standard error of the DIFFERENCE OF MEANS, not
+    # to the raw scatter. Averaging n points shrinks their error by sqrt(n), so
+    # gating on the standard deviation calls block-mean changes significant that
+    # are nothing of the kind -- it flagged a +0.60 move in val_id/lsd against a
+    # scatter of 0.99 as WORSENING when the standard error of that difference is
+    # 0.63. Two standard errors is the usual bar.
+    sl, sp = stdev(last), stdev(prev)
+    se = ((sl * sl) / len(last) + (sp * sp) / len(prev)) ** 0.5 if sl == sl and sp == sp else float("nan")
+    if not (se == se) or abs(delta) < 2 * se:
         verdict = "flat"
     elif delta < 0:
         verdict = "improving"
@@ -142,7 +151,7 @@ def trend(pts):
         verdict = "WORSENING"
     best_e, best_v = min(pts, key=lambda p: p[1])
     return {"n": n, "last": lm, "prev": pm, "delta": delta, "noise": noise,
-            "verdict": verdict, "best_v": best_v, "best_e": best_e}
+            "se": se, "verdict": verdict, "best_v": best_v, "best_e": best_e}
 
 
 def at(d: dict, step: int, key: str) -> float:
@@ -156,6 +165,13 @@ def main() -> None:
                    help="Table 1 shape at best and final epoch, rather than progress")
     p.add_argument("--rows", type=int, default=10,
                    help="Roughly how many milestone rows to show across the run")
+    p.add_argument("--spread", type=int, default=None, metavar="EPOCH",
+                   help="Report every run's value at this epoch and their range. "
+                        "Before epoch 50 all pretrains and ploss are the same "
+                        "configuration -- deterministic: False means CUDA "
+                        "reductions are not order-stable, so they diverge, and "
+                        "that divergence IS the run-to-run error bar for every "
+                        "later comparison.")
     p.add_argument("--steps-per-epoch", type=int, default=250,
                    help="16000 train / batch 64; only used to label epochs")
     args = p.parse_args()
@@ -169,6 +185,28 @@ def main() -> None:
             runs[Path(d).name] = r
     if not runs:
         print(f"no runs with event files under {args.root}")
+        return
+
+    if args.spread is not None:
+        e0 = args.spread
+        print(f"Run-to-run spread at epoch {e0}.")
+        if e0 <= 50:
+            print("At or below epoch 50 every pretrain and ploss run the same")
+            print("loss (param_w 10, sw_w 0), so this is pure seed/CUDA noise")
+            print("and is the error bar later differences must clear.\n")
+        print(f"{'metric':<12}{'n':>4}{'min':>11}{'max':>11}{'range':>11}"
+              f"{'mean':>11}{'sd':>10}")
+        for key in ("param", "id_lsd", "id_multi", "ood_lsd", "ood_multi"):
+            vals = []
+            for n in runs:
+                v = around(pairs(runs[n], key, args.steps_per_epoch), e0)
+                if v == v:
+                    vals.append(v)
+            if len(vals) < 2:
+                continue
+            m = sum(vals) / len(vals)
+            print(f"{key:<12}{len(vals):>4}{min(vals):>11.4f}{max(vals):>11.4f}"
+                  f"{max(vals) - min(vals):>11.4f}{m:>11.4f}{stdev(vals):>10.4f}")
         return
 
     if args.table:
@@ -236,14 +274,14 @@ def main() -> None:
             print(f"{e:>7}{flag}" + "".join(cells))
 
         print(f"\n{'':7} {'best (epoch)':>18}{'last':>10}{'prev':>10}"
-              f"{'change':>10}{'noise':>9}  verdict")
+              f"{'change':>10}{'2*se':>9}  verdict")
         for n in names:
             t = trend(P[n])
             if t is None:
                 print(f"{n:<18} too few points yet")
                 continue
             print(f"{n:<18}{t['best_v']:>9.4f} ({t['best_e']:>3}){t['last']:>10.4f}"
-                  f"{t['prev']:>10.4f}{t['delta']:>+10.4f}{t['noise']:>9.4f}"
+                  f"{t['prev']:>10.4f}{t['delta']:>+10.4f}{2 * t['se']:>9.4f}"
                   f"  {t['verdict']}")
 
 
