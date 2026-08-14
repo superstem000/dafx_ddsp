@@ -3,6 +3,7 @@ import os
 import hydra
 import pytorch_lightning as pl
 from plot import AudioLogger
+from split_manifest import SplitManifest
 import warnings
 from pytorch_lightning.callbacks import ModelCheckpoint
 from diffsynth.model import EstimatorSynth
@@ -33,7 +34,14 @@ def main(cfg):
     logger.log_hyperparams(hparams, {'val_id/lsd': 40, 'val_ood/lsd': 40})
     # log audio examples
     checkpoint_callback = ModelCheckpoint(monitor="val_ood/lsd", save_top_k=1, filename="epoch_{epoch:03}_{val_ood/lsd:.2f}", save_last=True, auto_insert_metric_name=False)
-    callbacks = [pl.callbacks.LearningRateMonitor(logging_interval='step'), AudioLogger(), checkpoint_callback]
+    # SplitManifest records which files landed in which split. The train/val
+    # split is drawn from the global RNG at setup() time, and Synth and Real are
+    # resumes -- so if PL restores RNG state before setup(), a resumed run gets a
+    # different split and the pretrain phase's validation data becomes the
+    # resume phase's training data. Writing the membership makes that checkable
+    # instead of assumed, and costs one small json per run.
+    callbacks = [pl.callbacks.LearningRateMonitor(logging_interval='step'), AudioLogger(),
+                 SplitManifest(), checkpoint_callback]
     # PL 2 takes the resume path at fit() rather than as a Trainer argument, so
     # it is pulled out of the trainer config here. The config key is kept so the
     # README's `trainer.resume_from_checkpoint=<path>` commands still work.
