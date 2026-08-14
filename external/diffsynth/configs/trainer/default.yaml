@@ -32,24 +32,31 @@ num_nodes: 1
 enable_checkpointing: True
 benchmark: False
 
-# Bitwise reproducibility across runs of the same configuration.
+# Bitwise reproducibility across runs of the same configuration. TRIED AND NOT
+# AVAILABLE -- left False deliberately, with the reason, so nobody spends the
+# afternoon again.
 #
-# Off by default in Lightning, and without it CUDA reductions are not
-# order-stable, so two runs of identical code on identical data diverge from the
-# first few steps. Measured here before this was turned on: at epoch 45 the
-# pretrains and ploss -- which compute the same loss until epoch 50 -- differed
-# by ~1% in Param and ~0.2 in val_id/lsd purely from that.
+# Setting this True raises:
+#   upsample_linear1d_backward_out_cuda does not have a deterministic
+#   implementation
 #
-# For a comparison between loss variants, that variance is a floor under every
-# difference we could claim, so it is worth paying for. The costs are real:
-# some kernels are slower, and any op without a deterministic implementation
-# raises rather than silently varying. "warn" downgrades that raise to a warning
-# if an op turns out to lack one -- but then reproducibility is no longer
-# guaranteed, so prefer fixing the op to switching this.
+# from util.resample_frames, which is the one interpolation the whole synth
+# depends on -- oscillators, filter, envelopes, and param_loss itself all call
+# it. So it cannot be routed around, only rewritten, and a rewrite would change
+# the synth's numerics against the paper we are reproducing.
 #
-# Needs CUBLAS_WORKSPACE_CONFIG=:4096:8 in the environment; scripts/ds_run.sh
-# exports it.
-deterministic: True
+# "warn" would let it run, but the op stays nondeterministic, so it buys nothing
+# over leaving this False.
+#
+# What we do instead: measure the run-to-run spread and quote it. Before epoch
+# 50 every pretrain and ploss compute the same loss, so their divergence there
+# is exactly that noise -- ~1% in Param and ~0.2 in val_id/lsd, against effects
+# of ~36% and ~1.8 in the paper's own table. See monitor_diffsynth --spread.
+#
+# This is arguably the better answer anyway: bitwise determinism hides seed
+# sensitivity rather than measuring it, and "is this difference bigger than
+# noise" is the question a reviewer actually asks.
+deterministic: False
 precision: 32
 
 overfit_batches: 0.0
