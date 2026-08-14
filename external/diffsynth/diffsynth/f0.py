@@ -1,8 +1,30 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torchcrepe  
 import functools
+
+# torchcrepe is only needed by the f0 estimation path -- compute_f0 and
+# process_f0 below, reached when data.f0 is true. The paper's three training
+# procedures all run with f0: false (configs/data) and a null perc_model, so an
+# unconditional import here was the single thing standing between a fresh
+# environment and a working one: estimator.py imports FMIN/FMAX from this
+# module, which are plain constants, and that pulled in the whole dependency.
+#
+# Deferred rather than removed: if the f0 path IS used, the error should say so
+# precisely rather than fail somewhere downstream.
+try:
+    import torchcrepe
+except ImportError:  # pragma: no cover
+    torchcrepe = None
+
+
+def _require_torchcrepe():
+    if torchcrepe is None:
+        raise ImportError(
+            "torchcrepe is required for f0 estimation (data.f0=true or a crepe "
+            "perceptual model). Install it with `pip install torchcrepe`; the "
+            "paper's P-loss / Synth / Real procedures do not need it."
+        )
 
 FMIN = 32
 FMAX = 2000
@@ -13,6 +35,7 @@ def process_f0(f0_hz, periodicity):
     # replace unvoiced regions with NaN
     # win_length = 3
     # periodicity = torchcrepe.filter.mean(periodicity, win_length)
+    _require_torchcrepe()
     threshold = 1e-3
     # if all noisy, do not perform thresholding
     if (periodicity > threshold).any():
@@ -36,6 +59,7 @@ def compute_f0(audio, sample_rate):
         f0_hz: Fundamental frequency in Hz. Shape [1, 1 + int(time // hop_length,]
         periodicity: Basically, confidence of pitch value. Shape [1, 1 + int(time // hop_length,]
     """
+    _require_torchcrepe()
     audio = audio.unsqueeze(0)
 
     # Compute f0 with torchcrepe.
