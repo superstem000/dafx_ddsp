@@ -87,15 +87,20 @@ EXTRA=${EXTRA:-""}
 # decades down is undertrained at any budget we will pay for, so the cell would
 # say "not enough steps" rather than anything about the rate.
 #
-# The three losses are one of each kind. eps1 is the target: at 40k it is the
-# only log rung still moving (0.0885 -> 0.0789 over the last 14k steps), so
-# "slow" and "stuck" are still distinguishable for it and a rate grid can speak
-# to which. L1_STFT is the control and is not optional -- the claim is that
-# linear is as insensitive to rate as log is, and without the control on the
-# same axis that is an assertion. eps1e1 is flat to four digits, i.e. the dead
-# case.
+# One loss by default: eps1. The question this grid exists to answer is narrow
+# -- is eps1's failure an artifact of the learning rate -- and eps1 is the only
+# rung it is live for. It is the one still moving at 40k (0.0885 -> 0.0789 over
+# the last 14k steps), so "slow" and "stuck" are still distinguishable there,
+# where eps1e1 and eps1e3 are flat to four digits. If no rate in a decade
+# either side brings eps1 under the constant-predictor floor, the rate is not
+# the explanation, and that is the whole claim.
+#
+# Sweeping the linear control and eps1e1 as well would support a broader claim
+# -- that linear is no more rate-sensitive than log -- but that is a different
+# argument, and both already have their 3e-4 cell from the ladder. Pass LOSSES
+# to add them.
 LRS=${LRS:-"3e-3 1e-3 3e-4 1e-4 3e-5"}
-LOSSES=${LOSSES:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1"}
+LOSSES=${LOSSES:-"L1_STFT_eps1"}
 
 # `trap - INT TERM` first: kill 0 signals this script's own process group,
 # which includes this script, so without disarming the handler it re-enters

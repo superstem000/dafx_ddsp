@@ -1,59 +1,43 @@
-# Learning rate as a stated grid, queued onto cards as they free.
+# Is eps1's failure an artifact of the learning rate? Queued onto free cards.
 #
 #   python scripts/gpu_queue.py --jobs scripts/jobs_lr_probe.txt
 #
-# Nothing is set on these lines but the loss and the rate, because
-# scripts/lr_probe.sh now defaults to the eps ladder's recipe exactly -- 40000
-# steps, cosine to a 0.02 floor from 60% of the run, norm=batch, tanh,
-# adam_eps=1e-8, batch 64, clip 5000, warmup 2000, same datasets, same
-# numerics, same seed. Learning rate is the only difference between a cell here
-# and an arm there, which is the point: the results are quotable side by side.
+# Four cells: eps1 at a decade either side of the ladder's 3e-4. Nothing else
+# is set on these lines because scripts/lr_probe.sh defaults to the eps ladder's
+# recipe exactly -- 40000 steps, cosine to a 0.02 floor from 60% of the run,
+# norm=batch, tanh, adam_eps=1e-8, batch 64, clip 5000, warmup 2000, same
+# datasets, same numerics, same seed. Learning rate is the only difference
+# between a cell here and an arm of the ladder, which is what makes the two
+# quotable side by side.
 #
-# That is also why the naming of variables on every line, which earlier jobs
-# files insisted on, is absent here. The reason for that insistence was that a
-# default disagreed with the run being compared against; now they agree, so
-# restating them would be six more places for the two to drift apart.
+# eps1 alone, on purpose. The claim being defended is narrow -- that eps1's
+# result is not a rate artifact -- and eps1 is the only rung that claim is live
+# for: it is still descending at 40k (0.0885 -> 0.0789 over the last 14k steps)
+# where eps1e1 and eps1e3 are flat to four digits. Sweeping linear and eps1e1
+# too would support a broader claim, that linear is no more rate-sensitive than
+# log; that is a different argument and costs 8 more cells.
 #
-# THE 3e-4 COLUMN IS NOT HERE. At the ladder's own rate these cells reproduce
-# ladder arms bit for bit, seed included, so they come from
-# results/ddsp/eps_ladder_adam1e8 instead of costing ~16 GPU-hours to compute
-# twice. Report them from there.
+# 3e-4 is absent because at the ladder's own rate the cell reproduces the
+# ladder arm bit for bit, seed included. Take it from
+# results/ddsp/eps_ladder_adam1e8/L1_STFT_eps1.
 #
-# 12 cells x ~5.5h at ~2 steps/s. Ordering is eps1 first, then the control,
-# then the dead arm: a queue that only gets two thirds of the way still answers
-# the live question.
+# What answers the question: if no rate in the grid brings eps1 under the
+# constant-predictor floor of 0.0473, the rate is not the explanation. If one
+# does, the ladder has to be restated at the per-arm best rate rather than a
+# shared 3e-4 -- more work, but the honest version.
 #
-# Known limitation, for the caption rather than for a reviewer to find: equal
-# budget per cell means the low-rate cells are the least converged, so a poor
-# result at 3e-5 conflates "wrong rate" with "not enough steps". Equal budget
-# is still right; it just has to be declared. Report best-per-arm, not
-# best-overall.
+# Caption note: equal budget per cell means the low-rate cells are the least
+# converged, and the cosine decays to 2% of peak so 3e-5 ends at 6e-7. A poor
+# result there conflates "wrong rate" with "not enough steps". Equal budget is
+# still right; declare it. Report best-per-arm, not best-overall.
 
-# --- eps1: the only log arm still descending, i.e. the one the objection is
-#     actually about. Still above the constant-predictor floor (0.0789 vs
-#     0.0473, ratio 1.67), so it has not beaten the mean -- but slow and stuck
-#     are different claims and only one of them is a rate problem.
 LOSSES="L1_STFT_eps1" LRS="3e-3" scripts/lr_probe.sh "{gpu}"
 LOSSES="L1_STFT_eps1" LRS="1e-3" scripts/lr_probe.sh "{gpu}"
 LOSSES="L1_STFT_eps1" LRS="1e-4" scripts/lr_probe.sh "{gpu}"
 LOSSES="L1_STFT_eps1" LRS="3e-5" scripts/lr_probe.sh "{gpu}"
 
-# --- the linear control, on the same axis. Without it, "linear is as
-#     insensitive to rate as log is" is an assertion rather than a measurement.
-LOSSES="L1_STFT" LRS="3e-3" scripts/lr_probe.sh "{gpu}"
-LOSSES="L1_STFT" LRS="1e-3" scripts/lr_probe.sh "{gpu}"
-LOSSES="L1_STFT" LRS="1e-4" scripts/lr_probe.sh "{gpu}"
-LOSSES="L1_STFT" LRS="3e-5" scripts/lr_probe.sh "{gpu}"
-
-# --- eps1e1: flat to four digits for the last 10k steps, i.e. the dead case.
-LOSSES="L1_STFT_eps1e1" LRS="3e-3" scripts/lr_probe.sh "{gpu}"
-LOSSES="L1_STFT_eps1e1" LRS="1e-3" scripts/lr_probe.sh "{gpu}"
-LOSSES="L1_STFT_eps1e1" LRS="1e-4" scripts/lr_probe.sh "{gpu}"
-LOSSES="L1_STFT_eps1e1" LRS="3e-5" scripts/lr_probe.sh "{gpu}"
-
-# --- optional, and arguably more informative for eps1 than any rate ---
+# --- optional, and arguably the better experiment for eps1 than any rate ---
 # eps1 is descending, not flat, so the other reading of its 0.0789 is simply
-# "not converged". A rate grid cannot separate those; a longer run can.
-# Uncomment to queue last -- ~17h, and it competes with the cells above for
-# cards, so only add it once the grid is under way.
+# "not converged". No rate grid can separate those; a longer run can. Uncomment
+# to queue last -- ~17h, and it competes with the cells above for cards.
 # NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 STEPS=120000 OUT=results/ddsp/eps_ladder_adam1e8_long ARMS="L1_STFT_eps1" scripts/eps_ladder.sh "{gpu}"
