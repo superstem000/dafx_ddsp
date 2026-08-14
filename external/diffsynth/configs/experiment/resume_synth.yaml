@@ -14,7 +14,12 @@ data:
   train_type: id
 
 trainer:
-  max_epochs: 200
+
+# 400, not 200. max_epochs is absolute in Lightning and the checkpoint restores
+# current_epoch=200, so a resume capped at 200 trains nothing and exits looking
+# like a success. The paper's total is 200 pretrain + 200 resume (sec 4.1), so
+# 400 is both the fix and the intended figure.
+  max_epochs: 400
   gradient_clip_val: 1.0
 
 model:
