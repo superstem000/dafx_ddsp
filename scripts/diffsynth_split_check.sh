@@ -50,8 +50,12 @@ mkdir -p "$WORK"
 
 # hydra.run.dir is pinned so the manifests land where this script can find them;
 # by default hydra picks outputs/<date>/<time>/ and we would be globbing.
+# Every run's output goes to a log, so a failure would otherwise be invisible:
+# `set -e` exits the script with nothing on the terminal but the last echo. Trap
+# it here and show the tail instead.
 run () {
   local tag=$1; shift
+  local rc=0
   python train.py \
     experiment=pretrain \
     data.id_dir="$DATA" \
@@ -64,7 +68,15 @@ run () {
     trainer.accelerator=cpu \
     trainer.devices=1 \
     hydra.run.dir="$WORK/$tag" \
-    "$@" > "$WORK/$tag.log" 2>&1
+    "$@" > "$WORK/$tag.log" 2>&1 || rc=$?
+  if (( rc != 0 )); then
+    echo
+    echo "ERROR: run $tag exited $rc. Last 30 lines of $WORK/$tag.log:"
+    echo "----------------------------------------------------------------"
+    tail -30 "$WORK/$tag.log"
+    echo "----------------------------------------------------------------"
+    exit $rc
+  fi
 }
 
 echo "=== A  fresh, 1 epoch"
