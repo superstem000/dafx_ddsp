@@ -20,15 +20,30 @@
 # eps1 is log1p, which is c2, and eps1e7 is log -- the same two losses the old
 # probes used, under the ladder's names.
 #
-# The rate is held constant on purpose. Decay would confound "this rate fails"
-# with "this schedule fails", and the question here is only about the rate.
+# Every default here is the eps ladder's, so that learning rate is the ONLY
+# difference between a cell of this grid and an arm of that ladder: 40000
+# steps, cosine to a 0.02 floor held from 60% of the run, norm=batch, tanh,
+# adam_eps=1e-8, batch 64, clip 5000, warmup 2000, the same datasets and the
+# same numerics. Two consequences worth having:
+#
+#   - every cell is quotable directly against the ladder table, with no "but
+#     the probe used a different schedule" asterisk;
+#   - the cell at the ladder's own 3e-4 reproduces the ladder arm exactly, seed
+#     included, so it is either a free consistency check or a cell that can be
+#     taken from the ladder instead of re-run.
+#
+# The swept quantity is therefore the PEAK of a fixed schedule, which is what
+# an LR sweep normally means. An earlier version held the rate constant to
+# avoid confounding rate with schedule; that bought a cleaner axis at the cost
+# of comparability with everything else we have run, which is the wrong trade
+# here. Pass LR_FLOOR=1.0 LR_HOLD=1.0 to get the constant-rate version back.
 #
 #   scripts/lr_probe.sh "0 1 2 3"
 #   LRS="1e-3 3e-4" LOSSES="L1_STFT" scripts/lr_probe.sh "0 1"
 set -euo pipefail
 
 GPUS=${1:-"0 1 2 3"}
-STEPS=${STEPS:-12000}
+STEPS=${STEPS:-40000}
 OUT=${OUT:-results/ddsp/lr_probe}
 TRAIN=${TRAIN:-data/train-p99}
 VAL=${VAL:-data/val-p99}
@@ -38,7 +53,9 @@ CLIP=${CLIP:-5000.0}
 BATCH=${BATCH:-64}
 WARMUP=${WARMUP:-2000}
 DEEPSUP=${DEEPSUP:-0.5}
-NORM=${NORM:-group}
+LR_FLOOR=${LR_FLOOR:-0.02}
+LR_HOLD=${LR_HOLD:-0.6}
+NORM=${NORM:-batch}
 # Whatever the ladder is finally published under, this grid must use the same
 # head -- an LR grid on a different parameterization answers a different
 # question. See --head-bound in train_encoder.py for which are live and which
@@ -63,10 +80,22 @@ GRAD_CKPT=${GRAD_CKPT:---no-grad-checkpoint}
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 
-# Both directions from the ladder's 3e-4. Probing only downward invites exactly
-# the objection this is meant to close.
-LRS=${LRS:-"1e-3 3e-4 1e-4 3e-5 1e-5"}
-LOSSES=${LOSSES:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e7"}
+# A decade either side of the ladder's 3e-4. Both directions matter for
+# different reasons -- an arm still descending plausibly wants MORE rate, a
+# collapsed one plausibly wants less -- and probing only downward invites
+# exactly the objection this grid exists to close. 1e-5 is left out: two
+# decades down is undertrained at any budget we will pay for, so the cell would
+# say "not enough steps" rather than anything about the rate.
+#
+# The three losses are one of each kind. eps1 is the target: at 40k it is the
+# only log rung still moving (0.0885 -> 0.0789 over the last 14k steps), so
+# "slow" and "stuck" are still distinguishable for it and a rate grid can speak
+# to which. L1_STFT is the control and is not optional -- the claim is that
+# linear is as insensitive to rate as log is, and without the control on the
+# same axis that is an assertion. eps1e1 is flat to four digits, i.e. the dead
+# case.
+LRS=${LRS:-"3e-3 1e-3 3e-4 1e-4 3e-5"}
+LOSSES=${LOSSES:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1"}
 
 # `trap - INT TERM` first: kill 0 signals this script's own process group,
 # which includes this script, so without disarming the handler it re-enters
@@ -89,7 +118,7 @@ echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  out: $OUT"
   echo "steps=$STEPS losses='$LOSSES' lrs='$LRS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
   echo "n_fft=$N_FFT hop=$HOP n_blocks=$N_BLOCKS grad_ckpt=$GRAD_CKPT"
-  echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_cap=$HEAD_CAP adam_eps=$ADAM_EPS head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP constant_lr=yes"
+  echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_cap=$HEAD_CAP adam_eps=$ADAM_EPS head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP lr_floor=$LR_FLOOR lr_hold_frac=$LR_HOLD"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -143,7 +172,7 @@ PY
         --peak-normalize target \
         --steps "$STEPS" \
         --lr "$lr" \
-        --lr-floor 1.0 --lr-hold-frac 1.0 \
+        --lr-floor "$LR_FLOOR" --lr-hold-frac "$LR_HOLD" \
         --warmup-steps "$WARMUP" \
         --batch-size "$BATCH" \
         --deep-supervision "$DEEPSUP" \
