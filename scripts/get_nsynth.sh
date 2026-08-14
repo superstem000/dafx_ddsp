@@ -36,6 +36,10 @@
 # experiment configs already name and the layout WaveParamDataset globs.
 set -euo pipefail
 
+# Resolved before the cd below, because $0 is relative and dirname would then
+# resolve against $DEST instead of the repo.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
 SPLIT=${SPLIT:-train}
 SAMPLE=${SAMPLE:-25000}
 FULL=${FULL:-0}
@@ -79,47 +83,12 @@ fi
 
 echo
 echo "streaming (no resume -- run under tmux; ~22 GB over the wire either way)"
-curl -sL "$URL" | python3 - "$NAME" "$SAMPLE" "$FULL" <<'PY'
-import os, random, sys, tarfile
-
-name, want, full = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "1"
-random.seed(0)
-
-# Sequential selection: with `kept` chosen so far and `seen` examined out of an
-# estimated total, take the next item with probability (want-kept)/(total-seen).
-# That yields exactly `want` items, each equally likely -- unlike Bernoulli
-# sampling, which gives a random count, or truncation, which gives one
-# instrument family. The total is only an estimate; the tail is handled by
-# taking everything remaining if the stream runs shorter than expected.
-TOTALS = {"nsynth-train": 289205, "nsynth-valid": 12678, "nsynth-test": 4096}
-total = TOTALS.get(name, 289205)
-
-# mode 'r|gz' is the streaming reader: forward-only, no seeking, so it works on
-# a pipe. The seekable reader would try to rewind and fail.
-tar = tarfile.open(fileobj=sys.stdin.buffer, mode="r|gz")
-kept = seen = 0
-for m in tar:
-    if not (m.isfile() and m.name.endswith(".wav")):
-        continue
-    seen += 1
-    if not full:
-        remaining = max(total - seen + 1, 1)
-        if kept >= want:
-            continue
-        if random.random() > (want - kept) / remaining:
-            continue
-    f = tar.extractfile(m)
-    if f is None:
-        continue
-    out = os.path.join(name, "audio", os.path.basename(m.name))
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    with open(out, "wb") as g:
-        g.write(f.read())
-    kept += 1
-    if kept % 2000 == 0:
-        print(f"  kept {kept} of {seen} seen", flush=True)
-print(f"  done: kept {kept} of {seen} wav entries", flush=True)
-PY
+# The sampler is a separate file, not a heredoc: the archive arrives on stdin,
+# and `curl ... | python3 - <<'PY'` makes the heredoc stdin, so python reads its
+# program from there and silently discards the pipe. That failed instantly with
+# an exhausted stream and, under `tmux new -d`, took the session down with it
+# before anything could be read.
+curl -sL "$URL" | python3 "$HERE/nsynth_sample.py" "$NAME" "$SAMPLE" "$FULL"
 
 N=$(ls "$NAME/audio" | wc -l)
 echo
