@@ -45,11 +45,20 @@ PY
 
 echo
 echo "=== 1/2  generating $N in-domain examples on $DEV"
+# --save_param is required, not optional. Without it gen_dataset.py saves every
+# external parameter of the GENERATOR dag, ADSR controls included, and the model
+# synth has no envelopes so those keys do not exist on its side -- training dies
+# with KeyError: 'enva_peak'. The list it reads lives in the dataset config.
 python gen_dataset.py "$OUT" configs/synth/dataset/h2of.yaml \
-  --data_size "$N" --batch_size 16 --device "$DEV"
+  --data_size "$N" --batch_size 16 --device "$DEV" --save_param
 
 DATA_DIR="$OUT/harmor_2oscfree"
 echo "  wrote $(ls "$DATA_DIR/audio" | wc -l) wavs, $(ls "$DATA_DIR/param" | wc -l) param files"
+python - "$DATA_DIR" <<'PY'
+import sys, torch
+p = torch.load(f"{sys.argv[1]}/param/00000.pt", weights_only=False)
+print("  target keys:", {k: tuple(v.shape) for k, v in p.items()})
+PY
 
 echo
 echo "=== 2/2  one epoch, p-loss schedule, a few batches"

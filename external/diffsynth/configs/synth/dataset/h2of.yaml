@@ -51,3 +51,22 @@ fixed_params:
   NOTE_OFF: 0.75
   AMP_FLOOR: 0
 static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C]
+
+# Which parameters get written to disk as the training target, in the naming of
+# the MODEL synth (configs/synth/h2of.yaml) rather than of this generator.
+#
+# Missing upstream, though h1of.yaml and h1ofcf.yaml both have theirs -- and
+# h2of is the config the paper's experiments use. Without it gen_dataset.py
+# falls back to saving every external parameter of THIS dag, which includes the
+# ADSR controls (enva_peak, enva_attack, ...). The model synth has no envelopes
+# -- it consumes amplitude and cutoff as per-frame curves -- so its dag_summary
+# has no such keys and training dies at model.py:36 with KeyError: 'enva_peak'.
+#
+# These names are dag_summary keys, i.e. <processor>_<input>. Looking each up
+# in THIS dag gives the rendered envelope output (harmor_amplitudes -> enva),
+# which is the per-frame curve the estimator is trained to predict; looking the
+# same name up in the model's dag gives AMP, the slot it feeds. That is what
+# makes one list serve both sides.
+#
+# Requires gen_dataset.py --save_param, otherwise this list is ignored.
+save_params: [harmor_amplitudes, harmor_osc_mix, harmor_f0_hz, harmor_f0_mult, harmor_cutoff, harmor_q]
