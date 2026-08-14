@@ -10,11 +10,12 @@
 # measurement rather than an assertion.
 #
 # The existing results/ddsp/lr_* runs cover c2, log and MSS at 1e-4, 3e-5 and
-# 1e-5. They do not cover L1_STFT at all, which is the gap: without the control
-# there is nothing to compare the insensitivity against. Their recipe is matched
-# exactly here (12000 steps, constant rate via lr_floor=1 and lr_hold_frac=1,
-# everything else as sweep120k), so those nine runs remain valid cells of this
-# grid and only the missing ones are run.
+# 1e-5, and this script used to fold them in as completed cells. It no longer
+# does by default: those runs used adam_eps=1e-16, which the head probe showed
+# is a defect and not a setting (clip% 37-52 against 0.0, op_x's |z| in five and
+# six figures against single digits). Reusing them would put two optimizers in
+# one grid and attribute the difference to the learning rate. LEGACY=1 restores
+# the old behaviour for reproducing the earlier table.
 #
 # eps1 is log1p, which is c2, and eps1e7 is log -- the same two losses the old
 # probes used, under the ladder's names.
@@ -106,15 +107,19 @@ for ((g = 0; g < NG; g++)); do
       # A finished cell is not re-run, and the legacy results/ddsp/lr_* runs
       # count as finished cells: eps1 is c2 and eps1e7 is log, same conditions
       # under the pre-ladder names, so six of the fifteen are already in hand.
+      # Off unless LEGACY=1 -- see the header. The old cells ran a different
+      # adam_eps and folding them in silently would confound the axis.
       legacy=""
+      if [[ "${LEGACY:-0}" == "1" ]]; then
       case "$loss" in
         L1_STFT_eps1)   legacy="results/ddsp/lr_L1_STFT_c2_${lr}" ;;
         L1_STFT_eps1e7) legacy="results/ddsp/lr_L1_STFT_log_${lr}" ;;
         *)              legacy="results/ddsp/lr_${loss}_${lr}" ;;
       esac
+      fi
 
       done_cell=""
-      for cand in "$OUT/$name" "$legacy"; do
+      for cand in "$OUT/$name" ${legacy:+"$legacy"}; do
         if [[ -f "$cand/history.json" ]] && python - "$cand/history.json" "$STEPS" <<'PY' 2>/dev/null
 import json, sys
 d = json.load(open(sys.argv[1]))
