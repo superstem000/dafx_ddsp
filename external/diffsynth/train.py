@@ -1,3 +1,4 @@
+import inspect
 import os
 
 import hydra
@@ -50,7 +51,23 @@ def main(cfg):
     trainer = hydra.utils.instantiate(trainer_cfg, callbacks=callbacks, logger=logger)
     datamodule = hydra.utils.instantiate(cfg.data)
     # make model
-    trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+    # PyTorch 2.6 flipped torch.load's weights_only default to True, and
+    # EstimatorSynth.save_hyperparameters() puts the hydra DictConfig into the
+    # checkpoint, so resuming fails with
+    #   UnpicklingError: Unsupported global: omegaconf.dictconfig.DictConfig
+    #
+    # The allowlisting route the error suggests means enumerating every omegaconf
+    # internal that lands in the pickle -- DictConfig, ListConfig,
+    # ContainerMetadata, the node types -- and revisiting it whenever omegaconf
+    # changes its representation. These checkpoints are written by this script on
+    # this machine, so the trust the flag is guarding against is not in question.
+    #
+    # Guarded by a signature check because weights_only is not a fit() argument
+    # in older Lightning, and this repo should still start under one.
+    fit_kwargs = {}
+    if 'weights_only' in inspect.signature(trainer.fit).parameters:
+        fit_kwargs['weights_only'] = False
+    trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path, **fit_kwargs)
 
 if __name__ == "__main__":
     main()
