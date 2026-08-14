@@ -35,6 +35,21 @@ def main(cfg):
     logger.log_hyperparams(hparams, {'val_id/lsd': 40, 'val_ood/lsd': 40})
     # log audio examples
     checkpoint_callback = ModelCheckpoint(monitor="val_ood/lsd", save_top_k=1, filename="epoch_{epoch:03}_{val_ood/lsd:.2f}", save_last=True, auto_insert_metric_name=False)
+    # A checkpoint that really is the latest epoch.
+    #
+    # save_last=True above does NOT give one: Lightning writes last.ckpt only
+    # when a checkpoint is saved at all, and with save_top_k=1 and a monitor
+    # that only happens when val_ood/lsd improves. On a 50-epoch base whose
+    # metric plateaued at epoch 37, last.ckpt was byte-identical to
+    # epoch_037_*.ckpt -- so every branch resuming from it silently inherited a
+    # 37-epoch base and re-trained the remaining 12 epochs independently,
+    # defeating the point of sharing one.
+    #
+    # monitor=None means this one saves unconditionally at the end of every
+    # epoch, overwriting a single latest.ckpt. That is what ds_run.sh resumes
+    # from.
+    latest_callback = ModelCheckpoint(filename="latest", monitor=None, save_top_k=1,
+                                      save_last=False, auto_insert_metric_name=False)
     # SplitManifest records which files landed in which split. The train/val
     # split is drawn from the global RNG at setup() time, and Synth and Real are
     # resumes -- so if PL restores RNG state before setup(), a resumed run gets a
@@ -42,7 +57,7 @@ def main(cfg):
     # resume phase's training data. Writing the membership makes that checkable
     # instead of assumed, and costs one small json per run.
     callbacks = [pl.callbacks.LearningRateMonitor(logging_interval='step'), AudioLogger(),
-                 SplitManifest(), checkpoint_callback]
+                 SplitManifest(), checkpoint_callback, latest_callback]
     # PL 2 takes the resume path at fit() rather than as a Trainer argument, so
     # it is pulled out of the trainer config here. The config key is kept so the
     # README's `trainer.resume_from_checkpoint=<path>` commands still work.

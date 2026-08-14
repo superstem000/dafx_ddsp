@@ -36,13 +36,23 @@ RUNDIR="$ROOT/results/diffsynth/$NAME"
 
 EXTRA=()
 if [[ -n "${RESUME:-}" ]]; then
-  CKPT="$ROOT/results/diffsynth/${RESUME}/tb_logs/checkpoints/last.ckpt"
+  # latest.ckpt, not last.ckpt. last.ckpt is only rewritten when the monitored
+  # metric improves, so it silently lags -- on the first attempt it was epoch 37
+  # of a 50-epoch base. See train.py for the callback that writes this one.
+  CKPT="$ROOT/results/diffsynth/${RESUME}/tb_logs/checkpoints/latest.ckpt"
   if [[ ! -f "$CKPT" ]]; then
     echo "ERROR: $NAME resumes from '$RESUME' but no checkpoint at"
     echo "  $CKPT"
-    echo "Run the pretrain stage first."
+    echo "Run the earlier stage first."
     exit 1
   fi
+  # Say which epoch is being resumed from. A resume from the wrong point is
+  # otherwise invisible until someone reads the epoch axis of a plot.
+  python3 - "$CKPT" <<'PYCK'
+import sys, torch
+ck = torch.load(sys.argv[1], map_location="cpu", weights_only=False)
+print(f"    resuming from epoch {ck['epoch']} (global_step {ck['global_step']})")
+PYCK
   EXTRA+=("trainer.resume_from_checkpoint=$CKPT")
 fi
 
