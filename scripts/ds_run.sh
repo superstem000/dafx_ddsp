@@ -57,6 +57,10 @@ cd "$DS"
 echo "=== $NAME  (experiment=$EXP, gpu=$GPU)${RESUME:+  resuming from $RESUME}"
 echo "    -> $RUNDIR"
 
+# Required by torch for deterministic CUBLAS on CUDA >= 10.2; without it
+# use_deterministic_algorithms raises as soon as a matmul runs.
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+
 CUDA_VISIBLE_DEVICES="$GPU" python train.py \
   experiment="$EXP" \
   data.id_dir="$DS/data/diffsynth_5-6/harmor_2oscfree" \

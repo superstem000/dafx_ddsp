@@ -31,7 +31,25 @@ num_nodes: 1
 
 enable_checkpointing: True
 benchmark: False
-deterministic: False
+
+# Bitwise reproducibility across runs of the same configuration.
+#
+# Off by default in Lightning, and without it CUDA reductions are not
+# order-stable, so two runs of identical code on identical data diverge from the
+# first few steps. Measured here before this was turned on: at epoch 45 the
+# pretrains and ploss -- which compute the same loss until epoch 50 -- differed
+# by ~1% in Param and ~0.2 in val_id/lsd purely from that.
+#
+# For a comparison between loss variants, that variance is a floor under every
+# difference we could claim, so it is worth paying for. The costs are real:
+# some kernels are slower, and any op without a deterministic implementation
+# raises rather than silently varying. "warn" downgrades that raise to a warning
+# if an op turns out to lack one -- but then reproducibility is no longer
+# guaranteed, so prefer fixing the op to switching this.
+#
+# Needs CUBLAS_WORKSPACE_CONFIG=:4096:8 in the environment; scripts/ds_run.sh
+# exports it.
+deterministic: True
 precision: 32
 
 overfit_batches: 0.0
