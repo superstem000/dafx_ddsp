@@ -4,7 +4,10 @@ import librosa
 import librosa.display
 import matplotlib.pyplot as plt
 import torch
-from pytorch_lightning.utilities.distributed import rank_zero_only
+try:  # PL >= 2.0
+    from pytorch_lightning.utilities.rank_zero import rank_zero_only
+except ImportError:  # PL 1.x, which this repo was written against
+    from pytorch_lightning.utilities.distributed import rank_zero_only
 from pytorch_lightning.callbacks import Callback
 
 def plot_spec(y, ax, sr=16000):
@@ -77,10 +80,12 @@ class AudioLogger(Callback):
             if is_train:
                 pl_module.train()
 
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    # PL 2 dropped dataloader_idx from the train hook and made it optional on
+    # the validation hook. Defaults keep this callable under both.
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
         self.log_audio(pl_module, batch, batch_idx, name="train")
 
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
         data_type='id' if dataloader_idx==0 else 'ood'
         self.log_audio(pl_module, batch, batch_idx, name="val_"+data_type)
 

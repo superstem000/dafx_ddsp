@@ -1,0 +1,35 @@
+# Dependencies for running the vendored diffsynth on a current GPU.
+#
+# Deliberately NOT a reconstruction of the 2021 environment. PL 1.4/1.5, which
+# the original configs target, pairs with torch ~1.8-1.11, and those wheels are
+# compiled for older CUDA compute capabilities -- on a current card they fail
+# with "no kernel image is available for execution on the device", which no
+# amount of pip pinning fixes. Porting the ~30 lines of removed PL 1.x API
+# forward (see configs/trainer/default.yaml) is the cheaper and safer direction.
+#
+# torch and torchaudio are intentionally unpinned: install whatever build
+# matches the driver already working on this machine, then install the rest.
+#
+#   python -m venv ~/dsenv && source ~/dsenv/bin/activate
+#   pip install torch torchaudio          # or reuse the dafxenv build
+#   pip install -r requirements-modern.txt
+#
+# torchcrepe and torchopenl3 are imported only by the f0 and perceptual-loss
+# paths (diffsynth/f0.py, diffsynth/perceptual/). The paper's three models use
+# neither -- f0: false in configs/data, perc_model: null in configs/model -- so
+# they are listed last and can be skipped if they fight the resolver.
+
+pytorch-lightning>=2.0
+hydra-core>=1.1,<1.4
+omegaconf>=2.1
+nnAudio>=0.3
+librosa>=0.10
+soundfile>=0.12
+numpy
+matplotlib
+tqdm
+tensorboard
+
+# optional, unused by the paper's three training procedures
+# torchcrepe
+# torchopenl3

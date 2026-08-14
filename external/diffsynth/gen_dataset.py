@@ -22,10 +22,13 @@ if __name__ == "__main__":
     parser.add_argument('--sr',         type=int,   default=16000)
     parser.add_argument('--batch_size', type=int,   default=64)
     parser.add_argument('--save_param', action='store_true')
+    # 'cuda' was hardcoded below. Made switchable so a small dataset can be
+    # generated -- and the whole pipeline smoke-tested -- with no free GPU.
+    parser.add_argument('--device',     type=str,   default='cuda')
     args = parser.parse_args()
 
     conf = OmegaConf.load(args.synth_conf)
-    synth = construct_synth_from_conf(conf).to('cuda')
+    synth = construct_synth_from_conf(conf).to(args.device)
 
     audio_dir, param_dir = make_dirs(args.dataset_dir, conf.name)
 
@@ -43,7 +46,7 @@ if __name__ == "__main__":
             while True:
                 if break_flag:
                     break
-                audio, output = synth.uniform(args.batch_size, n_samples, 'cuda')
+                audio, output = synth.uniform(args.batch_size, n_samples, args.device)
                 params = {k: output[synth.dag_summary[k]].cpu() for k in save_params}
                 for j in range(args.batch_size):
                     if count >= args.data_size:

@@ -1,49 +1,55 @@
+# PyTorch-Lightning Trainer, ported from PL 1.4/1.5 to PL 2.x.
+#
+# Downgrading to PL 1.x instead was the obvious move and is the wrong one: PL
+# 1.4/1.5 pairs with torch ~1.8-1.11, whose wheels are compiled for older CUDA
+# compute capabilities and will not run on a current card ("no kernel image is
+# available for execution on the device"). Porting forward is ~30 lines and
+# keeps modern torch on the GPU we actually have.
+#
+# Removed keys, all of which were PL 1.x-only and none of which affect the
+# experiment: checkpoint_callback (-> enable_checkpointing), weights_summary
+# (-> ModelSummary callback), progress_bar_refresh_rate, process_position,
+# flush_logs_every_n_steps, log_gpu_memory, prepare_data_per_node,
+# move_metrics_to_cpu, terminate_on_nan (-> detect_anomaly),
+# truncated_bptt_steps, reload_dataloaders_every_epoch (-> _n_epochs),
+# amp_backend, amp_level, gpus/tpu_cores (-> accelerator + devices),
+# auto_lr_find / auto_scale_batch_size / auto_select_gpus (-> Tuner).
+#
+# resume_from_checkpoint is gone too: in PL 2 the checkpoint path is passed to
+# fit(). It is kept here as a plain field and train.py forwards it, so the
+# README's resume commands still work unchanged.
 _target_: pytorch_lightning.Trainer
 
 max_epochs: 200
 gradient_clip_val: 1.0
-checkpoint_callback: True
-gpus: null
+
+# accelerator: "auto" picks GPU when one is visible and CPU otherwise, which is
+# what makes the smoke test runnable with no card free.
+accelerator: "auto"
+devices: 1
 num_nodes: 1
+
+enable_checkpointing: True
 benchmark: False
+deterministic: False
+precision: 32
+
 overfit_batches: 0.0
 limit_train_batches: 1.0
-auto_lr_find: False
-resume_from_checkpoint: null
-weights_summary: "top"
-
-default_root_dir: null
-process_position: 0
-num_processes: 1
-auto_select_gpus: False
-tpu_cores: null
-log_gpu_memory: null
-progress_bar_refresh_rate: 1
-track_grad_norm: -1
-check_val_every_n_epoch: 1
-fast_dev_run: False
-accumulate_grad_batches: 1
-min_epochs: 1
-max_steps: null
-min_steps: null
 limit_val_batches: 1.0
 limit_test_batches: 1.0
 val_check_interval: 1.0
-flush_logs_every_n_steps: 100
-log_every_n_steps: 50
-accelerator: null
-sync_batchnorm: False
-precision: 32
+check_val_every_n_epoch: 1
 num_sanity_val_steps: 2
-truncated_bptt_steps: null
+log_every_n_steps: 50
+accumulate_grad_batches: 1
+min_epochs: 1
+max_steps: -1
+min_steps: null
+fast_dev_run: False
+detect_anomaly: False
 profiler: null
-deterministic: False
-reload_dataloaders_every_epoch: False
-replace_sampler_ddp: True
-terminate_on_nan: False
-auto_scale_batch_size: False
-prepare_data_per_node: True
-plugins: null
-amp_backend: "native"
-amp_level: "O2"
-move_metrics_to_cpu: False
+default_root_dir: null
+
+# Not a Trainer argument in PL 2 -- train.py pops it and passes it to fit().
+resume_from_checkpoint: null

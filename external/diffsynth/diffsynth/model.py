@@ -156,7 +156,7 @@ class EstimatorSynth(pl.LightningModule):
         self.log('train/total', batch_loss, prog_bar=True, on_epoch=True, on_step=False)
         return batch_loss
 
-    def validation_step(self, batch_dict, batch_idx, dataloader_idx):
+    def validation_step(self, batch_dict, batch_idx, dataloader_idx=0):
         # render audio
         resyn_audio, outputs = self(batch_dict)
         losses = self.train_losses(batch_dict, outputs)
@@ -167,14 +167,11 @@ class EstimatorSynth(pl.LightningModule):
         self.log_dict(losses, prog_bar=True, on_epoch=True, on_step=False, add_dataloader_idx=False)
         return losses
 
-    def get_progress_bar_dict(self):
-        # don't show the version number
-        items = super().get_progress_bar_dict()
-        items.pop("v_num", None)
-        items.pop("val_id/wave", None)
-        return items
+    # get_progress_bar_dict was removed in PL 2 (it is now
+    # get_metrics on the progress bar callback). It only hid two keys from the
+    # progress bar, so dropping it changes display and nothing else.
 
-    def test_step(self, batch_dict, batch_idx, dataloader_idx):
+    def test_step(self, batch_dict, batch_idx, dataloader_idx=0):
         # render audio
         resyn_audio, outputs = self(batch_dict)
         losses = self.train_losses(batch_dict, outputs)

@@ -5,7 +5,10 @@ import warnings
 from pytorch_lightning.callbacks import ModelCheckpoint
 from diffsynth.model import EstimatorSynth
 
-@hydra.main(config_path="configs/", config_name="config.yaml")
+# version_base="1.1" keeps hydra's pre-1.2 behaviour of chdir-ing into the run
+# directory. train.py writes tb_logs and checkpoints to relative paths, so
+# without it every run would scatter its outputs into the launch directory.
+@hydra.main(config_path="configs/", config_name="config.yaml", version_base="1.1")
 def main(cfg):
     pl.seed_everything(0, workers=True)
     warnings.simplefilter('ignore', RuntimeWarning)
@@ -17,10 +20,15 @@ def main(cfg):
     # log audio examples
     checkpoint_callback = ModelCheckpoint(monitor="val_ood/lsd", save_top_k=1, filename="epoch_{epoch:03}_{val_ood/lsd:.2f}", save_last=True, auto_insert_metric_name=False)
     callbacks = [pl.callbacks.LearningRateMonitor(logging_interval='step'), AudioLogger(), checkpoint_callback]
-    trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
+    # PL 2 takes the resume path at fit() rather than as a Trainer argument, so
+    # it is pulled out of the trainer config here. The config key is kept so the
+    # README's `trainer.resume_from_checkpoint=<path>` commands still work.
+    trainer_cfg = {k: v for k, v in cfg.trainer.items() if k != 'resume_from_checkpoint'}
+    ckpt_path = cfg.trainer.get('resume_from_checkpoint', None)
+    trainer = hydra.utils.instantiate(trainer_cfg, callbacks=callbacks, logger=logger)
     datamodule = hydra.utils.instantiate(cfg.data)
     # make model
-    trainer.fit(model=model, datamodule=datamodule)
+    trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
 
 if __name__ == "__main__":
     main()
