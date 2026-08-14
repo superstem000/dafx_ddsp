@@ -6,11 +6,18 @@ failed at its own best rate, on the same grid where linear succeeded at its
 own best rate". Reporting a single shared rate would leave the obvious reply
 available, and reporting best-overall would hide which arm each rate favoured.
 
-Folds in the older results/ddsp/lr_* runs, which are the same conditions under
-the pre-ladder names -- L1_STFT_c2 is eps1 and L1_STFT_log is eps1e7 -- so the
-grid does not pay twice for cells already run.
+The 3e-4 column comes from the ladder, not from the grid. lr_probe.sh now
+defaults to the ladder's exact recipe, so a cell at the ladder's own rate would
+reproduce a ladder arm run for run -- it is read from
+results/ddsp/eps_ladder_adam1e8 instead of computed twice.
+
+The older results/ddsp/lr_* runs are NOT folded in by default any more. They
+used adam_eps=1e-16, which the head probe showed is a defect rather than a
+setting, and mixing two optimizers into one grid would charge their difference
+to the learning rate. --legacy restores them for reproducing the earlier table.
 
     python -m src.ddsp.report_lr_probe
+    python -m src.ddsp.report_lr_probe --legacy
 """
 
 from __future__ import annotations
@@ -61,11 +68,47 @@ def cells(roots):
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--roots", nargs="+",
-                   default=["results/ddsp/lr_probe", "results/ddsp"])
+    p.add_argument("--roots", nargs="+", default=["results/ddsp/lr_probe"])
+    p.add_argument("--ladder-root", default="results/ddsp/eps_ladder_adam1e8",
+                   help="Where the ladder's arms live; each supplies the cell at "
+                        "--ladder-lr, since lr_probe.sh shares its recipe exactly")
+    p.add_argument("--ladder-lr", type=float, default=3e-4)
+    p.add_argument("--legacy", action="store_true",
+                   help="Also read results/ddsp/lr_*, which ran adam_eps=1e-16. "
+                        "Off by default: that is a different optimizer, and "
+                        "folding it in would charge its effect to the rate.")
     args = p.parse_args()
 
-    rows = cells(args.roots)
+    roots = list(args.roots)
+    if args.legacy:
+        roots.append("results/ddsp")
+        print("WARNING: --legacy mixes adam_eps=1e-16 runs into the grid.\n")
+    rows = cells(roots)
+
+    # The ladder's arms are the grid's own rate, under the same recipe, so they
+    # are cells rather than a separate experiment. Their directories are named
+    # for the loss alone, with no rate suffix, so cells() cannot match them.
+    for hp in sorted(glob.glob(os.path.join(args.ladder_root, "*", "history.json"))):
+        name = Path(hp).parent.name
+        try:
+            d = json.load(open(hp))
+        except Exception:
+            continue
+        ev = [r for r in d["history"] if "val_nmse_6d" in r]
+        if not ev:
+            continue
+        best = min(ev, key=lambda r: r.get("val_nmse_6d_geo", r["val_nmse_6d"]))
+        spreads = [best[k] for k in best if k.startswith("spread_")]
+        rows.append({
+            "loss": ALIASES.get(name, name),
+            "lr": args.ladder_lr,
+            "step": d["history"][-1]["step"],
+            "nmse": best["val_nmse_6d"],
+            "ratio": best["val_nmse_6d"] / d["const_nmse_6d"],
+            "train_over_sat": best["train_loss"] / d["saturation"],
+            "spread": sum(spreads) / len(spreads) if spreads else float("nan"),
+            "dir": f"{args.ladder_root}/{name}",
+        })
     if not rows:
         print("no lr-probe runs found under " + ", ".join(args.roots))
         return
