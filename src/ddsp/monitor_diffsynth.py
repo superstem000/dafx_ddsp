@@ -55,6 +55,14 @@ TAGS = {
     # structurally friendly to a log-trained arm and structurally hostile to a
     # linear one. Reporting only LSD would beg the question the experiment asks.
     #
+    # There is a second bias in LSD besides the bin-wise log, and it compounds
+    # with it. compute_lsd uses a 1024-point FFT at 16kHz, so 513 bins, half of
+    # them above 4kHz -- weighting every bin equally hands the top octave ~50%
+    # of the metric. On the mel scale over 40-7600Hz that octave is 23.5% of the
+    # range, about 9 of 40 bands. LSD therefore over-weights high frequency by
+    # roughly 2x on top of over-weighting quiet bins, and high frequency is
+    # where the quiet bins mostly are.
+    #
     # mfcc applies its log to MEL BAND energies, after summing many bins, then
     # keeps 20 DCT coefficients. Quiet bins are averaged into their band instead
     # of being amplified, so it is perceptual and log-ish without being bin-wise
@@ -316,8 +324,13 @@ def main() -> None:
     for key, label in (("ood_lsd", "val_ood/lsd  (what the checkpoint selects on)"),
                        ("id_lsd", "val_id/lsd"),
                        ("param", "val_id/param  (the paper's Param column)"),
+                       # Both domains, because MFCC is the better of the two
+                       # audio metrics and reporting it out-of-domain only
+                       # invites the reading that it was chosen for where it
+                       # happened to be favourable.
                        ("ood_mfcc", "val_ood/mfcc  (log of mel BAND energies -- "
                                     "perceptual, but not bin-wise log like LSD)"),
+                       ("id_mfcc", "val_id/mfcc"),
                        # train/total is the OPTIMISED objective, so read it only
                        # down a column, never across. Across arms it is a
                        # different quantity per arm -- log(x+1e-4) and |x| live
