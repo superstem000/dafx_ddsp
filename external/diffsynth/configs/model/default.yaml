@@ -20,3 +20,9 @@ perc_model: null
 log_grad: true
 
 f0_encoder: null
+
+# null keeps ExponentialLR(gamma=decay_rate), exactly as published. Set it to
+# use LambdaLR instead, whose schedule comes from this config rather than from
+# a resumed checkpoint:
+#   +model.lr_schedule.type=hold +model.lr_schedule.hold_from=200
+lr_schedule: null

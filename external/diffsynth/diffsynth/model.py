@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -9,6 +11,33 @@ from diffsynth.modelutils import construct_synth_from_conf
 from diffsynth.schedules import ParamSchedule
 import hydra
 from diffsynth.estimator import F0MelEstimator
+
+class ConfigLambdaLR(torch.optim.lr_scheduler.LambdaLR):
+    """LambdaLR that can resume from a checkpoint another scheduler wrote.
+
+    The point of this run is to branch the published epoch-200 checkpoints onto
+    a different learning-rate schedule, and those checkpoints were written by
+    ExponentialLR. LambdaLR.load_state_dict opens with
+
+        lr_lambdas = state_dict.pop("lr_lambdas")
+
+    so restoring one raises KeyError before anything else happens. Supplying the
+    missing key -- as None per group, meaning "keep the lambda I was constructed
+    with" -- is the whole fix. gamma is dropped because __dict__.update would
+    otherwise leave ExponentialLR's decay rate sitting on an object that has no
+    use for it, which is the kind of thing that reads as meaningful two months
+    later.
+
+    last_epoch and base_lrs are restored as usual, so the branch continues at
+    the epoch and base rate it left off at.
+    """
+
+    def load_state_dict(self, state_dict):
+        state_dict = dict(state_dict)
+        state_dict.pop('gamma', None)
+        state_dict.setdefault('lr_lambdas', [None] * len(self.lr_lambdas))
+        super().load_state_dict(state_dict)
+
 
 class EstimatorSynth(pl.LightningModule):
     """
@@ -27,6 +56,8 @@ class EstimatorSynth(pl.LightningModule):
         self.log_grad = model_cfg.log_grad
         self.lr = model_cfg.lr
         self.decay_rate = model_cfg.decay_rate
+        # None keeps the published ExponentialLR exactly. See configure_optimizers.
+        self.lr_schedule = model_cfg.get('lr_schedule', None)
         self.mfcc = Mfcc(n_fft=1024, hop_length=256, n_mels=40, n_mfcc=20, sample_rate=16000)
         self.save_hyperparameters()
 
@@ -209,11 +240,58 @@ class EstimatorSynth(pl.LightningModule):
         self.log_dict(losses, prog_bar=True, on_epoch=True, on_step=False, add_dataloader_idx=False)
         return losses
 
+    @staticmethod
+    def make_lr_lambda(cfg):
+        """LambdaLR multiplier on lr, as an explicit function of the epoch.
+
+        Two shapes beyond the published ExponentialLR, both expressed relative
+        to it so that everything up to `hold_from` is bit-identical to the
+        original schedule and a run can branch off a checkpoint without a step
+        change in learning rate:
+
+          hold     decay^min(e, hold_from) -- the published decay to hold_from,
+                   then constant. A geometric schedule is a convergent series,
+                   so it caps total travel at lr0/(-ln gamma) whatever the epoch
+                   count; holding removes the cap, which is what "train until it
+                   plateaus" requires.
+
+          cosine   hold, then a cosine ramp from anneal_from to anneal_to down
+                   to eta_min_factor of the held rate.
+
+        Deliberately LambdaLR rather than ExponentialLR or CosineAnnealingLR.
+        Their state_dicts carry gamma / T_max, and load_state_dict does
+        __dict__.update, so a resumed run silently takes the schedule from the
+        checkpoint and ignores the config -- which makes changing the schedule
+        at a resume impossible without editing checkpoints. LambdaLR does not
+        store a plain-function lambda, so the config wins.
+        """
+        kind = cfg['type']
+        decay = float(cfg.get('decay_rate', 0.99))
+        hold_from = int(cfg.get('hold_from', 200))
+        if kind == 'hold':
+            return lambda e: decay ** min(e, hold_from)
+        if kind == 'cosine':
+            t0, t1 = int(cfg['anneal_from']), int(cfg['anneal_to'])
+            floor = float(cfg.get('eta_min_factor', 0.0))
+            def f(e):
+                base = decay ** min(e, hold_from)
+                if e <= t0:
+                    return base
+                t = min((e - t0) / max(t1 - t0, 1), 1.0)
+                return base * (floor + (1.0 - floor) * 0.5 * (1.0 + math.cos(math.pi * t)))
+            return f
+        raise ValueError(f"unknown lr_schedule type {kind!r}")
+
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.estimator.parameters(), self.lr)
+        if self.lr_schedule is None:
+            scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.decay_rate)
+        else:
+            scheduler = ConfigLambdaLR(
+                optimizer, self.make_lr_lambda(self.lr_schedule))
         return {
         "optimizer": optimizer,
         "lr_scheduler": {
-            "scheduler": torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.decay_rate)
+            "scheduler": scheduler
             }
         }

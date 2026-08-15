@@ -78,3 +78,11 @@ default_root_dir: null
 
 # Not a Trainer argument in PL 2 -- train.py pops it and passes it to fit().
 resume_from_checkpoint: null
+
+# Not a Trainer argument either; train.py pops it and builds a ModelCheckpoint.
+# 0 disables it, which is the published behaviour: upstream keeps only the best
+# by val_ood/lsd, plus the latest.ckpt this repo added. Neither lets two arms be
+# compared at the same epoch, and every question this experiment has reached has
+# turned out to need that. Set it to N to also keep an unconditional checkpoint
+# every N epochs.
+checkpoint_every_n_epochs: 0

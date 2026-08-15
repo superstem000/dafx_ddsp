@@ -58,10 +58,21 @@ def main(cfg):
     # instead of assumed, and costs one small json per run.
     callbacks = [pl.callbacks.LearningRateMonitor(logging_interval='step'), AudioLogger(),
                  SplitManifest(), checkpoint_callback, latest_callback]
+    # Unconditional periodic checkpoints, off by default. The other two keep the
+    # best by val_ood/lsd and the latest, so there is no way to evaluate two arms
+    # at the same epoch -- and with arms that reach a given epoch hours apart,
+    # every comparison ends up being between different epochs and argued about
+    # by extrapolation. monitor=None saves regardless of any metric.
+    _every_n = cfg.trainer.get('checkpoint_every_n_epochs', 0)
+    if _every_n:
+        callbacks.append(ModelCheckpoint(filename="ep{epoch:04d}", monitor=None,
+                                         save_top_k=-1, every_n_epochs=int(_every_n),
+                                         save_last=False, auto_insert_metric_name=False))
     # PL 2 takes the resume path at fit() rather than as a Trainer argument, so
     # it is pulled out of the trainer config here. The config key is kept so the
     # README's `trainer.resume_from_checkpoint=<path>` commands still work.
-    trainer_cfg = {k: v for k, v in cfg.trainer.items() if k != 'resume_from_checkpoint'}
+    _not_trainer_args = ('resume_from_checkpoint', 'checkpoint_every_n_epochs')
+    trainer_cfg = {k: v for k, v in cfg.trainer.items() if k not in _not_trainer_args}
     ckpt_path = cfg.trainer.get('resume_from_checkpoint', None)
     trainer = hydra.utils.instantiate(trainer_cfg, callbacks=callbacks, logger=logger)
     datamodule = hydra.utils.instantiate(cfg.data)

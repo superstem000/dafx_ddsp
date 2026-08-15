@@ -1,0 +1,58 @@
+# Hold the learning rate at its epoch-200 value and run until Param plateaus.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_hold.txt
+#
+# WHY NOT THE 600 RESCALE. That run stretched gamma to 0.99332217 so the final
+# learning rate at 600 matched the 400 run's at 400, and left the phase
+# boundaries at 50/200. The consequence was a ramp run at roughly twice the step
+# size the whole way: pre600_hybrid reached epoch 200 at Param 0.0906 against
+# pre_hybrid's 0.0699, and ID LSD 13.06 against 12.35. Since param_w is 0 after
+# epoch 200 there is no supervision left to recover parameter accuracy with, so
+# a worse state at 200 is a worse state permanently. It was measuring the ramp,
+# not the ceiling.
+#
+# WHY THE HOLD. ExponentialLR is a geometric series: total travel is capped at
+# lr0/(-ln gamma) no matter how many epochs run, and the 400 run had spent 98.2%
+# of it by epoch 400. Matching the endpoint while stretching gamma buys budget
+# only in proportion to epochs -- 1.5x for 1.5x the compute -- and cannot reach
+# a plateau that the cap sits below. Holding the rate flat removes the cap:
+# 400 epochs at 1.3398e-4 is 5.359e-2 against the 400 run's entire post-200
+# budget of 1.333e-2. Four times, in the same number of epochs.
+#
+# make_lr_lambda's 'hold' is decay^min(e, hold_from), so it is bit-identical to
+# the published schedule up to epoch 200 and flat after -- the branch starts
+# with no step change in learning rate (1.3533e-4 at 199, 1.3398e-4 at 200,
+# exactly what ExponentialLR would have given).
+#
+# COSINE COMES LATER, deliberately. Annealing before the flat phase has stopped
+# moving would confuse "converged" with "the learning rate went to zero", which
+# is the mistake the 400 run makes. Once these plateau, branch a cosine anneal
+# from the plateau epoch:
+#
+#   RESUME=hold_synth_hybrid scripts/ds_run.sh cos_synth_hybrid resume_synth 0 \
+#     +model.lr_schedule.type=cosine +model.lr_schedule.hold_from=200 \
+#     +model.lr_schedule.anneal_from=<plateau> +model.lr_schedule.anneal_to=<plateau+100> \
+#     trainer.max_epochs=<plateau+100>
+#
+# which is why checkpoint_every_n_epochs is on: the anneal has to start from a
+# chosen epoch, and best-by-lsd plus latest cannot provide one.
+#
+# THE BASE. These resume from the 400 batch's pre_hybrid and pre_mag_halfw at
+# epoch 200 -- the published schedule, unmodified, sharing one 50-epoch base.
+# Nothing before epoch 200 changes, so the reproduction stands as reported and
+# the deviation is confined to the phase where the loss difference acts.
+#
+# ARMS. hybrid is the paper's mag+log; mag_halfw is log_mag_w=0 with sw_w halved
+# so each surviving term still carries 1/12 (loss.py:60 divides by
+# len(fft_sizes)*(mag_w+log_mag_w), and zeroing log_mag_w alone would double the
+# weight). mag and log are left out: mag is weight-confounded and log is 100
+# epochs behind, and four arms fill the four cards exactly.
+#
+# One stage -- every job resumes from a checkpoint that already exists, so there
+# is nothing to wait for.
+
+# STAGE hold
+RESUME=pre_hybrid    scripts/ds_run.sh hold_synth_hybrid    resume_synth "{gpu}" trainer.max_epochs=600 trainer.checkpoint_every_n_epochs=50 +model.lr_schedule.type=hold +model.lr_schedule.decay_rate=0.99 +model.lr_schedule.hold_from=200
+RESUME=pre_hybrid    scripts/ds_run.sh hold_real_hybrid     resume_real  "{gpu}" trainer.max_epochs=600 trainer.checkpoint_every_n_epochs=50 +model.lr_schedule.type=hold +model.lr_schedule.decay_rate=0.99 +model.lr_schedule.hold_from=200
+RESUME=pre_mag_halfw scripts/ds_run.sh hold_synth_mag_halfw resume_synth "{gpu}" trainer.max_epochs=600 trainer.checkpoint_every_n_epochs=50 +model.lr_schedule.type=hold +model.lr_schedule.decay_rate=0.99 +model.lr_schedule.hold_from=200 model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
+RESUME=pre_mag_halfw scripts/ds_run.sh hold_real_mag_halfw  resume_real  "{gpu}" trainer.max_epochs=600 trainer.checkpoint_every_n_epochs=50 +model.lr_schedule.type=hold +model.lr_schedule.decay_rate=0.99 +model.lr_schedule.hold_from=200 model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
