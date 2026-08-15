@@ -101,7 +101,8 @@ def main() -> None:
                         "against grabbing a card another sweep is between arms on")
     p.add_argument("--free-mib", type=int, default=1000,
                    help="A GPU counts as free below this many MiB in use")
-    p.add_argument("--logdir", type=Path, default=Path("~/gpu_queue_logs"))
+    p.add_argument("--logdir", type=Path, default=Path("~/gpu_queue_logs"),
+                   help="Logs go in <logdir>/<jobs-file-stem>/")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
@@ -122,7 +123,13 @@ def main() -> None:
         all_gpus = []
     gpus = [int(g) for g in args.gpus.split()] if args.gpus else all_gpus
 
-    logdir = args.logdir.expanduser()
+    # Per-jobs-file subdirectory. Job indices restart at 0 for every queue, so
+    # a flat log directory means a second queue's job0 overwrites the first
+    # one's -- silently, and for jobs that may still be running. Keying on the
+    # file name makes two different queues incapable of colliding, while
+    # re-running the same file still overwrites its own logs, which is what you
+    # want.
+    logdir = args.logdir.expanduser() / args.jobs.stem
     logdir.mkdir(parents=True, exist_ok=True)
 
     print(f"[{stamp()}] {n_jobs} job(s) in {len(stages)} stage(s), gpus {gpus}, "
