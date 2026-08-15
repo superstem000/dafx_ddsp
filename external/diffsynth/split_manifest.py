@@ -67,6 +67,14 @@ class SplitManifest(Callback):
                     # emit them in.
                     "sha1": hashlib.sha1("\n".join(sorted(names)).encode()).hexdigest(),
                     "first5": sorted(names)[:5],
+                    # The membership itself, not only its hash. A hash can tell
+                    # an offline evaluation that it reproduced the wrong split;
+                    # it cannot tell it the right one. Reproducing the split
+                    # means matching every RNG draw train.py makes before
+                    # setup() -- including the estimator's weight init -- which
+                    # is a fragile thing for any later script to depend on.
+                    # 2000 file names is a few tens of KB.
+                    "files": sorted(names),
                 }
         with open(self.path, "w") as f:
             json.dump(rec, f, indent=2)

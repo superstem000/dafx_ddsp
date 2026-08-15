@@ -30,12 +30,19 @@ decide it: a deficit concentrated in amplitudes+cutoff with f0 at parity is
 scale balance; one in cutoff+q with amplitudes at parity is compression. An
 even spread across all six is neither.
 
-THE SPLIT. The validation set is drawn by random_split from the global RNG at
-setup() time (data.py:83), so it is reproduced here by seeding exactly as
-train.py does. That is an assumption, not a guarantee, so it is checked against
-the split_manifest.json each run wrote -- the same hash SplitManifest computes.
-A mismatch means these numbers are being measured on different files than the
-run validated on, and the script says so rather than printing a table anyway.
+THE SPLIT. The validation set is drawn by random_split off the global RNG at
+setup() time (data.py:83), so which files are in it depends on every draw made
+before that point -- including the estimator's weight init. Reproducing it means
+reproducing train.py's construction order exactly, which this does and which the
+first version of this script did not: seeding and setting up immediately gave a
+different split, and the manifest check caught it.
+
+Preferably it is not reproduced at all. SplitManifest now records the membership
+itself, so for any run written after that the split is read rather than derived,
+and the fragile ordering dependency does not apply. Runs from before it fall
+back to reproduction plus the hash check -- and if that hash disagrees the arm
+is skipped, because a hash can say the split is wrong but not what the right one
+was.
 """
 
 from __future__ import annotations
@@ -54,6 +61,7 @@ DS = os.path.join(HERE, "..", "external", "diffsynth")
 sys.path.insert(0, DS)
 
 import torch                                            # noqa: E402
+from torch.utils.data import DataLoader, Subset          # noqa: E402
 import torch.nn.functional as F                         # noqa: E402
 import hydra                                            # noqa: E402
 import pytorch_lightning as pl                          # noqa: E402
@@ -82,37 +90,78 @@ def param_l1(model, synth_output, param_dict):
     return out
 
 
-def load_arm(run_dir: str, ckpt_name: str, device: str):
+def load_arm(run_dir: str, ckpt_name: str, device: str, batch_size: int):
+    """Model and datamodule, built in train.py's order.
+
+    The order is the point. train.py seeds, constructs EstimatorSynth, and only
+    then sets up the datamodule -- and create_split calls random_split off the
+    global generator, so every draw the estimator's weight init makes shifts the
+    permutation. Seeding and setting up immediately gives a different validation
+    split, which is exactly what the manifest check caught the first time this
+    ran.
+    """
     cfg_path = os.path.join(run_dir, ".hydra", "config.yaml")
     ck_path = os.path.join(run_dir, "tb_logs", "checkpoints", ckpt_name)
     if not os.path.exists(cfg_path) or not os.path.exists(ck_path):
-        return None, None, f"missing {'config' if not os.path.exists(cfg_path) else ckpt_name}"
+        return None, None, None, f"missing {'config' if not os.path.exists(cfg_path) else ckpt_name}"
     cfg = OmegaConf.load(cfg_path)
     try:
         # weights_only=False for the same reason train.py needs it: the
         # checkpoint carries the hydra DictConfig via save_hyperparameters().
         ck = torch.load(ck_path, map_location="cpu", weights_only=False)
     except Exception as e:                              # a half-written latest.ckpt
-        return None, None, f"unreadable checkpoint ({type(e).__name__})"
+        return None, None, None, f"unreadable checkpoint ({type(e).__name__})"
+
+    pl.seed_everything(0, workers=True)
     model = EstimatorSynth(cfg.model, cfg.synth, cfg.schedule)
     model.load_state_dict(ck["state_dict"])
     model.eval().to(device)
-    return model, cfg, f"epoch {ck.get('epoch', '?')}"
 
-
-def build_val_loader(cfg, batch_size: int):
-    """The id 'valid' split, reproduced the way train.py produces it."""
-    pl.seed_everything(0, workers=True)
     dcfg = OmegaConf.to_container(cfg.data, resolve=True)
     dcfg["batch_size"] = batch_size
     dcfg["num_workers"] = 0
     dm = hydra.utils.instantiate(dcfg)
     dm.setup(None)
-    return dm
+    return model, cfg, dm, f"epoch {ck.get('epoch', '?')}"
 
 
 def split_sha1(ds) -> str:
     return hashlib.sha1("\n".join(sorted(_files(ds))).encode()).hexdigest()
+
+
+def underlying(ds):
+    while hasattr(ds, "dataset"):
+        ds = ds.dataset
+    return ds
+
+
+def val_split(run_dir: str, dm):
+    """The arm's own id/valid split: from the manifest if it recorded one.
+
+    Returns (dataset, how). Reading the membership beats reproducing it --
+    a hash can only tell you that you got the wrong split, never what the right
+    one was. Runs written before the manifest carried 'files' fall back to the
+    reproduction plus the hash check.
+    """
+    repro = dm.id_datasets["valid"]
+    man = os.path.join(run_dir, "split_manifest.json")
+    if not os.path.exists(man):
+        return repro, "split unverified (no manifest)"
+    rec = json.load(open(man)).get("id_valid", {})
+    names = rec.get("files")
+    if names:
+        base = underlying(repro)
+        idx = {os.path.basename(f): i for i, f in enumerate(base.raw_files)}
+        missing = [n for n in names if n not in idx]
+        if missing:
+            return None, f"manifest lists {len(missing)} files not in {base.audio_dir}"
+        return Subset(base, [idx[n] for n in names]), "split read from manifest"
+    want, got = rec.get("sha1"), split_sha1(repro)
+    if want and want != got:
+        return None, (f"SPLIT MISMATCH -- manifest {want[:8]}, reproduced {got[:8]}; "
+                      f"this run predates the manifest recording membership, so "
+                      f"the right split cannot be recovered")
+    return repro, "split reproduced, hash matches manifest"
 
 
 def main() -> None:
@@ -137,27 +186,17 @@ def main() -> None:
     rows, groups = {}, []
     for d in runs:
         name = Path(d).name
-        model, cfg, note = load_arm(d, args.ckpt, args.device)
+        model, cfg, dm, note = load_arm(d, args.ckpt, args.device, args.batch_size)
         if model is None:
             print(f"{name:<20} skipped: {note}")
             continue
 
-        dm = build_val_loader(cfg, args.batch_size)
-        # The split is reproduced, not read. Check it against what the run
-        # itself recorded before trusting a single number below.
-        man = os.path.join(d, "split_manifest.json")
-        if os.path.exists(man):
-            want = json.load(open(man)).get("id_valid", {}).get("sha1")
-            got = split_sha1(dm.id_datasets["valid"])
-            if want and want != got:
-                print(f"{name:<20} SPLIT MISMATCH -- manifest {want[:8]}, "
-                      f"reproduced {got[:8]}; skipping rather than reporting "
-                      f"numbers from the wrong files")
-                continue
-        else:
-            print(f"{name:<20} note: no split_manifest.json, split unverified")
+        vset, how = val_split(d, dm)
+        if vset is None:
+            print(f"{name:<20} skipped: {how}")
+            continue
 
-        loader = dm.val_dataloader()[0]
+        loader = DataLoader(vset, batch_size=args.batch_size, num_workers=0)
         acc, n = {}, 0
         with torch.no_grad():
             for i, batch in enumerate(loader):
@@ -176,7 +215,7 @@ def main() -> None:
         rows[name] = {k: v / n for k, v in acc.items()}
         if not groups:
             groups = list(rows[name])
-        print(f"{name:<20} {note}, {n} batches of {args.batch_size}")
+        print(f"{name:<20} {note}, {n} batches of {args.batch_size} -- {how}")
 
     if not rows:
         return
