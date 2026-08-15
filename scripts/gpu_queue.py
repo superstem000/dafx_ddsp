@@ -39,6 +39,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -89,6 +90,15 @@ def parse_stages(path: Path) -> list[tuple[str, list[str]]]:
 
 
 def main() -> None:
+    # This queue is normally started detached with its output piped to a file,
+    # and python block-buffers stdout when it is not a tty -- so the launch
+    # banner and every "job N -> gpu G" line sit in a 4KB buffer for hours,
+    # making a working queue indistinguishable from one that died on startup.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except AttributeError:      # pragma: no cover -- python < 3.7
+        pass
+
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--jobs", type=Path, required=True,
                    help="One shell command per line, {gpu} for the device index; "
