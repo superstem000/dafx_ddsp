@@ -46,6 +46,27 @@ TAGS = {
     "id_multi": "val_id/spec",
     "ood_lsd": "val_ood/lsd",
     "ood_multi": "val_ood/spec",
+    # Two more the model already computes and logs, and which are worth having
+    # precisely because they are not LSD.
+    #
+    # LSD takes 10*log10 of EVERY bin independently, so a bin at 1e-6 is scored
+    # as -60 dB and counts as much as the fundamental. That is the same
+    # weighting the log half of the training loss applies, which makes LSD
+    # structurally friendly to a log-trained arm and structurally hostile to a
+    # linear one. Reporting only LSD would beg the question the experiment asks.
+    #
+    # mfcc applies its log to MEL BAND energies, after summing many bins, then
+    # keeps 20 DCT coefficients. Quiet bins are averaged into their band instead
+    # of being amplified, so it is perceptual and log-ish without being bin-wise
+    # log -- it sits between the two ends rather than at one.
+    #
+    # loud is A-weighted loudness, one number per frame: coarse, and blind to
+    # spectral detail, but it catches gross level errors neither of the others
+    # penalises much.
+    "id_mfcc": "val_id/mfcc",
+    "ood_mfcc": "val_ood/mfcc",
+    "id_loud": "val_id/loud",
+    "ood_loud": "val_ood/loud",
 }
 SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 
@@ -75,7 +96,7 @@ def load(run_dir: str) -> dict | None:
     cache_path = os.path.join(run_dir, ".monitor_cache.json")
     try:
         cached = json.load(open(cache_path))
-        if cached.get("fp") == fp:
+        if cached.get("fp") == fp and cached.get("tags") == sorted(TAGS):
             c = cached["data"]
             c["series"] = {k: {int(st): v for st, v in d.items()}
                            for k, d in c["series"].items()}
@@ -120,7 +141,7 @@ def load(run_dir: str) -> dict | None:
     }
     try:
         with open(cache_path, "w") as fh:
-            json.dump({"fp": fp, "data": out}, fh)
+            json.dump({"fp": fp, "tags": sorted(TAGS), "data": out}, fh)
     except Exception:
         pass    # a read-only or racing run directory is not worth failing over
     return out
@@ -254,8 +275,13 @@ def main() -> None:
         print("'best' is the epoch minimising val_ood/lsd, which is what")
         print("ModelCheckpoint saves; 'final' is the last epoch. The paper does")
         print("not say which selection it used, so both are reported.\n")
-        print(f"{'run':<18}{'sel':>6}{'epoch':>7}{'Param':>9}{'ID LSD':>9}"
-              f"{'ID Multi':>10}{'OOD LSD':>9}{'OOD Multi':>11}")
+        print("Columns run from the linear end to the log end: Multi is the "
+              "training\nobjective, MFCC logs mel BAND energies, LSD logs every "
+              "bin. Param is the\nonly one independent of that axis, and it "
+              "exists in-domain only.\n")
+        print(f"{'run':<18}{'sel':>6}{'epoch':>7}{'Param':>9}"
+              f"{'ID Multi':>10}{'ID MFCC':>9}{'ID LSD':>9}"
+              f"{'OOD Multi':>11}{'OOD MFCC':>10}{'OOD LSD':>9}")
         for name, r in runs.items():
             sel = r["series"].get("ood_lsd", {})
             if not sel:
@@ -265,9 +291,11 @@ def main() -> None:
             for tag, step in (("best", best_step), ("final", max(r["steps"]))):
                 ep = step // args.steps_per_epoch
                 print(f"{name:<18}{tag:>6}{ep:>7}"
-                      f"{at(r, step, 'param'):>9.4f}{at(r, step, 'id_lsd'):>9.3f}"
-                      f"{at(r, step, 'id_multi'):>10.4f}{at(r, step, 'ood_lsd'):>9.3f}"
-                      f"{at(r, step, 'ood_multi'):>11.4f}")
+                      f"{at(r, step, 'param'):>9.4f}"
+                      f"{at(r, step, 'id_multi'):>10.4f}{at(r, step, 'id_mfcc'):>9.4f}"
+                      f"{at(r, step, 'id_lsd'):>9.3f}"
+                      f"{at(r, step, 'ood_multi'):>11.4f}{at(r, step, 'ood_mfcc'):>10.4f}"
+                      f"{at(r, step, 'ood_lsd'):>9.3f}")
         return
 
     print(f"{'run':<18}{'epoch':>7}{'of':>6}{'ep/h':>7}{'eta_h':>7}"
@@ -288,6 +316,8 @@ def main() -> None:
     for key, label in (("ood_lsd", "val_ood/lsd  (what the checkpoint selects on)"),
                        ("id_lsd", "val_id/lsd"),
                        ("param", "val_id/param  (the paper's Param column)"),
+                       ("ood_mfcc", "val_ood/mfcc  (log of mel BAND energies -- "
+                                    "perceptual, but not bin-wise log like LSD)"),
                        # train/total is the OPTIMISED objective, so read it only
                        # down a column, never across. Across arms it is a
                        # different quantity per arm -- log(x+1e-4) and |x| live
