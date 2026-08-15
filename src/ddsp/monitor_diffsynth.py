@@ -276,7 +276,17 @@ def main() -> None:
 
     for key, label in (("ood_lsd", "val_ood/lsd  (what the checkpoint selects on)"),
                        ("id_lsd", "val_id/lsd"),
-                       ("param", "val_id/param  (the paper's Param column)")):
+                       ("param", "val_id/param  (the paper's Param column)"),
+                       # train/total is the OPTIMISED objective, so read it only
+                       # down a column, never across. Across arms it is a
+                       # different quantity per arm -- log(x+1e-4) and |x| live
+                       # on unrelated scales, and zeroing one weight halves the
+                       # divisor. Even within one arm it is not comparable
+                       # across the ramp, since param_w and sw_w are still
+                       # moving between epochs 50 and 200; only from 200 on,
+                       # where the weights settle at 0 and 1, is it one thing.
+                       ("train", "train/total  (per-arm scale -- compare down a "
+                                 "column, not across; mixed weights until ep200)")):
         names = [n for n in runs if key in runs[n]["series"]]
         if not names:
             continue
