@@ -177,8 +177,16 @@ def main() -> None:
         print(f"\n[{stamp()}] interrupted -- terminating {len(running)} running job(s)")
         for _g, (_i, pr) in running.items():
             terminate(pr)
+    # SIGHUP as well as SIGINT and SIGTERM. `tmux kill-session` sends SIGHUP,
+    # and with it unhandled the queue died without ever running the killpg
+    # above -- so every job it had launched, each in its own process group via
+    # preexec_fn=os.setsid, carried on holding a GPU with nothing left watching
+    # it. That is how three trainings once ran for another two hours after the
+    # queue was "killed". Killing the tmux session is the obvious way to stop
+    # this thing, so it had better be a safe one.
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGHUP, stop)
 
     def run_stage(label: str, js: list[str], base: int) -> None:
         """Schedule this stage's jobs, then wait for every one of them."""
