@@ -68,22 +68,38 @@ def terms(target: torch.Tensor, pred: torch.Tensor, sizes: list[int]):
     return mag, lg, scale
 
 
+def neff(shares):
+    """Effective number of scales, 1/sum(share^2). 6.0 is equal weighting."""
+    return 1.0 / sum(s * s for s in shares)
+
+
 def report(label: str, mag, lg, scale, sizes):
     ms, ls = sum(mag), sum(lg)
+    mshare = [m / ms for m in mag]
+    lshare = [l / ls for l in lg]
+    # Normalising by mean|target| rather than by the measured error: the error
+    # depends on which proxy is used (the two below differ by ~75x), so
+    # constants derived from it would bake one arbitrary error model into the
+    # loss. mean|target| is a property of the data alone. It is also a single
+    # constant per scale, not per bin, so it changes only the window balance --
+    # no quiet bin is up-weighted and the compression axis is untouched.
+    nrm = [m / s for m, s in zip(mag, scale)]
+    tn = sum(nrm)
     print(f"\n=== {label}")
     print(f"{'n_fft':>7}{'mean|target|':>14}{'mag term':>13}{'share':>8}"
-          f"{'log term':>12}{'share':>8}{'norm[spec]':>13}")
-    for n, m, l, s in zip(sizes, mag, lg, scale):
+          f"{'log term':>12}{'share':>8}{'mag share if norm':>19}")
+    for n, m, l, s, q in zip(sizes, mag, lg, scale, nrm):
         print(f"{n:>7}{s:>14.4g}{m:>13.4g}{100 * m / ms:>7.1f}%"
-              f"{l:>12.4g}{100 * l / ls:>7.1f}%{m:>13.4g}")
-    print(f"{'total':>7}{'':>14}{ms:>13.4g}{100.0:>7.1f}%{ls:>12.4g}{100.0:>7.1f}%")
-    # The headline: an equal-weight multi-scale loss would give each of six
-    # scales 16.7%. Report how far each half is from that.
-    top = max(range(len(sizes)), key=lambda i: mag[i])
-    print(f"  mag: {100 * mag[top] / ms:.1f}% of the linear half is n_fft={sizes[top]}"
-          f"  (equal weighting would be {100 / len(sizes):.1f}%)")
-    top = max(range(len(sizes)), key=lambda i: lg[i])
-    print(f"  log: {100 * lg[top] / ls:.1f}% of the log half is n_fft={sizes[top]}")
+              f"{l:>12.4g}{100 * l / ls:>7.1f}%{100 * q / tn:>18.1f}%")
+    print(f"{'total':>7}{'':>14}{ms:>13.4g}{100.0:>7.1f}%{ls:>12.4g}{100.0:>7.1f}%"
+          f"{100.0:>18.1f}%")
+    print(f"  effective scales (1/sum share^2, 6.0 = equal):  "
+          f"mag {neff(mshare):.1f}   log {neff(lshare):.1f}   "
+          f"mag normalised {neff([q / tn for q in nrm]):.1f}")
+    print(f"  the two shortest windows carry:  mag {100 * sum(mshare[:2]):.1f}%   "
+          f"log {100 * sum(lshare[:2]):.1f}%")
+    print("  norm['spec'] = {"
+          + ", ".join(f"{n}: {s:.4g}" for n, s in zip(sizes, scale)) + "}")
 
 
 def main() -> None:
