@@ -32,6 +32,7 @@ import argparse
 import glob
 import json
 import os
+import re
 from pathlib import Path
 
 # The metrics the paper reports, under the names diffsynth logs them by.
@@ -201,6 +202,13 @@ def main() -> None:
                         "reductions are not order-stable, so they diverge, and "
                         "that divergence IS the run-to-run error bar for every "
                         "later comparison.")
+    p.add_argument("--only", default=None, metavar="REGEX",
+                   help="Keep only runs whose name matches. The phases are named "
+                        "for it: '^pre_|^ploss' is the branch phase (epochs "
+                        "50-200/400), '^synth_|^real_' is the resume phase "
+                        "(200-400). Mixing them in one table is usually a "
+                        "mistake -- they cover different epoch ranges, so a "
+                        "milestone row means different things in each column.")
     p.add_argument("--steps-per-epoch", type=int, default=250,
                    help="16000 train / batch 64; only used to label epochs")
     args = p.parse_args()
@@ -209,9 +217,12 @@ def main() -> None:
     for d in sorted(glob.glob(os.path.join(args.root, "*"))):
         if not os.path.isdir(d):
             continue
+        name = Path(d).name
+        if args.only and not re.search(args.only, name):
+            continue
         r = load(d)
         if r:
-            runs[Path(d).name] = r
+            runs[name] = r
     if not runs:
         print(f"no runs with event files under {args.root}")
         return
