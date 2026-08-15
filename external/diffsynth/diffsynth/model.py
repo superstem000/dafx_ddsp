@@ -30,8 +30,18 @@ class EstimatorSynth(pl.LightningModule):
         self.mfcc = Mfcc(n_fft=1024, hop_length=256, n_mels=40, n_mfcc=20, sample_rate=16000)
         self.save_hyperparameters()
 
-    def param_loss(self, synth_output, param_dict):
-        loss = 0
+    def param_group_losses(self, synth_output, param_dict):
+        """The per-parameter terms param_loss sums over.
+
+        Split out so validation can log them individually. The aggregate hides
+        more than it summarises: the six L1s live on different scales, so the
+        unweighted mean is roughly half osc_mix and q by magnitude alone while
+        f0_hz contributes under 1% of it whatever any arm does, and the groups
+        move in opposite directions between arms -- a linear loss recovers
+        level and frequency better while a log loss recovers spectral shape
+        better, which the mean cancels into a single number showing neither.
+        """
+        out = {}
         for k, target in param_dict.items():
             output_name = self.synth.dag_summary[k]
             if output_name in self.synth.fixed_param_names:
@@ -41,7 +51,16 @@ class EstimatorSynth(pl.LightningModule):
             x = synth_output[output_name]
             if target.shape[1] > 1:
                 x = util.resample_frames(x, target.shape[1])
-            loss += F.l1_loss(x, target)
+            out[k] = F.l1_loss(x, target)
+        return out
+
+    def param_loss(self, synth_output, param_dict):
+        # Divided by the number of keys in param_dict, not by the number of
+        # terms actually summed -- skipped and empty groups still count in the
+        # denominator. Preserved exactly as it was, since every number recorded
+        # so far is on that convention.
+        losses = self.param_group_losses(synth_output, param_dict)
+        loss = sum(losses.values()) if losses else 0.0
         loss = loss / len(param_dict.keys())
         return loss
 
@@ -165,6 +184,14 @@ class EstimatorSynth(pl.LightningModule):
         prefix = 'val_id/' if dataloader_idx==0 else 'val_ood/'
         losses = {prefix+k: v for k, v in losses.items()}
         self.log_dict(losses, prog_bar=True, on_epoch=True, on_step=False, add_dataloader_idx=False)
+        # The breakdown behind val_id/param, as a trajectory rather than only at
+        # whatever checkpoints happen to survive. Six extra scalars an epoch.
+        # In-domain only: the OOD loader is NSynth, which has no ground-truth
+        # parameters, so batch_dict carries no 'params' there.
+        if dataloader_idx == 0 and 'params' in batch_dict:
+            groups = self.param_group_losses(outputs, batch_dict['params'])
+            self.log_dict({'val_id/param_group/'+k: v for k, v in groups.items()},
+                          on_epoch=True, on_step=False, add_dataloader_idx=False)
         return losses
 
     # get_progress_bar_dict was removed in PL 2 (it is now

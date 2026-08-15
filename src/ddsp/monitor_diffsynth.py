@@ -78,6 +78,11 @@ TAGS = {
 }
 SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 
+# Bumped whenever load() extracts a different set of series. The cache is
+# keyed on TAGS, and val_id/param_group/* is not in TAGS -- without this a
+# cache written before those were read would silently keep hiding them.
+CACHE_VERSION = 2
+
 
 def load(run_dir: str) -> dict | None:
     try:
@@ -104,7 +109,8 @@ def load(run_dir: str) -> dict | None:
     cache_path = os.path.join(run_dir, ".monitor_cache.json")
     try:
         cached = json.load(open(cache_path))
-        if cached.get("fp") == fp and cached.get("tags") == sorted(TAGS):
+        if (cached.get("fp") == fp and cached.get("tags") == sorted(TAGS)
+                and cached.get("version") == CACHE_VERSION):
             c = cached["data"]
             c["series"] = {k: {int(st): v for st, v in d.items()}
                            for k, d in c["series"].items()}
@@ -122,6 +128,12 @@ def load(run_dir: str) -> dict | None:
                  ("train", "train/total")):
         if t in have:
             series[k] = {e.step: e.value for e in ea.Scalars(t)}
+    # Per-parameter Param, logged from model.py's validation_step. Absent from
+    # runs that predate it, which is why every consumer below is guarded.
+    for t in sorted(have):
+        if t.startswith("val_id/param_group/"):
+            series["pg:" + t[len("val_id/param_group/"):]] = {
+                e.step: e.value for e in ea.Scalars(t)}
     if not series:
         return None
     # Wall clock from the selection metric if present, else anything.
@@ -149,7 +161,8 @@ def load(run_dir: str) -> dict | None:
     }
     try:
         with open(cache_path, "w") as fh:
-            json.dump({"fp": fp, "tags": sorted(TAGS), "data": out}, fh)
+            json.dump({"fp": fp, "tags": sorted(TAGS),
+                       "version": CACHE_VERSION, "data": out}, fh)
     except Exception:
         pass    # a read-only or racing run directory is not worth failing over
     return out
@@ -370,6 +383,93 @@ def main() -> None:
               f"{'change':>10}{'2*se':>9}  verdict")
         for n in names:
             t = trend(P[n])
+            if t is None:
+                print(f"{n:<18} too few points yet")
+                continue
+            print(f"{n:<18}{t['best_v']:>9.4f} ({t['best_e']:>3}){t['last']:>10.4f}"
+                  f"{t['prev']:>10.4f}{t['delta']:>+10.4f}{2 * t['se']:>9.4f}"
+                  f"  {t['verdict']}")
+
+    param_groups(runs, args)
+
+
+def param_groups(runs: dict, args) -> None:
+    """Per-parameter Param, normalised by a constant predictor.
+
+    val_id/param is an unweighted mean of six L1s on different scales, so it is
+    roughly half osc_mix and q by magnitude alone and f0_hz contributes under 1%
+    of it whatever any arm does. Worse, the groups move in OPPOSITE directions
+    between arms -- a linear loss recovers level and frequency better while a
+    log loss recovers spectral shape better -- so the mean cancels a real result
+    into a single number showing neither.
+
+    Dividing by the error a constant predictor makes puts the six on one scale:
+    1.0 is "learned nothing about this parameter", 0.0 is "recovered it
+    exactly". It also reverses one reading outright -- amplitudes has the
+    smallest baseline of the six, so its small raw L1 was hiding that it is the
+    least well recovered group rather than the best.
+    """
+    tagged = {n: sorted(k for k in r["series"] if k.startswith("pg:"))
+              for n, r in runs.items()}
+    names = [n for n, ks in tagged.items() if ks]
+    if not names:
+        return                              # runs predating the per-group logging
+
+    bpath = os.path.join(args.root, "param_baseline.json")
+    try:
+        base = json.load(open(bpath))["baseline_l1"]
+    except Exception:
+        base = {}
+        print(f"\n=== val_id/param by group  (RAW -- no {bpath}; run "
+              f"scripts/ds_param_baseline.py to normalise)")
+    else:
+        print("\n=== val_id/param by group, as a fraction of the constant-predictor "
+              "error\n    (1.0 = learned nothing about that parameter, 0.0 = "
+              "recovered exactly)")
+
+    groups = sorted({k[3:] for n in names for k in tagged[n]})
+    short = [g.replace("harmor_", "") for g in groups]
+    w = max(11, max(len(s) for s in short) + 2)
+    if base:
+        missing = [g for g in groups if g not in base]
+        if missing:
+            print(f"    no baseline for {', '.join(missing)} -- shown raw")
+        print(f"{'(baseline L1)':<20}"
+              + "".join(f"{base.get(g, float('nan')):>{w}.4f}" for g in groups))
+
+    print(f"{'run':<20}" + "".join(f"{s:>{w}}" for s in short)
+          + f"{'mean':>10}{'epoch':>7}")
+    for n in names:
+        ep, vals = 0, []
+        for g in groups:
+            pts = pairs(runs[n], "pg:" + g, args.steps_per_epoch)
+            if not pts:
+                vals.append(float("nan"))
+                continue
+            ep = max(ep, pts[-1][0])
+            v = around(pts, pts[-1][0])
+            vals.append(v / base[g] if base.get(g) else v)
+        ok = [v for v in vals if v == v]
+        mean = sum(ok) / len(ok) if ok else float("nan")
+        print(f"{n:<20}" + "".join(f"{v:>{w}.4f}" for v in vals)
+              + f"{mean:>10.4f}{ep:>7}")
+
+    # The trend is taken on the normalised MEAN rather than on val_id/param,
+    # because that is the aggregate worth watching: the six groups weighted by
+    # how much of each is learnable rather than by how large its units are.
+    if base:
+        print(f"\n{'':7} {'best (epoch)':>18}{'last':>10}{'prev':>10}"
+              f"{'change':>10}{'2*se':>9}  verdict   (normalised mean)")
+        for n in names:
+            per = {}
+            for g in groups:
+                if not base.get(g):
+                    continue
+                for e, v in pairs(runs[n], "pg:" + g, args.steps_per_epoch):
+                    per.setdefault(e, []).append(v / base[g])
+            pts = [(e, sum(vs) / len(vs)) for e, vs in sorted(per.items())
+                   if len(vs) == len([g for g in groups if base.get(g)])]
+            t = trend(pts)
             if t is None:
                 print(f"{n:<18} too few points yet")
                 continue
