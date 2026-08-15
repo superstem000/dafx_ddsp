@@ -68,12 +68,18 @@ def parse_stages(path: Path) -> list[tuple[str, list[str]]]:
     label, cur = "all", []
     for raw in path.read_text().splitlines():
         line = raw.strip()
-        m = re.match(r"^#\s*STAGE\b[:\s]*(.*)$", line, re.I)
+        # STAGE must be followed by whitespace, a colon, or end of line. The
+        # looser `\b[:\s]*` this replaces also matched ordinary prose -- a
+        # comment reading "# stage. ~1.7h on one card" was read as a marker
+        # under re.I and renamed the stage it was describing. Mid-stage, the
+        # same line would have split one stage into two and dropped the barrier
+        # between them, which is exactly the failure the stages exist to prevent.
+        m = re.match(r"^#\s*STAGE(?:[:\s]+(.*))?$", line, re.I)
         if m:
             if cur:
                 stages.append((label, cur))
                 cur = []
-            label = m.group(1).strip() or f"stage{len(stages)}"
+            label = (m.group(1) or "").strip() or f"stage{len(stages)}"
             continue
         if line and not line.startswith("#"):
             cur.append(line)
