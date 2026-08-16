@@ -235,6 +235,13 @@ def main() -> None:
     p.add_argument("--root", default="results/diffsynth")
     p.add_argument("--table", action="store_true",
                    help="Table 1 shape at best and final epoch, rather than progress")
+    p.add_argument("--paper", action="store_true",
+                   help="One row per loss variant: in-domain columns from its "
+                        "synth_ arm and out-of-domain columns from its real_ "
+                        "arm. The cross cells -- a synth-trained model on "
+                        "NSynth, a real-trained model on harmor -- are what "
+                        "each arm was NOT trained for, and mixing them into "
+                        "the same table is what makes it unreadable.")
     p.add_argument("--rows", type=int, default=10,
                    help="Roughly how many milestone rows to show across the run")
     p.add_argument("--spread", type=int, default=None, metavar="EPOCH",
@@ -289,6 +296,50 @@ def main() -> None:
             m = sum(vals) / len(vals)
             print(f"{key:<12}{len(vals):>4}{min(vals):>11.4f}{max(vals):>11.4f}"
                   f"{max(vals) - min(vals):>11.4f}{m:>11.4f}{stdev(vals):>10.4f}")
+        return
+
+    if args.paper:
+        # Each arm is judged on the domain it was trained for: synth_* supplies
+        # the in-domain columns, real_* the out-of-domain ones. Param exists
+        # in-domain only, so it always comes from the synth arm -- NSynth has no
+        # ground-truth parameters.
+        variants = {}
+        for name, r in runs.items():
+            for pre in ("synth_", "real_"):
+                if name.startswith(pre):
+                    variants.setdefault(name[len(pre):], {})[pre[:-1]] = r
+        if not variants:
+            print("no synth_/real_ pairs under " + args.root)
+            return
+        print("In-domain columns from each variant's synth_ arm, out-of-domain "
+              "from its real_ arm.")
+        print("Param is in-domain only -- NSynth has no ground-truth "
+              "parameters.\n")
+        print("Multi is each arm's OWN training objective, so it is NOT "
+              "comparable between arms")
+        print("that differ in weight or in power/magnitude. The other columns "
+              "are.\n")
+        print(f"{'variant':<14}{'ep_s':>6}{'ep_r':>6}{'Param':>9}"
+              f"{'ID LSD':>9}{'ID MFCC':>9}{'ID Multi':>10}"
+              f"{'OOD LSD':>10}{'OOD MFCC':>10}{'OOD Multi':>11}")
+        def cell(d, key):
+            if d is None:
+                return float("nan")
+            return at(d, max(d["steps"]), key)
+        def ep(d):
+            return max(d["steps"]) // args.steps_per_epoch if d else 0
+        rows = []
+        for v, d in variants.items():
+            sy, re_ = d.get("synth"), d.get("real")
+            rows.append((cell(sy, "param"), v, sy, re_))
+        for _pv, v, sy, re_ in sorted(rows, key=lambda t: (t[0] != t[0], t[0])):
+            f = lambda x, w, p=3: (f"{x:>{w}.{p}f}" if x == x else f"{'-':>{w}}")
+            print(f"{v:<14}{ep(sy):>6}{ep(re_):>6}"
+                  + f(cell(sy, "param"), 9, 4)
+                  + f(cell(sy, "id_lsd"), 9) + f(cell(sy, "id_mfcc"), 9, 4)
+                  + f(cell(sy, "id_multi"), 10, 4)
+                  + f(cell(re_, "ood_lsd"), 10) + f(cell(re_, "ood_mfcc"), 10, 4)
+                  + f(cell(re_, "ood_multi"), 11, 4))
         return
 
     if args.table:
