@@ -39,7 +39,13 @@ if [[ -n "${RESUME:-}" ]]; then
   # latest.ckpt, not last.ckpt. last.ckpt is only rewritten when the monitored
   # metric improves, so it silently lags -- on the first attempt it was epoch 37
   # of a 50-epoch base. See train.py for the callback that writes this one.
-  CKPT="$ROOT/results/diffsynth/${RESUME}/tb_logs/checkpoints/latest.ckpt"
+  # CKPT names a specific file instead. latest.ckpt is the right default -- it
+  # is whatever epoch the run reached -- but it is the WRONG choice when several
+  # arms branch at once, because they reach different epochs and each branch
+  # would start somewhere else. A periodic checkpoint (ep0299.ckpt, written by
+  # trainer.checkpoint_every_n_epochs) is the same epoch in every arm, which is
+  # what makes the branches comparable.
+  CKPT="$ROOT/results/diffsynth/${RESUME}/tb_logs/checkpoints/${CKPT:-latest.ckpt}"
   if [[ ! -f "$CKPT" ]]; then
     echo "ERROR: $NAME resumes from '$RESUME' but no checkpoint at"
     echo "  $CKPT"
