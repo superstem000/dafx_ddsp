@@ -1,0 +1,51 @@
+# Spectral loss only, from random init, 400 epochs. No parameter supervision.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_spec.txt
+#
+# WHY. Every diffsynth arm so far has 200 epochs of parameter supervision behind
+# it, and every other system we have does not: the diffmoog ladder configs set
+# parameters_loss_weight 0, spectrogram_loss_warmup_epochs 0 and
+# loss_switch_epochs 0, and the plate encoder is trained on audio alone. Those
+# two say linear wins, decisively -- diffmoog's ladder runs 0.0940 (linear) →
+# 0.1085 (log1p) → 0.1237 → 0.1509 → 0.5155 (eps 1e-5), monotone with a cliff,
+# and linear beats direct parameter supervision outright (0.0940 vs 0.1131).
+# diffsynth after epoch 200 says the opposite.
+#
+# The difference may be the supervision, or it may be distance from the
+# solution: from random init the model has to FIND the basin, and log amplifies
+# the noise floor into spurious structure, which is what a cliff looks like.
+# Near a solution it is the reverse -- the residual error lives in quiet regions
+# carrying real parameter information that linear cannot see at all. This run
+# puts harmor in the from-scratch condition so the two can be told apart.
+#
+# configs/schedule/spec.yaml is `sw_w: 1.0` and nothing else; ParamSchedule
+# fills the missing param_w with 0.0, so the spectral loss is the whole
+# objective from step one. It ships with the upstream repo and has never been
+# used. Validation still reports val_id/param -- validation_step calls
+# train_losses with no weights, so Param is measured throughout even though
+# nothing is optimising it.
+#
+# THE LADDER, at matched per-term weight. loss.py:60 divides by
+# len(fft_sizes)*(mag_w + log_mag_w), so:
+#
+#   hybrid       mag_w 1, log_mag_w 1        -> 1/12 each, two terms
+#   mag_halfw    log_mag_w 0, sw_w 0.5       -> 1/12, linear only
+#   log_halfw    mag_w 0,     sw_w 0.5       -> 1/12, log only
+#   mag          log_mag_w 0                 -> 1/6, the naive deletion
+#
+# mag_halfw and log_halfw differ in the compression and in nothing else, which
+# is the comparison the thesis is actually about and which no run so far has
+# had -- mag was always weight-confounded and log was always behind on epochs.
+# mag is kept as the control for what a reader would try first.
+#
+# Schedule matched to the published 400: ExponentialLR gamma 0.99 from lr 1e-3,
+# 400 epochs, model.lr_schedule left null. That makes the endpoint directly
+# comparable to the original arms at the same epoch count, with the parameter
+# phase as the only difference. If these plateau ambiguously the hold-then-
+# cosine treatment can be applied afterwards from the periodic checkpoints.
+
+# STAGE spec
+scripts/ds_run.sh spec_hybrid    pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50
+scripts/ds_run.sh spec_mag_halfw pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 schedule.sw_w=0.5
+scripts/ds_run.sh spec_log_halfw pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 model.sw_loss.mag_w=0     schedule.sw_w=0.5
+scripts/ds_run.sh spec_mag       pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0
