@@ -21,6 +21,12 @@ sw_loss:
   # Declared here rather than appended with +hydra syntax so the override is a
   # plain one and the published value is visible in the config.
   power: 2
+  # The knee of log(x + eps), and it has to move with `power`. On power the knee
+  # sits at p = 1e-4; the same 1e-4 on magnitude sits at m = 1e-4, i.e. p = 1e-8
+  # -- four decades deeper, which is a different loss, and near the rungs that
+  # collapsed on the plate. sqrt(1e-4) = 1e-2 holds the knee where the paper put
+  # it, so `power` changes the domain and nothing else.
+  log_eps_v: 1e-4
 
 perc_model: null
 

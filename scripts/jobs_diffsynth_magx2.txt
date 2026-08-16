@@ -1,0 +1,47 @@
+# The rest of the magnitude family: hybrid and log, on the paper's schedule.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_magx2.txt
+#
+# jobs_diffsynth_magx.txt moved the LINEAR arms to magnitude and the result was
+# large -- synth_magx_halfw reaches a normalised per-group mean of 0.2756 at
+# epoch 337 where hybrid sits at 0.3946 and mag_halfw at 0.4277, better on all
+# six groups, and the post-200 parameter drift nearly disappears (0.2687 ->
+# 0.2756 across 137 epochs, against hybrid's 0.3428 -> 0.3946 in 85).
+#
+# But that comparison changes two things at once: the domain AND which terms the
+# loss has. hybrid is still on power. These arms put the rest of the family on
+# magnitude so the ladder is internally consistent and the linear-vs-log
+# question can be asked inside one domain:
+#
+#   hybridx      mag + log, 1/12 each     <- vs hybrid
+#   logx_halfw   log only, 1/12           <- vs log_halfw (spec run) and magx_halfw
+#
+# THE EPS HAS TO MOVE WITH THE DOMAIN. log_eps adds a fixed 1e-4; on power its
+# knee is at p = 1e-4, and the same constant on magnitude puts it at m = 1e-4,
+# i.e. p = 1e-8 -- four decades deeper, a materially different loss, and close to
+# the ladder rungs that collapsed on the plate. sqrt(1e-4) = 1e-2 holds the knee
+# exactly where the published loss put it, so `power` changes the domain and
+# nothing else. That is what model.sw_loss.log_eps_v=1e-2 below is for; getting
+# this wrong would make hybridx look bad for a reason that has nothing to do
+# with the question.
+#
+# Note log(m) = 0.5*log(p) above the knee, so the magnitude log term is half the
+# power one by a constant factor. Adam absorbs a global constant; gradient_clip_val
+# does not, which is worth remembering when reading the result -- the same caveat
+# already applies to the linear arms, whose loss is ~30x smaller on magnitude
+# (train/total 0.0850 against 2.5089 at epoch 200).
+#
+# Same base, same schedule, same everything else: branching from pre_base at
+# epoch 50, ExponentialLR gamma 0.99, ramp at 50/200, 400 total.
+
+# STAGE variants
+# 50 -> 200. ~5h on two cards.
+RESUME=pre_base scripts/ds_run.sh pre_hybridx    pretrain "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+RESUME=pre_base scripts/ds_run.sh pre_logx_halfw pretrain "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# STAGE resumes
+# 200 -> 400, both branches each.
+RESUME=pre_hybridx    scripts/ds_run.sh synth_hybridx    resume_synth "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+RESUME=pre_hybridx    scripts/ds_run.sh real_hybridx     resume_real  "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+RESUME=pre_logx_halfw scripts/ds_run.sh synth_logx_halfw resume_synth "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+RESUME=pre_logx_halfw scripts/ds_run.sh real_logx_halfw  resume_real  "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5

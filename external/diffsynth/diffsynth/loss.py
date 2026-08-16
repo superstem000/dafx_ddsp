@@ -5,7 +5,7 @@ from diffsynth.util import log_eps
 import torch.nn.functional as F
 import functools
 
-def spectrogram_loss(x_audio, target_audio, fft_sizes=[64, 128, 256, 512, 1024, 2048], hop_ls=None, win_ls=None, log_mag_w=0.0, mag_w=1.0, norm=None, power=2):
+def spectrogram_loss(x_audio, target_audio, fft_sizes=[64, 128, 256, 512, 1024, 2048], hop_ls=None, win_ls=None, log_mag_w=0.0, mag_w=1.0, norm=None, power=2, log_eps_v=1e-4):
     x_specs = multiscale_fft(x_audio, fft_sizes, hop_ls, win_ls, power)
     target_specs = multiscale_fft(target_audio, fft_sizes, hop_ls, win_ls, power)
     loss = 0.0
@@ -17,7 +17,7 @@ def spectrogram_loss(x_audio, target_audio, fft_sizes=[64, 128, 256, 512, 1024, 
         if mag_w > 0:
             spec_loss[n_fft] = mag_w * torch.mean(torch.abs(x_spec - target_spec)) / spec_norm
         if log_mag_w > 0:
-            log_spec_loss[n_fft] = log_mag_w * torch.mean(torch.abs(log_eps(x_spec) - log_eps(target_spec))) / log_spec_norm
+            log_spec_loss[n_fft] = log_mag_w * torch.mean(torch.abs(log_eps(x_spec, log_eps_v) - log_eps(target_spec, log_eps_v))) / log_spec_norm
     return {'spec':spec_loss, 'logspec':log_spec_loss}
 
 def waveform_loss(x_audio, target_audio, l1_w=0, l2_w=1.0, linf_w=0, linf_k=1024, norm=None):
@@ -38,7 +38,7 @@ class SpecWaveLoss():
     """
     loss for reconstruction with multiscale spectrogram loss and waveform loss
     """
-    def __init__(self, fft_sizes=[64, 128, 256, 512, 1024, 2048], hop_lengths=None, win_lengths=None, mag_w=1.0, log_mag_w=1.0, l1_w=0, l2_w=0.0, linf_w=0.0, linf_k=1024, norm=None, power=2):
+    def __init__(self, fft_sizes=[64, 128, 256, 512, 1024, 2048], hop_lengths=None, win_lengths=None, mag_w=1.0, log_mag_w=1.0, l1_w=0, l2_w=0.0, linf_w=0.0, linf_k=1024, norm=None, power=2, log_eps_v=1e-4):
         super().__init__()
         self.fft_sizes = fft_sizes
         self.hop_lengths = hop_lengths
@@ -48,7 +48,7 @@ class SpecWaveLoss():
         self.l1_w=l1_w
         self.l2_w=l2_w
         self.linf_w=linf_w
-        self.spec_loss = functools.partial(spectrogram_loss, fft_sizes=fft_sizes, hop_ls=hop_lengths, win_ls=win_lengths, log_mag_w=log_mag_w, mag_w=mag_w, norm=norm, power=power)
+        self.spec_loss = functools.partial(spectrogram_loss, fft_sizes=fft_sizes, hop_ls=hop_lengths, win_ls=win_lengths, log_mag_w=log_mag_w, mag_w=mag_w, norm=norm, power=power, log_eps_v=log_eps_v)
         self.wave_loss = functools.partial(waveform_loss, l1_w=l1_w, l2_w=l2_w, linf_w=linf_w, linf_k=linf_k, norm=norm)
         
     def __call__(self, x_audio, target_audio):
