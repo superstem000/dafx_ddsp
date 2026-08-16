@@ -5,9 +5,9 @@ from diffsynth.util import log_eps
 import torch.nn.functional as F
 import functools
 
-def spectrogram_loss(x_audio, target_audio, fft_sizes=[64, 128, 256, 512, 1024, 2048], hop_ls=None, win_ls=None, log_mag_w=0.0, mag_w=1.0, norm=None):
-    x_specs = multiscale_fft(x_audio, fft_sizes, hop_ls, win_ls)
-    target_specs = multiscale_fft(target_audio, fft_sizes, hop_ls, win_ls)
+def spectrogram_loss(x_audio, target_audio, fft_sizes=[64, 128, 256, 512, 1024, 2048], hop_ls=None, win_ls=None, log_mag_w=0.0, mag_w=1.0, norm=None, power=2):
+    x_specs = multiscale_fft(x_audio, fft_sizes, hop_ls, win_ls, power)
+    target_specs = multiscale_fft(target_audio, fft_sizes, hop_ls, win_ls, power)
     loss = 0.0
     spec_loss = {}
     log_spec_loss = {}
@@ -38,7 +38,7 @@ class SpecWaveLoss():
     """
     loss for reconstruction with multiscale spectrogram loss and waveform loss
     """
-    def __init__(self, fft_sizes=[64, 128, 256, 512, 1024, 2048], hop_lengths=None, win_lengths=None, mag_w=1.0, log_mag_w=1.0, l1_w=0, l2_w=0.0, linf_w=0.0, linf_k=1024, norm=None):
+    def __init__(self, fft_sizes=[64, 128, 256, 512, 1024, 2048], hop_lengths=None, win_lengths=None, mag_w=1.0, log_mag_w=1.0, l1_w=0, l2_w=0.0, linf_w=0.0, linf_k=1024, norm=None, power=2):
         super().__init__()
         self.fft_sizes = fft_sizes
         self.hop_lengths = hop_lengths
@@ -48,7 +48,7 @@ class SpecWaveLoss():
         self.l1_w=l1_w
         self.l2_w=l2_w
         self.linf_w=linf_w
-        self.spec_loss = functools.partial(spectrogram_loss, fft_sizes=fft_sizes, hop_ls=hop_lengths, win_ls=win_lengths, log_mag_w=log_mag_w, mag_w=mag_w, norm=norm)
+        self.spec_loss = functools.partial(spectrogram_loss, fft_sizes=fft_sizes, hop_ls=hop_lengths, win_ls=win_lengths, log_mag_w=log_mag_w, mag_w=mag_w, norm=norm, power=power)
         self.wave_loss = functools.partial(waveform_loss, l1_w=l1_w, l2_w=l2_w, linf_w=linf_w, linf_k=linf_k, norm=norm)
         
     def __call__(self, x_audio, target_audio):

@@ -93,7 +93,7 @@ def compute_lsd(orig_audio, resyn_audio):
     lsd = lsd.mean()
     return lsd
 
-def multiscale_fft(audio, sizes=[64, 128, 256, 512, 1024, 2048], hop_lengths=None, win_lengths=None) -> torch.Tensor:
+def multiscale_fft(audio, sizes=[64, 128, 256, 512, 1024, 2048], hop_lengths=None, win_lengths=None, power=2) -> torch.Tensor:
     """multiscale fft power spectrogram
     uses torch.stft so it should be differentiable
 
@@ -114,8 +114,28 @@ def multiscale_fft(audio, sizes=[64, 128, 256, 512, 1024, 2048], hop_lengths=Non
     for n_fft, hl, wl in stft_params:
         window = torch.hann_window(n_fft if wl is None else wl).to(audio.device)
         stft = torch.stft(audio, n_fft, window=window, hop_length=hl, win_length=wl, center=False, return_complex=True)
-        stft = torch.view_as_real(stft)
-        specs.append(amp(stft))
+        # power=1 is MAGNITUDE, and it is not cosmetic. With L1 on power the
+        # loss is |a^2 - t^2|, whose derivative 2a vanishes as a -> 0: silence
+        # is a stationary point with exactly zero gradient, and a linear-only
+        # loss starting from random init can sit in it forever. Measured: from
+        # scratch, spec_mag and spec_mag_halfw froze at 10.0138 and 5.0069 --
+        # unchanged to four decimals from epoch 4, exactly 2x apart, one
+        # trajectory stuck at a stationary point. The arms carrying a log term
+        # escaped, because d log(p+eps)/dp = 1/(p+eps) -> 1e4 rather than 0.
+        #
+        # On magnitude the loss is |a - t| and the derivative is +-1 everywhere,
+        # so there is no dead zone. This is what the plate's linear loss has
+        # always been (losses.py: torch.abs(torch.stft(...))), which means
+        # "linear" has meant two different things across the two systems and
+        # only one of them has the trap.
+        #
+        # torch.abs on the complex tensor rather than amp(...).sqrt(): sqrt has
+        # infinite derivative at 0, which would trade one numerical problem for
+        # another, and abs is what the plate calls.
+        if power == 1:
+            specs.append(torch.abs(stft))
+        else:
+            specs.append(amp(torch.view_as_real(stft)))
     return specs
 
 def compute_loudness(audio, sample_rate=16000, frame_rate=50, n_fft=2048, range_db=120.0, ref_db=20.7):
