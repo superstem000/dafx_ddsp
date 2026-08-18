@@ -59,13 +59,6 @@ class EstimatorSynth(pl.LightningModule):
         # None keeps the published ExponentialLR exactly. See configure_optimizers.
         self.lr_schedule = model_cfg.get('lr_schedule', None)
         self.mfcc = Mfcc(n_fft=1024, hop_length=256, n_mels=40, n_mfcc=20, sample_rate=16000)
-        # The same cepstral distance at Stevens' exponent instead of the log.
-        # mfcc and lsd both measure at gamma -> 0, which is far past where
-        # hearing sits and is also the domain a log-trained arm is optimised
-        # for, so ranking arms by them is close to circular. 0.3 is where
-        # loudness actually is. Identical in every other respect to self.mfcc,
-        # so the pair isolates the compression.
-        self.mfcc03 = Mfcc(n_fft=1024, hop_length=256, n_mels=40, n_mfcc=20, sample_rate=16000, gamma=0.3)
         self.save_hyperparameters()
 
     def param_group_losses(self, synth_output, param_dict):
@@ -204,7 +197,11 @@ class EstimatorSynth(pl.LightningModule):
         mon_losses['lsd'] = compute_lsd(target_audio, resyn_audio)
         mon_losses['loud'] = loudness_loss(resyn_audio, target_audio)
         mon_losses['mfcc'] = F.l1_loss(self.mfcc(target_audio), self.mfcc(resyn_audio))
-        mon_losses['mfcc03'] = F.l1_loss(self.mfcc03(target_audio), self.mfcc03(resyn_audio))
+        # Stevens' exponent instead of the log, from the SAME mfcc module --
+        # a second Mfcc instance would add dct_mat and mel_scale.fb to
+        # state_dict and break strict loading of every earlier checkpoint.
+        mon_losses['mfcc03'] = F.l1_loss(self.mfcc.with_gamma(target_audio, 0.3),
+                                         self.mfcc.with_gamma(resyn_audio, 0.3))
         return mon_losses
 
     def training_step(self, batch_dict, batch_idx):
