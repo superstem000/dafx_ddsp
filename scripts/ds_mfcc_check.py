@@ -214,6 +214,22 @@ def main() -> None:
              "Slow on CPU -- ~124 frames per 4 s clip through the model, per "
              "arm, per checkpoint. Use --device cuda, or cut --batches.",
     )
+    p.add_argument(
+        "--openl3", action="store_true",
+        help="Add a cosine distance between OpenL3 embeddings, music-trained, "
+             "512-d. Needs torchopenl3 (pip install torchopenl3); it fetches "
+             "its own weights via ol3.core.load_audio_embedding_model, so "
+             "there are no model files to place.\n\n"
+             "This is the one that carries a general audio-matching claim. "
+             "CREPE is a pitch model and scores pitch agreement; OpenL3 is a "
+             "general music-audio representation, and it is standard enough to "
+             "cite without arguing for it. Neither makes a spectral "
+             "compression choice, which is the whole point against 'you moved "
+             "the compression to suit yourself'.\n\n"
+             "Heavier than CREPE: clips are resampled 16k -> 48k and cut into "
+             "1 s windows, so a 4 s clip is 4 forward passes. Use --device "
+             "cuda or cut --batches.",
+    )
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--batches", type=int, default=32)
     p.add_argument("--device", default="cpu")
@@ -230,7 +246,17 @@ def main() -> None:
         crepe = CREPELoss().to(args.device).eval()
     # Column order after the cepstral ones: LSD first since it is the metric
     # the paper already quotes, then the embedding distance.
-    extra = ["lsd"] + (["crepe"] if crepe is not None else [])
+    openl3 = None
+    if args.openl3:
+        from diffsynth.perceptual.openl3 import load_openl3_model, openl3_loss
+        # base_dir is unused -- the manual .pth.tar path in that function is
+        # commented out and it goes through torchopenl3's own loader.
+        _ol3 = load_openl3_model("", input_repr="mel256", data="music",
+                                 embed_size=512).to(args.device)
+        def openl3(t, r):
+            return float(openl3_loss(_ol3, t, r))
+    extra = (["lsd"] + (["crepe"] if crepe is not None else [])
+             + (["openl3"] if openl3 is not None else []))
 
     runs = [d for d in sorted(glob.glob(os.path.join(args.root, "*")))
             if os.path.isdir(d) and (not args.only or re.search(args.only, Path(d).name))]
@@ -289,6 +315,8 @@ def main() -> None:
                     if crepe is not None:
                         acc["crepe"] += float(
                             crepe.perceptual_loss(tgt, resyn))
+                    if openl3 is not None:
+                        acc["openl3"] += openl3(tgt, resyn)
                     n += 1
             if not n:
                 continue
