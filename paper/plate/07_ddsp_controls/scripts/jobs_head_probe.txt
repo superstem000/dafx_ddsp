@@ -1,0 +1,41 @@
+# Head probe as a queue, for when the cards are still busy.
+#
+# Same six cells as scripts/head_probe.sh -- {tanh, normtanh, softcap} x
+# {L1_STFT, L1_STFT_eps1e1}, 12000 steps, norm=batch, adam_eps=1e-8 -- but
+# taken one at a time as GPUs actually free, rather than claiming a fixed set
+# up front. Use this while the tanh ladder is still running.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_head_probe.txt
+#
+# The log arms are listed first on purpose. L1_STFT_eps1e1 runs at ~0.5 steps/s
+# against linear's ~2.3, so 12000 steps is ~7h for a log cell and ~1.5h for a
+# linear one. Starting the slow three as early as possible is the difference
+# between the probe finishing overnight and finishing tomorrow afternoon.
+#
+# Every variable that differs from a default is named on every line. Inheriting
+# one and being wrong about it has already cost a run here: NORM in particular
+# defaults to group in eps_ladder.sh while the ladder these compare against is
+# batch.
+#
+# The tanh rows are not redundant with the existing ladder. They differ from it
+# in adam_eps (1e-8 vs 1e-16), which is the point: if tanh alone recovers once
+# adam_eps is sane, the head bound was never the mechanism and both earlier
+# fixes were chasing the wrong variable.
+
+# --- the failing arm, under each head (slow: ~7h each) ---
+# eps1e1 is eps = 0.1, not the eps = 1e-7 end of the ladder. Every log rung
+# fails on the plate, so the choice is free, and the mild one is the stronger
+# test: "eps = 1e-7 collapses" invites "of course it does", whereas a head that
+# cannot rescue even mild compression says the effect is about compression and
+# not about how extreme the compression is. If a fix does move eps1e1, eps1e7
+# is the obvious follow-up; if nothing moves eps1e1, eps1e7 is not worth the
+# GPU-hours.
+NORM=batch HEAD_BOUND=tanh     HEAD_CAP=3.0 ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=12000 OUT=results/ddsp/head_probe/tanh     ARMS="L1_STFT_eps1e1" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=normtanh HEAD_CAP=3.0 ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=12000 OUT=results/ddsp/head_probe/normtanh ARMS="L1_STFT_eps1e1" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=softcap  HEAD_CAP=3.0 ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=12000 OUT=results/ddsp/head_probe/softcap  ARMS="L1_STFT_eps1e1" scripts/eps_ladder.sh "{gpu}"
+
+# --- the healthy control, under each head (fast: ~1.5h each) ---
+# Any head that breaks this one is disqualified whatever it did to the log arm.
+NORM=batch HEAD_BOUND=tanh     HEAD_CAP=3.0 ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=12000 OUT=results/ddsp/head_probe/tanh     ARMS="L1_STFT" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=normtanh HEAD_CAP=3.0 ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=12000 OUT=results/ddsp/head_probe/normtanh ARMS="L1_STFT" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=softcap  HEAD_CAP=3.0 ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=12000 OUT=results/ddsp/head_probe/softcap  ARMS="L1_STFT" scripts/eps_ladder.sh "{gpu}"

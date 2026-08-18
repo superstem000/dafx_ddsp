@@ -102,3 +102,29 @@ before a sweep is attributable at all.
 
 Audio is not shipped. `datasets/` carries the parameter CSVs; the commands in
 `docs/DATASETS.md` regenerate the audio, and every flag in them is load-bearing.
+
+## `generators/diffsynth_gen_dataset.py` and `generators/get_nsynth.sh`
+
+The two halves of the diffsynth data (sections 08-11), which have no parameter
+CSV to ship and so are regenerated rather than copied.
+
+**In-domain**, `diffsynth_gen_dataset.py`: renders from the harmor synth against
+a hydra synth config, sampling each static and time-varying parameter and
+writing the audio alongside the parameters that produced it. This is the half
+with a true theta, and it is the only half on which `val_id/param` means
+anything -- the paper's own headline metric is defined only here.
+
+**Out-of-domain**, `get_nsynth.sh` plus `nsynth_sample.py`: NSynth, sampled
+rather than extracted whole. `nsynth-train` is 289205 files of 4 s at 16 kHz,
+so a full extraction is ~37 GB on top of a 22 GB archive; the paper (sec 4.3.2)
+uses 20000 sounds "randomly selected from the full dataset", and
+`IdOodDataModule` then narrows whatever pool it is given down to the in-domain
+size anyway, so sampling 25000 during extraction reaches the same place for a
+fraction of the disk. `nsynth_sample.py` is a separate file rather than a
+heredoc because the archive arrives on stdin and a heredoc would take stdin
+away from the pipe, leaving `tarfile` with an exhausted stream and no error.
+
+There is no `gt_loss` for the real half, and that is the point of having both:
+NSynth has no true parameters, so the model is necessarily misspecified there
+and the only question the weighting decides is where the bias lands. The
+in-domain half is what makes the bias measurable at all.

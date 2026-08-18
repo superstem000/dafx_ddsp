@@ -1,0 +1,22 @@
+# Core: everything src.ddsp.train_encoder pulls in transitively.
+# train_encoder -> src.gd.graddescent -> src.cmaes.fit_7param_norm_es, which
+# imports optuna and cma at module scope, so they are needed to train even
+# though no CMA-ES search is running.
+torch
+numpy
+pandas
+scipy
+matplotlib
+optuna
+cma
+# Imported lazily inside fit_7param_norm_es.create_robust_storage, so only
+# needed if a CMA-ES study is actually opened -- listed because it is a real
+# dependency of that path, not an accident.
+SQLAlchemy
+
+# Audio I/O, used by ModalPlate/utilities.py and the listening helpers. Not on
+# the training or dataset-generation path. sounddevice needs PortAudio system
+# libraries and commonly fails to install on a headless box, which would take
+# the whole `pip install -r` down with it -- install separately if you need
+# playback:
+#     pip install soundfile librosa sounddevice
