@@ -58,12 +58,29 @@ class Spec(nn.Module):
         return spec
 
 class Mfcc(nn.Module):
-    def __init__(self, n_fft=2048, hop_length=1024, n_mels=128, n_mfcc=40, norm='ortho', sample_rate=16000, f_min=40, f_max=7600, pad_end=True, center=False):
+    def __init__(self, n_fft=2048, hop_length=1024, n_mels=128, n_mfcc=40, norm='ortho', sample_rate=16000, f_min=40, f_max=7600, pad_end=True, center=False, gamma=None):
         """
         uses log mels
+
+        gamma, when set, replaces the log with (mel + 1e-6)^gamma, i.e. a power
+        cepstrum instead of a log one. Stevens' law puts loudness at I^0.3 and
+        the mel spectrogram here is already power (MelSpec power=2), so
+        gamma=0.3 measures where hearing sits. The log this otherwise takes is
+        the gamma -> 0 limit, far past it.
+
+        Everything else is held identical, so `mfcc` and a gamma instance differ
+        in the compression and nothing else -- which is the comparison worth
+        watching during a run.
+
+        NOT identical to ds_mfcc_check's g0.3 column: that one is built on the
+        `standard` conventions, a Hann window and a Slaney-normalised mel scale,
+        where this inherits MelSpec's rectangular window and HTK unnormalised
+        filterbank. Same exponent, different frontend, so the two are not
+        interchangeable in a table.
         """
         super().__init__()
         self.norm = norm
+        self.gamma = gamma
         self.n_mfcc = n_mfcc
         self.melspec = MelSpec(n_fft, hop_length, n_mels, sample_rate, power=2, f_min=f_min, f_max=f_max, pad_end=pad_end, center=center)
         dct_mat = create_dct(self.n_mfcc, self.melspec.n_mels, self.norm)
@@ -71,7 +88,10 @@ class Mfcc(nn.Module):
 
     def forward(self, audio):
         mel_spec = self.melspec(audio)
-        mel_spec = torch.log(mel_spec+1e-6)
+        if self.gamma is None:
+            mel_spec = torch.log(mel_spec+1e-6)
+        else:
+            mel_spec = (mel_spec + 1e-6) ** self.gamma
         # (batch, n_mels, time).tranpose(...) dot (n_mels, n_mfcc)
         # -> (batch, time, n_mfcc).tranpose(...)
         mfcc = torch.matmul(mel_spec.transpose(1, 2), self.dct_mat).transpose(1, 2)
