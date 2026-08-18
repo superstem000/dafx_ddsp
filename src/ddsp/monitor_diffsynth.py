@@ -364,12 +364,10 @@ def main() -> None:
         if not names:
             continue
         P = {n: pairs(runs[n], key, args.steps_per_epoch) for n in names}
-        # Each run's OWN latest epoch, for the `now` row below. The milestone
-        # grid is global -- built from whichever arm is furthest along -- so an
-        # arm still training shows "-" for every mark past it, and the last
-        # number in its column can be a hundred epochs back. A mark just ahead
-        # of where it has reached also reads "-", since `around` needs a point
-        # within +-2 of the mark.
+        # Each run's own latest epoch. The milestone grid is global -- built
+        # from whichever arm is furthest along -- so an arm still training
+        # shows "-" for every mark past it, and the last number in its column
+        # can be a hundred epochs back.
         own = {n: max(e for e, _ in P[n]) for n in names}
         w = max(11, max(len(n) for n in names) + 2)
 
@@ -377,28 +375,28 @@ def main() -> None:
         # noise; what carries information is the shape across the whole run, and
         # the two phase boundaries -- 50, where the spectral loss starts being
         # introduced, and 200, where the ramp completes and the resume begins.
-        top = max(e for n in names for e, _ in P[n])
+        top = max(own.values())
         marks = {1, 50, 200, top}
         marks |= {round(top * i / args.rows) for i in range(1, args.rows)}
+        # Plus a row AT each still-training arm's current epoch, so it can be
+        # read against the finished arms at that epoch rather than against
+        # their endpoints. One row per position, every arm evaluated on it --
+        # a row where each column used its own epoch would put arms hundreds of
+        # epochs apart on one line, which is the comparison to avoid.
+        live = {e for e in own.values() if e != top}
+        marks |= live
         marks = sorted(e for e in marks if 0 < e <= top)
 
-        print(f"\n=== {label}   (mean over +-2 epochs; * marks a phase boundary)")
+        print(f"\n=== {label}   (mean over +-2 epochs; * phase boundary, "
+              f"< where a still-running arm is now)")
         print(f"{'epoch':>7} " + "".join(f"{n:>{w}}" for n in names))
         for e in marks:
             cells = []
             for n in names:
                 v = around(P[n], e)
                 cells.append(f"{v:>{w}.4f}" if v == v else f"{'-':>{w}}")
-            flag = "*" if e in (50, 200) else " "
+            flag = "<" if e in live else ("*" if e in (50, 200) else " ")
             print(f"{e:>7}{flag}" + "".join(cells))
-        # Every arm at its own current epoch, which for a run in flight is the
-        # only row that says what it reads NOW rather than at the last global
-        # mark it happened to cover.
-        cells = []
-        for n in names:
-            v = around(P[n], own[n])
-            cells.append(f"{v:>{w}.4f}" if v == v else f"{'-':>{w}}")
-        print(f"{'now':>7} " + "".join(cells))
 
         print(f"\n{'':7} {'best (epoch)':>18}{'last (epochs)':>22}{'prev':>10}"
               f"{'change':>10}{'2*se':>9}  verdict")
