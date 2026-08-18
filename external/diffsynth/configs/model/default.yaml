@@ -27,6 +27,20 @@ sw_loss:
   # collapsed on the plate. sqrt(1e-4) = 1e-2 holds the knee where the paper put
   # it, so `power` changes the domain and nothing else.
   log_eps_v: 1e-4
+  # Compression exponent on the POWER spectrogram for the mag_w term:
+  # (p + log_eps_v)^gamma in place of the plain difference. null keeps the
+  # published behaviour exactly.
+  #
+  # It subsumes `power` for that term and reaches past both ends of it --
+  # gamma 1.0 is the published loss, 0.5 IS the magnitude loss since
+  # magnitude = power^0.5, and gamma -> 0 approaches the log term. 0.3 is
+  # Stevens' law, loudness ~ I^0.3, i.e. where hearing actually sits.
+  #
+  # It exists to answer the obvious objection to evaluating at gamma 0.3:
+  # if that is the right measure, why not train on it. Uses log_eps_v as its
+  # own epsilon deliberately, so gamma=0.3 against the log arm differs in the
+  # exponent and in nothing else -- same knee, same signal level.
+  gamma: null
 
 perc_model: null
 

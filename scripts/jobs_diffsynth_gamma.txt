@@ -1,0 +1,55 @@
+# Train at the exponent we evaluate at: gamma = 0.3, Stevens' law.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_gamma.txt
+#
+# WHY. The gamma ladder in ds_mfcc_check says the arm ordering on out-of-domain
+# audio is decided by the metric's compression: at gamma 0.3 the linear arms
+# win by 25%, at gamma -> 0 -- which is where MFCC and LSD both measure -- the
+# log arms win by 8%. Stevens puts hearing at 0.3, so the standard evaluation
+# sits far outside the perceptual range and that alone flips the result.
+#
+# The first thing a reviewer will say to that is: fine, then train at 0.3 and
+# stop arguing. These arms answer it with a run rather than a paragraph, and
+# the answer is worth having whichever way it falls:
+#
+#   - it wins on the gamma-0.3 metric AND holds up on MFCC/LSD, and the paper
+#     has a positive recommendation instead of only a critique
+#   - it wins only on its own metric, and that is the cleanest possible
+#     statement of the circularity: EVERY loss wins the metric that shares its
+#     compression, log included, which is the point being made about MFCC
+#   - it loses to both, and the perceptual-exponent argument does not survive
+#     contact with training, which is much better learned here than in review
+#
+# ONE VARIABLE against the log arm. gamma reuses log_eps_v as its epsilon, so
+# gam03 and `log` differ in the exponent and in nothing else -- same knee at
+# the same signal level, 1e-4 on power. gamma is needed at all because
+# d(p^gamma)/dp = gamma*p^(gamma-1) diverges as p -> 0 for gamma < 1: the
+# mirror image of the power-domain dead zone, an exploding gradient at silence
+# rather than a vanishing one. At eps 1e-4 the slope there is
+# 0.3*(1e-4)^-0.7 ~ 190, against the log term's 1e4, so it is the tamer of the
+# two and no clipping change is needed.
+#
+# WHERE IT SITS among the existing arms, as an exponent on power:
+#
+#   mag      gamma 1.0    the published loss
+#   magx     gamma 0.5    magnitude, since magnitude = power^0.5
+#   gam03    gamma 0.3    THESE -- Stevens
+#   log      gamma -> 0   what MFCC and LSD measure at
+#
+# So this is a fourth rung on a ladder that already has three, and it is the
+# one the evaluation argument points at.
+#
+# mag_w 1 / log_mag_w 0: a PURE gamma arm, no log term. Mixing one in would
+# make it a hybrid and put two variables in the comparison against magx.
+#
+# power=2 is required and asserted in spectrogram_loss -- the exponent is
+# defined on intensity, and power=1 would silently make it p^0.15.
+#
+# Same shape as the magx family: resume pre_base at 50, ramp to 200, branch.
+
+# STAGE the gamma-0.3 pretrain, from the shared base
+RESUME=pre_base scripts/ds_run.sh pre_gam03 pretrain "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.mag_w=1.0 model.sw_loss.log_mag_w=0 model.sw_loss.gamma=0.3 model.sw_loss.power=2 model.sw_loss.log_eps_v=1e-4
+
+# STAGE branch at 200, both halves
+RESUME=pre_gam03 scripts/ds_run.sh synth_gam03 resume_synth "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.mag_w=1.0 model.sw_loss.log_mag_w=0 model.sw_loss.gamma=0.3 model.sw_loss.power=2 model.sw_loss.log_eps_v=1e-4
+RESUME=pre_gam03 scripts/ds_run.sh real_gam03  resume_real  "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.mag_w=1.0 model.sw_loss.log_mag_w=0 model.sw_loss.gamma=0.3 model.sw_loss.power=2 model.sw_loss.log_eps_v=1e-4
