@@ -61,6 +61,7 @@ import glob
 import os
 import random
 import subprocess
+import sys
 
 import matplotlib
 matplotlib.use("Agg")
@@ -70,6 +71,11 @@ import torch
 
 
 def main() -> None:
+    # Line-buffer stdout. Lightning's "Seed set to 0" goes to stderr and shows
+    # up at once, while every progress line here is a print() -- so piped into
+    # tee the two separate and the log looks stalled for minutes at a time with
+    # checkpoints already finished. Same fix as gpu_queue.py needed.
+    sys.stdout.reconfigure(line_buffering=True)
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--audio-dir",
                    default="external/diffsynth/data/nsynth-train/audio",
