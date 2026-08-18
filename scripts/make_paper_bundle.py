@@ -187,7 +187,222 @@ MANIFEST = [
             "switch 150 and should be expected to reproduce the collapse."
         ),
     ),
+    dict(
+        section="plate",
+        slug="07_ddsp_controls",
+        title="DDSP encoder, the three knobs that do not rescue a compressed loss",
+        sources=[
+            "results/ddsp/eps_ladder_adam1e8",
+            "results/ddsp/head_probe",
+        ],
+        scripts=["scripts/eps_ladder.sh"],
+        extra_globs=[],
+        note=(
+            "The answers to 'you did not tune X'. 05 covers the learning rate; "
+            "these cover the optimiser epsilon and the output-head bound, and "
+            "neither moves the result.\n\n"
+            "    eps_ladder_adam1e8 is the whole ladder rerun at adam_eps=1e-8 "
+            "against the default 1e-16. It matters most where it could matter "
+            "at all: the gentlest rung improves from 0.1473 to 0.0789, and the "
+            "linear arm is unchanged at 0.0061. 0.0789 is still 1.7x the "
+            "constant-predictor floor of 0.0473, so the rung that benefits "
+            "most from fixing the optimiser still fails to beat predicting the "
+            "mean.\n\n"
+            "    head_probe swaps the bounded output head three ways -- tanh, "
+            "softcap, normtanh -- at 12k steps. Linear lands at 0.0156-0.0170 "
+            "and eps 1e-1 at 0.1673-0.2281 whichever is used, so saturation of "
+            "the head is not what separates them. Recorded because a saturating "
+            "head WAS a real failure earlier in this project (see "
+            "train_encoder.py's leakytanh, kept in the source as a measured "
+            "failure), and ruling it out here is what makes that episode "
+            "irrelevant to the ladder."
+        ),
+    ),
+    dict(
+        section="diffsynth",
+        slug="08_reproduction",
+        title="Masuda & Saito reproduced, and the loss swapped inside their schedule",
+        sources=["results/diffsynth"],
+        scripts=[
+            "scripts/ds_run.sh",
+            "scripts/jobs_diffsynth.txt",
+            "scripts/gpu_queue.py",
+            "scripts/ds_export_scalars.py",
+        ],
+        extra_globs=[],
+        note=(
+            "RUN scripts/ds_export_scalars.py FIRST. results/diffsynth is 16 GB "
+            "of Lightning checkpoints and TensorBoard event files; SKIP drops "
+            "both, which would leave the hydra configs and no numbers. The "
+            "exporter writes scalars.csv into each run directory and that is "
+            "what lands here.\n\n"
+            "    All four diffsynth sections copy the same results/diffsynth "
+            "tree, so the split between 08-11 is editorial rather than "
+            "physical: which runs answer which question. The run names carry "
+            "it -- pre_/synth_/real_ on the published schedule, *x for the "
+            "magnitude family, hold_/cos_ for the schedule study, spec_ for "
+            "from scratch.\n\n"
+            "    The published design: 50 epochs of parameter loss, a ramp to "
+            "spectral over epochs 50-200, spectral only to 400, branching to "
+            "synth (harmor) and real (NSynth). Epochs 0-50 are identical for "
+            "every arm, so pre_base is trained once and every variant resumes "
+            "from it -- both more faithful to the paper and free of the ~1% "
+            "Param spread that five independent pretrainings showed, "
+            "trainer.deterministic being unavailable here (see "
+            "configs/trainer/default.yaml).\n\n"
+            "    Seven upstream defects were fixed to get this running at all; "
+            "they are in the vendored external/diffsynth under code/, each "
+            "with the reason in a comment. The one that changes numbers rather "
+            "than merely running: save_last=True does NOT give a latest "
+            "checkpoint under save_top_k=1 with a monitor, so the first "
+            "attempt's 50-epoch base was silently epoch 37."
+        ),
+    ),
+    dict(
+        section="diffsynth",
+        slug="09_magnitude",
+        title="The same losses on magnitude rather than power",
+        sources=["results/diffsynth"],
+        scripts=[
+            "scripts/jobs_diffsynth_magx.txt",
+            "scripts/jobs_diffsynth_magx2.txt",
+            "scripts/ds_scale_balance.py",
+        ],
+        extra_globs=[],
+        note=(
+            "The *x arms: magx, magx_halfw, hybridx, logx_halfw, each with "
+            "synth and real branches, all resuming from the same pre_base at "
+            "epoch 50 on the published schedule.\n\n"
+            "    Why. diffsynth's spectral loss is L1 on POWER (amp = re^2 + "
+            "im^2), so for a partial of amplitude a it is |a^2 - t^2| and the "
+            "derivative 2a vanishes as a -> 0: silence is a stationary point "
+            "with exactly zero gradient. Measured -- from random init the "
+            "linear-only arms froze at 10.0138 and 5.0069, unchanged to four "
+            "decimals from epoch 4 and exactly 2x apart, one trajectory stuck "
+            "and scaled by the weight. Arms carrying a log term escape, since "
+            "d log(p+eps)/dp is 1e4 at the origin rather than 0. On magnitude "
+            "the loss is |a - t|, derivative +-1, and there is no such point. "
+            "That is also what the plate's linear loss has always been "
+            "(losses.py, torch.abs of the stft), so 'linear' meant two "
+            "different things across the two systems and only one had the "
+            "trap.\n\n"
+            "    The eps moves with the domain: log_eps 1e-4 on power is 1e-2 "
+            "on magnitude, so the knee stays at the same signal level and "
+            "`power` changes the domain and nothing else. Getting this wrong "
+            "would put the log four decades deeper, near the rungs that "
+            "collapse on the plate.\n\n"
+            "    ds_scale_balance.py is the supporting measurement: with a "
+            "fixed eps against six unnormalised FFT sizes, the knee sits 30 dB "
+            "apart between the 64- and 2048-point terms, and the linear half "
+            "carries 40-52% of its weight at n_fft=2048 against an equal-weight "
+            "16.7% while the log half is near-flat. So the two halves are not "
+            "equally multi-scale, which is a confound in any mag-vs-log "
+            "comparison and is measured here rather than assumed."
+        ),
+    ),
+    dict(
+        section="diffsynth",
+        slug="10_schedule",
+        title="Where the spectral phase settles, once the learning rate stops being the cap",
+        sources=["results/diffsynth"],
+        scripts=[
+            "scripts/jobs_diffsynth_hold.txt",
+            "scripts/jobs_diffsynth_cos.txt",
+            "scripts/jobs_diffsynth600.txt",
+        ],
+        extra_globs=[],
+        note=(
+            "hold_*, cos_* and the *600 arms. The published schedule is "
+            "ExponentialLR at gamma 0.99, which is a convergent series: total "
+            "parameter travel is capped at lr0/(-ln gamma) = 0.0995 however "
+            "long it runs, and 98.2% of that is spent by epoch 400. So 'flat "
+            "at 400' cannot be distinguished from 'the learning rate ran out', "
+            "and the paper's own 400 epochs are not evidence of a floor.\n\n"
+            "    Three attempts, in order, and the first two are recorded "
+            "because they failed usefully. The *600 arms stretch gamma to "
+            "0.99332217 so the final rate at 600 matches the old one at 400, "
+            "which buys 1.5x the budget -- but leaving the phase boundaries at "
+            "50/200 ran the whole ramp at roughly twice the step size, and "
+            "pre600_hybrid reached epoch 200 at Param 0.0906 against "
+            "pre_hybrid's 0.0699. Since param_w is 0 after epoch 200 there is "
+            "no supervision left to recover with, so it measured the ramp "
+            "rather than the ceiling.\n\n"
+            "    hold_* branches the published epoch-200 checkpoints onto a "
+            "CONSTANT rate at the value the schedule had there (1.3398e-4), "
+            "which removes the cap: 400 epochs at that rate is 4x the entire "
+            "post-200 budget of the original run. Every arm then read flat, "
+            "which at a constant rate is a real plateau. cos_* anneals from "
+            "epoch 300 to zero at 400 so the endpoint is unambiguous, and "
+            "lands on the paper's own epoch count.\n\n"
+            "    Two mechanisms this needed, both in the vendored source: "
+            "ExponentialLR.state_dict carries gamma and load_state_dict does "
+            "__dict__.update, so a resumed run silently takes the schedule "
+            "from the checkpoint and ignores the config -- hence ConfigLambdaLR, "
+            "whose lambda comes from the config and which tolerates a "
+            "state_dict written by a different scheduler class. And "
+            "trainer.checkpoint_every_n_epochs, because branching an anneal "
+            "from a chosen epoch is impossible when only best-by-lsd and latest "
+            "are kept."
+        ),
+    ),
+    dict(
+        section="diffsynth",
+        slug="11_from_scratch_and_metrics",
+        title="Spectral loss from random init, and what the evaluation metrics measure",
+        sources=["results/diffsynth"],
+        scripts=[
+            "scripts/jobs_diffsynth_spec.txt",
+            "scripts/ds_param_breakdown.py",
+            "scripts/ds_param_baseline.py",
+            "scripts/ds_mfcc_check.py",
+            "src/ddsp/monitor_diffsynth.py",
+        ],
+        extra_globs=["results/diffsynth/param_baseline.json"],
+        note=(
+            "spec_* uses configs/schedule/spec.yaml -- sw_w 1.0 and nothing "
+            "else, so the spectral loss is the whole objective from step one. "
+            "It ships with the upstream repo and had never been used. The point "
+            "was to put harmor in the condition diffmoog and the plate are in, "
+            "since both of those have no parameter supervision at all and both "
+            "say linear wins.\n\n"
+            "    Result: from random init NOTHING works on harmor. spec_hybrid "
+            "and spec_log_halfw end at 1.14 and 1.16 of the constant-predictor "
+            "error -- worse than guessing the dataset mean -- and the two "
+            "linear-only arms froze at initialisation, which is the "
+            "observation that led to 09. So the from-scratch condition cannot "
+            "carry the linear-vs-log claim here, and the published schedule is "
+            "where the evidence sits. Kept because a null result that "
+            "redirected the work is worth more written down than remembered.\n\n"
+            "    THE METRICS. param_loss sums an L1 over six parameter groups "
+            "and divides by the count, so val_id/param is a six-way mean of "
+            "quantities on different scales -- roughly half osc_mix and q by "
+            "magnitude alone, with f0_hz contributing under 1% whatever any arm "
+            "does. ds_param_baseline computes the error of a constant "
+            "predictor per group and ds_param_breakdown reports each group as a "
+            "fraction of it, which is comparable across groups and is the same "
+            "normalisation the plate work quotes against. It reverses at least "
+            "one reading: amplitudes has the smallest baseline of the six, so "
+            "its small raw L1 was hiding that it is the LEAST recovered "
+            "group.\n\n"
+            "    ds_mfcc_check exists because Mfcc reaches torch.stft through "
+            "MelSpec.forward with five positional arguments, so `window` keeps "
+            "its None default and the transform runs with a RECTANGULAR window "
+            "-- while compute_lsd, two functions away, passes a Hann window "
+            "explicitly. It recomputes the distance as logged, with a window, "
+            "and with library conventions. On the synth branch all three give "
+            "the same ordering, so the defect changes the spread and not the "
+            "ranking; the gaps roughly double once the leakage is removed.\n\n"
+            "    And the reason MFCC is reported at all: LSD applies "
+            "10*log10 to every bin independently, which is the same per-bin log "
+            "the training loss's log term applies, differing by the constant "
+            "4.343 and the eps. So it grades a log-trained arm with a rescaled "
+            "version of its own objective. MFCC's log lands after mel-band "
+            "summation, so it stays compressive without being the objective "
+            "under test."
+        ),
+    ),
 ]
+
 
 # Copied once, shared by every entry, rather than traced per result: an import
 # trace would be more precise and would also be one more thing that can be
@@ -208,6 +423,11 @@ ANALYSIS = [
     # record that survives for the full CMA-ES run.
     "docs/figures/nmse_per_ir.csv",
     "docs/figures/nmse_ecdf.pdf",
+    # The diffsynth reader. Everything in sections 08-11 is read through this:
+    # milestone trajectories rather than last-N-epochs, because adjacent epochs
+    # differ by noise, and the per-group Param table normalised against the
+    # constant predictor.
+    "src/ddsp/monitor_diffsynth.py",
 ]
 
 # The original numpy plate and its dataset generator. random-IR-100-1.0s and
@@ -229,6 +449,14 @@ GENERATORS = [
 
 CODE = [
     ("src", "code/plate_src"),
+    # The vendored diffsynth, with the seven upstream fixes needed to run it on
+    # modern torch/Lightning and the four changes that are ours: sw_loss.power,
+    # sw_loss.log_eps_v, ConfigLambdaLR and the per-group Param logging. Each
+    # carries its reason in a comment at the site.
+    ("external/diffsynth/diffsynth", "code/diffsynth_src"),
+    ("external/diffsynth/configs", "code/diffsynth_configs"),
+    ("external/diffsynth/train.py", "code/diffsynth_train.py"),
+    ("external/diffsynth/split_manifest.py", "code/diffsynth_split_manifest.py"),
     ("external/diffmoog/src", "code/diffmoog_src"),
     ("external/diffmoog/configs/loss_study", "code/diffmoog_configs"),
     ("external/diffmoog/tools", "code/diffmoog_tools"),
@@ -251,7 +479,11 @@ DATASET_GLOBS = [
 ]
 
 
-SKIP = ["*.pt", "*.ckpt", "*.db", "__pycache__", "events.out.tfevents.*"]
+SKIP = ["*.pt", "*.ckpt", "*.db", "__pycache__", "events.out.tfevents.*",
+        # monitor_diffsynth's accelerator, keyed on file size and mtime and
+        # carrying only the tags it happens to plot. scalars.csv from
+        # ds_export_scalars.py is the record; this is not.
+        ".monitor_cache.json"]
 
 
 GENERATORS_MD = """# Which script made which dataset, and which ones have a floor
