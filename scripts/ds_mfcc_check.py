@@ -52,6 +52,7 @@ import torch.nn.functional as F                         # noqa: E402
 from torch.utils.data import DataLoader                 # noqa: E402
 from torchaudio.transforms import MelScale              # noqa: E402
 from torchaudio.functional import create_dct            # noqa: E402
+from diffsynth.spectral import compute_lsd              # noqa: E402
 
 import ds_param_breakdown as pb                         # noqa: E402
 
@@ -101,6 +102,31 @@ def main() -> None:
                    help="Checkpoint file name or glob within the run's "
                         "checkpoints/ directory, e.g. 'ep*.ckpt'")
     p.add_argument("--domain", default="id", choices=("id", "ood"))
+    p.add_argument(
+        "--family", default=None, metavar="PREFIX",
+        help="Score against one NSynth instrument family instead of the ood "
+             "valid split -- e.g. --family synth_lead. NSynth filenames lead "
+             "with the family (bass_synthetic_..., synth_lead_synthetic_...), "
+             "so this is a basename prefix match over the WHOLE ood pool.\n\n"
+             "Why the whole pool and not the valid split: a family is a few "
+             "percent of NSynth, so intersecting it with a 2000-file valid "
+             "split leaves ~47 clips. That is only sound for arms which never "
+             "trained on ood at all -- the synth_* branch, which trains on "
+             "harmor throughout. For real_* the whole pool IS its training "
+             "set, so this refuses to run on them unless --allow-seen.\n\n"
+             "The point is a model-mismatch ladder. harmor is 2 oscillators "
+             "morphing saw<->square through a 2nd-order lowpass, which is what "
+             "a synth lead is, and is nothing like a mallet or a plucked "
+             "string. Scoring one arm on harmor (no mismatch), on synth_lead "
+             "(mild) and on all of NSynth (severe) separates 'this loss fits "
+             "better' from 'this loss distributes irreducible bias better'.",
+    )
+    p.add_argument(
+        "--allow-seen", action="store_true",
+        help="Score --family on real_* arms anyway. They trained on 16000 of "
+             "the 20000-file ood pool, so most of the family is in their "
+             "training set and the number is not held out.",
+    )
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--batches", type=int, default=32)
     p.add_argument("--device", default="cpu")
@@ -120,7 +146,25 @@ def main() -> None:
             if model is None:
                 print(f"{name:<20} {os.path.basename(ck):<14} skipped: {note}")
                 continue
-            if args.domain == "id":
+            if args.family:
+                if name.startswith("real_") and not args.allow_seen:
+                    print(f"{name:<20} skipped: trains on ood, the family is "
+                          f"not held out for it (--allow-seen to override)")
+                    continue
+                from diffsynth.data import WaveParamDataset
+                # params=False: the ood side has no ground-truth parameters,
+                # which is how IdOodDataModule builds it too.
+                ds = WaveParamDataset(cfg.data.ood_dir, cfg.data.sample_rate,
+                                      cfg.data.length, False, False)
+                ds.raw_files = [f for f in ds.raw_files
+                                if os.path.basename(f).startswith(args.family)]
+                if not ds.raw_files:
+                    print(f"{name:<20} skipped: no files matching "
+                          f"'{args.family}*' under {cfg.data.ood_dir}/audio")
+                    continue
+                vset = ds
+                how = f"{len(ds.raw_files)} {args.family} files, whole ood pool"
+            elif args.domain == "id":
                 vset, how = pb.val_split(d, dm)
             else:
                 vset, how = dm.ood_datasets["valid"], "ood split reproduced"
@@ -128,7 +172,10 @@ def main() -> None:
                 print(f"{name:<20} skipped: {how}")
                 continue
             loader = DataLoader(vset, batch_size=args.batch_size, num_workers=0)
-            acc, n = {k: 0.0 for k in fns}, 0
+            # LSD alongside, because it is the other audio number the paper
+            # quotes and it disagrees with MFCC often enough that reading one
+            # without the other has already been misleading once.
+            acc, n = {k: 0.0 for k in list(fns) + ["lsd"]}, 0
             with torch.no_grad():
                 for i, batch in enumerate(loader):
                     if i >= args.batches:
@@ -140,6 +187,7 @@ def main() -> None:
                     tgt = batch["audio"]
                     for k, fn in fns.items():
                         acc[k] += F.l1_loss(fn(tgt), fn(resyn)).item()
+                    acc["lsd"] += float(compute_lsd(tgt, resyn))
                     n += 1
             if not n:
                 continue
@@ -150,14 +198,19 @@ def main() -> None:
     if not rows:
         return
     w = max(20, max(len(r[0]) for r in rows) + 2)
-    print(f"\n=== MFCC on the {args.domain} validation split, "
+    where = (f"the {args.family} family" if args.family
+             else f"the {args.domain} validation split")
+    print(f"\n=== MFCC on {where}, up to "
           f"{args.batches * args.batch_size} clips")
     print("'standard' uses dB rather than natural log, so it runs ~4.34x the "
           "others by\nconvention alone -- compare each column down, not "
           "across.\n")
-    print(f"{'run':<{w}}{'epoch':>7}" + "".join(f"{n:>12}" for n, _ in VARIANTS))
+    print(f"{'run':<{w}}{'epoch':>7}"
+          + "".join(f"{n:>12}" for n, _ in VARIANTS) + f"{'lsd':>12}")
     for name, ep, v in rows:
-        print(f"{name:<{w}}{ep:>7}" + "".join(f"{v[n]:>12.4f}" for n, _ in VARIANTS))
+        print(f"{name:<{w}}{ep:>7}"
+              + "".join(f"{v[n]:>12.4f}" for n, _ in VARIANTS)
+              + f"{v['lsd']:>12.4f}")
 
 
 if __name__ == "__main__":
