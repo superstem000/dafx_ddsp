@@ -1,0 +1,41 @@
+# Cosine-anneal the four held arms from epoch 300 to 400.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_cos.txt
+#
+# The hold run pinned the learning rate at its epoch-200 value (1.3398e-4) and
+# ran 100 epochs on it -- about as much travel as the published run's entire
+# post-200 phase -- and every arm read 'flat'. That is a plateau at a constant
+# rate, which is a real one: unlike the published schedule, it cannot be
+# confused with the learning rate having run out. This anneals from there so the
+# arms settle into the basin they have found rather than sitting in orbit around
+# it at fixed step size.
+#
+# COSINE, NOT EXPONENTIAL. An exponential never reaches zero, so it reproduces
+# exactly the ambiguity the hold was run to remove -- flat because converged, or
+# flat because the rate vanished? A cosine to zero at a stated epoch has an
+# endpoint: at 400 the rate IS zero and nothing further can happen. It also
+# holds a useful rate longer before dropping, where an exponential spends a long
+# tail at rates too small to move anything.
+#
+# 100 EPOCHS. The anneal is not for travel; the hold already plateaued and there
+# is nothing left to find. It is for shrinking the gradient-noise ball so the
+# arms settle. A cosine over 100 epochs spends 1.3398e-4 * 100 / 2 = 6.7e-3,
+# half what the 200-300 hold spent, which is ample for that. It also lands on
+# epoch 400 -- the paper's own epoch count -- so the endpoint is quotable
+# against the published table with the schedule as the only difference.
+#
+# ep0299.ckpt, NOT latest.ckpt. The arms reached different epochs before the
+# hold was stopped (283-287), so latest would give each branch a different
+# starting point and put back the matched-epoch problem that has made every
+# comparison so far an argument about extrapolation. ep0299 is exactly epoch 299
+# in all four.
+#
+# make_lr_lambda's cosine is continuous at the branch: at epoch 300 the factor
+# is 0.99^200 * 1.0, giving the same 1.3398e-4 the hold was running, then a half
+# cosine to 0 at epoch 400.
+
+# STAGE cosine
+RESUME=hold_synth_hybrid    CKPT=ep0299.ckpt scripts/ds_run.sh cos_synth_hybrid    resume_synth "{gpu}" trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 +model.lr_schedule.type=cosine +model.lr_schedule.decay_rate=0.99 +model.lr_schedule.hold_from=200 +model.lr_schedule.anneal_from=300 +model.lr_schedule.anneal_to=400
+RESUME=hold_real_hybrid     CKPT=ep0299.ckpt scripts/ds_run.sh cos_real_hybrid     resume_real  "{gpu}" trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 +model.lr_schedule.type=cosine +model.lr_schedule.decay_rate=0.99 +model.lr_schedule.hold_from=200 +model.lr_schedule.anneal_from=300 +model.lr_schedule.anneal_to=400
+RESUME=hold_synth_mag_halfw CKPT=ep0299.ckpt scripts/ds_run.sh cos_synth_mag_halfw resume_synth "{gpu}" trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 +model.lr_schedule.type=cosine +model.lr_schedule.decay_rate=0.99 +model.lr_schedule.hold_from=200 +model.lr_schedule.anneal_from=300 +model.lr_schedule.anneal_to=400 model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
+RESUME=hold_real_mag_halfw  CKPT=ep0299.ckpt scripts/ds_run.sh cos_real_mag_halfw  resume_real  "{gpu}" trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 +model.lr_schedule.type=cosine +model.lr_schedule.decay_rate=0.99 +model.lr_schedule.hold_from=200 +model.lr_schedule.anneal_from=300 +model.lr_schedule.anneal_to=400 model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5

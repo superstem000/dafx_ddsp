@@ -1,0 +1,6 @@
+- experiment=pretrain
+- data.id_dir=/home/bhpark3/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree
+- data.ood_dir=/home/bhpark3/dafx_ddsp/external/diffsynth/data/nsynth-train
+- trainer.accelerator=gpu
+- trainer.devices=1
+- trainer.resume_from_checkpoint=/home/bhpark3/dafx_ddsp/results/diffsynth/pre_base/tb_logs/checkpoints/latest.ckpt

@@ -1,0 +1,60 @@
+# The linear arm on MAGNITUDE, on the paper's own 50/200/400 schedule.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_magx.txt
+#
+# WHY. diffsynth's spectral loss is L1 on POWER (amp = re^2 + im^2), so for a
+# partial of amplitude a the loss is |a^2 - t^2| and its derivative 2a vanishes
+# as a -> 0. Silence is a stationary point with exactly zero gradient, and a
+# linear-only loss can sit in it. It does: from random init, spec_mag and
+# spec_mag_halfw froze at 10.0138 and 5.0069, unchanged to four decimals from
+# epoch 4 and exactly 2x apart -- one trajectory stuck at a stationary point,
+# scaled by the weight. The two arms carrying a log term escaped, because
+# d log(p+eps)/dp = 1/(p+eps) -> 1e4 rather than 0.
+#
+# On magnitude the loss is |a - t|, derivative +-1 everywhere, no dead zone.
+# That is what the plate's linear loss has always been -- losses.py:72 is
+# torch.abs(torch.stft(...)) -- so "linear" has meant two different things
+# across the two systems, and only diffsynth's version has the trap. Which
+# raises the possibility that the linear baseline the field cites as failing
+# fails for an implementation reason rather than an information one.
+#
+# ONE VARIABLE. Both arms here are linear-only (log_mag_w=0), so power=1 changes
+# the mag term and nothing else -- the log term's eps placement, which would
+# move by four decades between magnitude and power, never enters. Each arm has
+# an exact power-domain counterpart already trained on the identical schedule
+# from the identical base:
+#
+#   magx_halfw  vs  mag_halfw   (sw_w 0.5, so each term carries 1/12)
+#   magx        vs  mag         (sw_w 1.0, the naive deletion at 1/6)
+#
+# Running both weights also says whether the weight effect measured in the power
+# family (mag 0.0762 against mag_halfw 0.0686 at epoch 200) survives the change.
+#
+# Everything else is the published recipe: ExponentialLR gamma 0.99 from lr
+# 1e-3, switch.yaml's ramp at epochs 50 and 200, 400 total, branching from the
+# same pre_base checkpoint at epoch 50 that every other arm branched from. So
+# these drop into the main table rather than sitting beside it.
+#
+# Two stages and two cards; the other two are running spec_hybrid and
+# spec_log_halfw. Real branches are left for when more cards free -- synth is
+# where the power-domain counterparts have their cleanest numbers.
+
+# STAGE variants
+# 50 -> 200, the ramp. ~5h on two cards.
+RESUME=pre_base scripts/ds_run.sh pre_magx_halfw pretrain "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+RESUME=pre_base scripts/ds_run.sh pre_magx       pretrain "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1
+
+# STAGE resumes
+# 200 -> 400. Each pretrain branches twice, as every other arm does: resume_synth
+# continues in-domain, resume_real switches the training loader to NSynth. Both
+# are needed for these to drop into the main table -- synth_magx_halfw has to sit
+# beside synth_mag_halfw and real_magx_halfw beside real_mag_halfw, or the
+# power-vs-magnitude comparison only exists for half the table.
+#
+# Four jobs on however many cards are free. If spec_hybrid and spec_log_halfw
+# are still running it is two at a time, ~14h; once they finish the queue picks
+# up the spare cards by itself and it is ~7h.
+RESUME=pre_magx_halfw scripts/ds_run.sh synth_magx_halfw resume_synth "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+RESUME=pre_magx_halfw scripts/ds_run.sh real_magx_halfw  resume_real  "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+RESUME=pre_magx       scripts/ds_run.sh synth_magx       resume_synth "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1
+RESUME=pre_magx       scripts/ds_run.sh real_magx        resume_real  "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1

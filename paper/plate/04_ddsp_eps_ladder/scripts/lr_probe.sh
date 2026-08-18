@@ -10,24 +10,40 @@
 # measurement rather than an assertion.
 #
 # The existing results/ddsp/lr_* runs cover c2, log and MSS at 1e-4, 3e-5 and
-# 1e-5. They do not cover L1_STFT at all, which is the gap: without the control
-# there is nothing to compare the insensitivity against. Their recipe is matched
-# exactly here (12000 steps, constant rate via lr_floor=1 and lr_hold_frac=1,
-# everything else as sweep120k), so those nine runs remain valid cells of this
-# grid and only the missing ones are run.
+# 1e-5, and this script used to fold them in as completed cells. It no longer
+# does by default: those runs used adam_eps=1e-16, which the head probe showed
+# is a defect and not a setting (clip% 37-52 against 0.0, op_x's |z| in five and
+# six figures against single digits). Reusing them would put two optimizers in
+# one grid and attribute the difference to the learning rate. LEGACY=1 restores
+# the old behaviour for reproducing the earlier table.
 #
 # eps1 is log1p, which is c2, and eps1e7 is log -- the same two losses the old
 # probes used, under the ladder's names.
 #
-# The rate is held constant on purpose. Decay would confound "this rate fails"
-# with "this schedule fails", and the question here is only about the rate.
+# Every default here is the eps ladder's, so that learning rate is the ONLY
+# difference between a cell of this grid and an arm of that ladder: 40000
+# steps, cosine to a 0.02 floor held from 60% of the run, norm=batch, tanh,
+# adam_eps=1e-8, batch 64, clip 5000, warmup 2000, the same datasets and the
+# same numerics. Two consequences worth having:
+#
+#   - every cell is quotable directly against the ladder table, with no "but
+#     the probe used a different schedule" asterisk;
+#   - the cell at the ladder's own 3e-4 reproduces the ladder arm exactly, seed
+#     included, so it is either a free consistency check or a cell that can be
+#     taken from the ladder instead of re-run.
+#
+# The swept quantity is therefore the PEAK of a fixed schedule, which is what
+# an LR sweep normally means. An earlier version held the rate constant to
+# avoid confounding rate with schedule; that bought a cleaner axis at the cost
+# of comparability with everything else we have run, which is the wrong trade
+# here. Pass LR_FLOOR=1.0 LR_HOLD=1.0 to get the constant-rate version back.
 #
 #   scripts/lr_probe.sh "0 1 2 3"
 #   LRS="1e-3 3e-4" LOSSES="L1_STFT" scripts/lr_probe.sh "0 1"
 set -euo pipefail
 
 GPUS=${1:-"0 1 2 3"}
-STEPS=${STEPS:-12000}
+STEPS=${STEPS:-40000}
 OUT=${OUT:-results/ddsp/lr_probe}
 TRAIN=${TRAIN:-data/train-p99}
 VAL=${VAL:-data/val-p99}
@@ -37,7 +53,18 @@ CLIP=${CLIP:-5000.0}
 BATCH=${BATCH:-64}
 WARMUP=${WARMUP:-2000}
 DEEPSUP=${DEEPSUP:-0.5}
-NORM=${NORM:-group}
+LR_FLOOR=${LR_FLOOR:-0.02}
+LR_HOLD=${LR_HOLD:-0.6}
+NORM=${NORM:-batch}
+# Whatever the ladder is finally published under, this grid must use the same
+# head -- an LR grid on a different parameterization answers a different
+# question. See --head-bound in train_encoder.py for which are live and which
+# are recorded failures.
+HEAD_BOUND=${HEAD_BOUND:-tanh}
+HEAD_GRAD_FLOOR=${HEAD_GRAD_FLOOR:-0.05}
+HEAD_CAP=${HEAD_CAP:-3.0}
+ADAM_EPS=${ADAM_EPS:-1e-8}
+HEAD_HINGE=${HEAD_HINGE:-0}
 # The rest of the encoder, also from the sweep120k_* saved args. These are NOT
 # train_encoder's defaults, and the gap is not cosmetic: --n-fft 4096 / --hop
 # 1024 is the encoder's *input* resolution, and the parameters are fixed by
@@ -53,10 +80,27 @@ GRAD_CKPT=${GRAD_CKPT:---no-grad-checkpoint}
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 
-# Both directions from the ladder's 3e-4. Probing only downward invites exactly
-# the objection this is meant to close.
-LRS=${LRS:-"1e-3 3e-4 1e-4 3e-5 1e-5"}
-LOSSES=${LOSSES:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e7"}
+# A decade either side of the ladder's 3e-4. Both directions matter for
+# different reasons -- an arm still descending plausibly wants MORE rate, a
+# collapsed one plausibly wants less -- and probing only downward invites
+# exactly the objection this grid exists to close. 1e-5 is left out: two
+# decades down is undertrained at any budget we will pay for, so the cell would
+# say "not enough steps" rather than anything about the rate.
+#
+# One loss by default: eps1. The question this grid exists to answer is narrow
+# -- is eps1's failure an artifact of the learning rate -- and eps1 is the only
+# rung it is live for. It is the one still moving at 40k (0.0885 -> 0.0789 over
+# the last 14k steps), so "slow" and "stuck" are still distinguishable there,
+# where eps1e1 and eps1e3 are flat to four digits. If no rate in a decade
+# either side brings eps1 under the constant-predictor floor, the rate is not
+# the explanation, and that is the whole claim.
+#
+# Sweeping the linear control and eps1e1 as well would support a broader claim
+# -- that linear is no more rate-sensitive than log -- but that is a different
+# argument, and both already have their 3e-4 cell from the ladder. Pass LOSSES
+# to add them.
+LRS=${LRS:-"3e-3 1e-3 3e-4 1e-4 3e-5"}
+LOSSES=${LOSSES:-"L1_STFT_eps1"}
 
 # `trap - INT TERM` first: kill 0 signals this script's own process group,
 # which includes this script, so without disarming the handler it re-enters
@@ -79,7 +123,7 @@ echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  out: $OUT"
   echo "steps=$STEPS losses='$LOSSES' lrs='$LRS' gpus='$GPUS'"
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
   echo "n_fft=$N_FFT hop=$HOP n_blocks=$N_BLOCKS grad_ckpt=$GRAD_CKPT"
-  echo "norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP constant_lr=yes"
+  echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_cap=$HEAD_CAP adam_eps=$ADAM_EPS head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP deep_sup=$DEEPSUP lr_floor=$LR_FLOOR lr_hold_frac=$LR_HOLD"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -97,15 +141,19 @@ for ((g = 0; g < NG; g++)); do
       # A finished cell is not re-run, and the legacy results/ddsp/lr_* runs
       # count as finished cells: eps1 is c2 and eps1e7 is log, same conditions
       # under the pre-ladder names, so six of the fifteen are already in hand.
+      # Off unless LEGACY=1 -- see the header. The old cells ran a different
+      # adam_eps and folding them in silently would confound the axis.
       legacy=""
+      if [[ "${LEGACY:-0}" == "1" ]]; then
       case "$loss" in
         L1_STFT_eps1)   legacy="results/ddsp/lr_L1_STFT_c2_${lr}" ;;
         L1_STFT_eps1e7) legacy="results/ddsp/lr_L1_STFT_log_${lr}" ;;
         *)              legacy="results/ddsp/lr_${loss}_${lr}" ;;
       esac
+      fi
 
       done_cell=""
-      for cand in "$OUT/$name" "$legacy"; do
+      for cand in "$OUT/$name" ${legacy:+"$legacy"}; do
         if [[ -f "$cand/history.json" ]] && python - "$cand/history.json" "$STEPS" <<'PY' 2>/dev/null
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -129,12 +177,14 @@ PY
         --peak-normalize target \
         --steps "$STEPS" \
         --lr "$lr" \
-        --lr-floor 1.0 --lr-hold-frac 1.0 \
+        --lr-floor "$LR_FLOOR" --lr-hold-frac "$LR_HOLD" \
         --warmup-steps "$WARMUP" \
         --batch-size "$BATCH" \
         --deep-supervision "$DEEPSUP" \
         --grad-clip "$CLIP" \
-        --norm "$NORM" \
+        --norm "$NORM" --head-bound "$HEAD_BOUND" --head-hinge "$HEAD_HINGE" \
+        --head-grad-floor "$HEAD_GRAD_FLOOR" --head-cap "$HEAD_CAP" \
+        --adam-eps "$ADAM_EPS" \
         --n-fft "$N_FFT" --hop "$HOP" --n-blocks "$N_BLOCKS" \
         --eval-every "$EVAL_EVERY" \
         --seed 0 \

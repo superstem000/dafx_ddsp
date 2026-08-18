@@ -92,8 +92,16 @@ class Encoder(nn.Module):
         in_ch: Optional[int] = None,
         n_extra: int = 0,
         norm: str = "group",
+        head_bound: str = "tanh",
+        head_grad_floor: float = 0.05,
+        head_cap: float = 3.0,
     ):
         super().__init__()
+        self.head_bound = head_bound
+        self.head_grad_floor = head_grad_floor
+        self.head_cap = head_cap
+        self.last_sat_frac = 0.0
+        self.last_floor_frac = 0.0
         self.n_fft, self.hop = n_fft, hop
         self.input_mode = input_mode
         self.register_buffer("window", torch.hann_window(n_fft))
@@ -134,8 +142,21 @@ class Encoder(nn.Module):
         self.net = nn.Sequential(*blocks)
 
         self.flatten = nn.Flatten()
+        head_in = ch_in * n_freq + n_extra
+        # normtanh: normalize what the head sees. z = W.h, and in the failing
+        # arms mean|h| grew to 6x the linear arm's, so the trunk's own drift is
+        # the dominant term in |z| reaching 60. LayerNorm removes it -- and does
+        # so per example, across features, so unlike BatchNorm on the output it
+        # places no constraint on whether two inputs give two different
+        # predictions. That matters: prediction spread is part of what is being
+        # measured, and a normalization that forces it would be rigging the
+        # metric rather than fixing the head.
+        #
+        # It is not a hard bound on |z|: ||W|| can still grow. It removes the
+        # larger of the two contributions, not both.
+        self.head_norm = nn.LayerNorm(head_in) if head_bound == "normtanh" else nn.Identity()
         self.head = nn.Sequential(
-            nn.Linear(ch_in * n_freq + n_extra, 256), nn.GELU(), nn.Linear(256, n_out)
+            nn.Linear(head_in, 256), nn.GELU(), nn.Linear(256, n_out)
         )
         # Start the output layer near zero so tanh begins in its linear region.
         # At default init the pre-activations are large enough that tanh can pin
@@ -189,7 +210,93 @@ class Encoder(nn.Module):
         h = self.flatten(self.net(feat))
         if extra is not None:
             h = torch.cat([h, extra], dim=1)
-        return torch.tanh(self.head(h))
+        h = self.head_norm(h)          # Identity unless head_bound == normtanh
+        z = self.head(h)
+        # z = W.h, so a large |z| can come from the head's weights growing or
+        # from the trunk's features growing. eps1e7 had mean|h| 6x the linear
+        # arm's, so both contribute and the aggregate alone does not say which.
+        self.last_h_absmean = float(h.detach().abs().mean())
+        self.last_z_absmax = z.detach().abs().amax(dim=0).cpu()   # per parameter
+        # Hinge on the RAW pre-activation. On the clamped output it would be
+        # identically zero -- (|clamp(z)|-1)+ == 0 always -- so this must stay
+        # upstream of the bound. Zero inside the box, so it biases nothing; its
+        # gradient 2*lam*(|z|-1) vanishes as |z| -> 1, which is what lets the
+        # audio loss win near the boundary and the hinge win far outside it.
+        self.last_hinge = (z.abs() - 1.0).clamp(min=0.0).pow(2).mean()
+        # Record how much of the batch sits where tanh's derivative has gone
+        # (|z| > 2.5 leaves tanh' < 0.03) so saturation is measured rather than
+        # inferred from prediction spread. Under stclamp this should stay near
+        # zero by construction; under tanh it is the thing that kills an arm.
+        self.last_sat_frac = float((z.detach().abs() > 2.5).float().mean())
+        if self.head_bound == "softcap":
+            # A soft cap on the pre-activation, then the usual output tanh:
+            # out = tanh(c * tanh(z/c)), so what the output tanh sees is bounded
+            # by c and its own derivative never falls below 1 - tanh^2(c).
+            #
+            # What this does and does not do. It does make runaway impossible,
+            # because the inner squash's derivative decays and the outward pull
+            # therefore decays with it -- the property leakytanh destroyed. It
+            # does NOT floor the total gradient: the chain rule gives
+            #   d out/dz = [1 - tanh^2(z')] * [1 - tanh^2(z/c)]
+            # and the second factor still goes to zero. The cap slows that decay
+            # from e^(-2|z|) to e^(-2|z|/c), three times slower in the exponent
+            # at c = 3, which buys time rather than immunity.
+            c = self.head_cap
+            return torch.tanh(c * torch.tanh(z / c))
+        if self.head_bound == "leakytanh":
+            # tanh forward, floored derivative backward.
+            #
+            # The forward map is bit-identical to the tanh ladder -- same
+            # function, same range, same shape -- so an arm run under this is
+            # still comparable with the tanh runs in a way stclamp's is not.
+            # Only the backward pass changes: the true derivative 1 - tanh(z)^2
+            # is replaced by max(1 - tanh(z)^2, floor), so a saturated
+            # coordinate keeps receiving gradient of the correct *sign* and a
+            # fixed small magnitude instead of nothing.
+            #
+            # MEASURED FAILURE -- kept only to reproduce it. Do not use.
+            #
+            # The argument for it was that tanh's forward map keeps moving with
+            # z, so the loss is never flat and stclamp's runaway cannot happen.
+            # That is false: tanh(z) reaches exactly +-1.0 in float32 by
+            # |z| ~ 9, so the forward value is as constant out there as a
+            # clamp's. Worse, the floor is what CAUSES the runaway. Under plain
+            # tanh a persistent outward pull decays as tanh' -> 0 and z stalls
+            # (the tanh ladder capped around 60); floored, that pull never
+            # decays and integrates without bound. On the linear control -- the
+            # arm that is healthy under tanh -- op_x reached |z| 577204 by step
+            # 2000, against stclamp's 50636, with val nmse 3.46x the constant
+            # predictor. Step 1 was bit-identical to the tanh run, so nothing
+            # else differed.
+            #
+            # General lesson, which is why softcap above is shaped as it is:
+            # any scheme that keeps gradient alive at large |z| makes |z| grow,
+            # and |z| growing is the failure. The restoring force has to be
+            # allowed to decay.
+            #
+            # y.detach() + d.detach() * (z - z.detach()) evaluates to y in the
+            # forward pass and has gradient d w.r.t. z in the backward pass.
+            y = torch.tanh(z)
+            d = (1.0 - y * y).clamp(min=self.head_grad_floor)
+            # How much of the batch is riding the floor rather than the true
+            # derivative -- i.e. how often this is load-bearing. A healthy arm
+            # should show ~0; a coordinate pinned here for long stretches is a
+            # coordinate the floor is carrying, which is worth knowing before
+            # quoting its number.
+            self.last_floor_frac = float(
+                (1.0 - y.detach() * y.detach() < self.head_grad_floor).float().mean()
+            )
+            return y.detach() + d.detach() * (z - z.detach())
+        if self.head_bound == "stclamp":
+            # Straight-through clamp: forward is bounded exactly as tanh's range
+            # is, backward passes gradient 1 everywhere, so no amount of drift in
+            # the pre-activation can zero it. This is a change to the
+            # parameterization, identical for every loss, and strictly weaker
+            # than forcing variance -- it does not push predictions apart, it
+            # only refuses to stop the gradient. If an arm still collapses under
+            # it, saturation was not the reason.
+            return z + (z.clamp(-1.0, 1.0) - z).detach()
+        return torch.tanh(z)
 
     def forward(self, x: torch.Tensor, scale: float) -> torch.Tensor:
         return self.from_features(self.features(x, scale))
@@ -665,7 +772,8 @@ def run(args) -> None:
     model = Encoder(
         n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
         n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
-        norm=args.norm,
+        norm=args.norm, head_bound=args.head_bound,
+        head_grad_floor=args.head_grad_floor, head_cap=args.head_cap,
     ).to(device)
     cond = CompositeConditioner(device)
     refiner = None
@@ -676,6 +784,8 @@ def run(args) -> None:
             n_out=len(PARAM_KEYS), width=args.width, n_fft=args.n_fft, hop=args.hop,
             n_blocks=args.n_blocks, max_ch=args.max_ch, input_mode=args.input_mode,
             in_ch=6, n_extra=len(CompositeConditioner.KEYS), norm=args.norm,
+            head_bound=args.head_bound, head_grad_floor=args.head_grad_floor,
+            head_cap=args.head_cap,
         ).to(device)
 
     params = list(model.parameters()) + (list(refiner.parameters()) if refiner else [])
@@ -857,12 +967,23 @@ def run(args) -> None:
         finite = torch.isfinite(loss)
         obj = torch.where(finite, loss, torch.zeros_like(loss)).mean()
 
+        # Kept out of `obj` until after loss_scale is fixed, and reported
+        # separately below: train_loss has to stay comparable to `saturation`
+        # and `gt_loss`, which are audio-only quantities. At step 1 the head is
+        # initialized at std 0.01 so the hinge is ~0 anyway, but relying on that
+        # rather than stating it is how the scale ends up quietly contaminated.
+        hinge = torch.zeros((), device=obj.device)
+        if args.head_hinge > 0:
+            hinge = args.head_hinge * getattr(model, "last_hinge", hinge)
+            if refiner is not None and hasattr(refiner, "last_hinge"):
+                hinge = hinge + args.head_hinge * refiner.last_hinge
+
         if loss_scale is None:
             loss_scale = max(float(obj.detach()), 1e-30)
             print(f"loss scale (fixed): {loss_scale:.4e}")
 
         opt.zero_grad(set_to_none=True)
-        (obj / loss_scale).backward()
+        ((obj + hinge) / loss_scale).backward()
         # Clip each network separately: one shared norm would let stage 0's much
         # larger gradient decide how much the refiner's gets scaled.
         gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip))
@@ -878,6 +999,15 @@ def run(args) -> None:
                 "train_loss": tr,
                 "grad_norm": gnorm,
                 "clipped": bool(gnorm > args.grad_clip),
+                "sat_frac": float(getattr(model, "last_sat_frac", 0.0)),
+                # Fraction of the batch whose true tanh derivative is below the
+                # floor, i.e. how much of the step the floor is paying for. Only
+                # meaningful under leakytanh; zero elsewhere.
+                "floor_frac": float(getattr(model, "last_floor_frac", 0.0)),
+                "hinge": float(hinge.detach()),
+                "h_absmean": float(getattr(model, "last_h_absmean", 0.0)),
+                **{f"zmax_{k}": float(v) for k, v in
+                   zip(PARAM_KEYS, getattr(model, "last_z_absmax", torch.zeros(len(PARAM_KEYS))))},
                 "elapsed_s": time.time() - t0,
             }
             if step % args.eval_every == 0 or step == 1:
@@ -1005,7 +1135,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--steps", type=int, default=100000)
     p.add_argument("--lr", type=float, default=3e-4)
-    p.add_argument("--adam-eps", type=float, default=1e-16)
+    p.add_argument(
+        "--adam-eps", type=float, default=1e-8,
+        help="Was 1e-16, eight orders below the torch default, and that is its "
+             "own failure mode. Adam's update is m/(sqrt(v)+eps); once a "
+             "coordinate's loss surface goes flat, m and v are both ~0 and the "
+             "ratio is noise divided by noise, so at 1e-16 the coordinate takes "
+             "full-lr steps in whatever direction rounding points. At 1e-8 the "
+             "same situation makes the update decay toward zero instead. This "
+             "is independent of the head bound and plausibly a large part of "
+             "the observed runaways. Pass 1e-16 explicitly to reproduce the "
+             "earlier ladders, whose checkpoints record it.",
+    )
     p.add_argument(
         "--lr-floor", type=float, default=0.0,
         help="Fraction of peak the cosine decays to and then holds. 0 reproduces the "
@@ -1026,6 +1167,52 @@ def build_parser() -> argparse.ArgumentParser:
         "--grad-clip", type=float, default=10.0,
         help="Clip is on the objective *after* loss scaling; at 1.0 it bound on "
              "essentially every step, making it a constant rather than an outlier guard",
+    )
+    p.add_argument(
+        "--head-bound", type=str, default="tanh",
+        choices=["tanh", "normtanh", "softcap", "stclamp", "leakytanh"],
+        help="How the output is held in [-1,1]. tanh saturates: once a "
+             "pre-activation passes ~2.5 its derivative is gone and the head is "
+             "stuck emitting a constant, which is what the log arms do -- their "
+             "Ly, op_x and op_y sit at 1/3 normalized squared error, the value "
+             "for a constant at the edge of a uniform range, with spread 0.000. "
+             "normtanh LayerNorms the head's input, removing the trunk drift "
+             "that supplied most of that |z| (mean|h| grew 6x in the failing "
+             "arms); softcap squashes the pre-activation first, out = "
+             "tanh(c*tanh(z/c)), so the outward pull decays and runaway is "
+             "impossible. stclamp and leakytanh are MEASURED FAILURES kept only "
+             "to reproduce them -- both keep gradient alive at large |z|, which "
+             "is exactly what makes |z| grow, and both blew up the healthy "
+             "linear control (|z| 50636 and 577204). All four live in the "
+             "parameterization, so they apply to every loss by construction "
+             "rather than by argument, and none forces predictions apart.",
+    )
+    p.add_argument(
+        "--head-cap", type=float, default=3.0,
+        help="softcap only: the bound on the pre-activation. At c = 3 the "
+             "output tanh sees at most 3, where its own derivative is still "
+             "~0.01. Note this is not a floor on the total gradient -- the "
+             "inner squash's derivative still decays -- it slows the decay from "
+             "e^(-2|z|) to e^(-2|z|/c) and, unlike a floor, lets the restoring "
+             "force decay so nothing can run away.",
+    )
+    p.add_argument(
+        "--head-grad-floor", type=float, default=0.05,
+        help="leakytanh only: the floor under tanh's derivative. 0.05 is "
+             "tanh'(z) at |z| ~ 2.2, so inside the working range the true "
+             "derivative is larger and the floor is inert; past there a "
+             "coordinate walks back at a bounded rate rather than not at all. "
+             "0 recovers plain tanh exactly.",
+    )
+    p.add_argument(
+        "--head-hinge", type=float, default=0.0,
+        help="Weight on mean((|z|-1)+^2) over the raw pre-activation. 0 is off. "
+             "The failing arms reach |z| of 60 where reaching the box edge needs "
+             "1.47; that is runaway, and a straight-through clamp alone cannot "
+             "walk back from it inside the budget (Adam at ~lr integrates to "
+             "|z| ~ 9 over this schedule). 1e-2 rather than 1e-3 because the "
+             "penalty is exactly zero inside the box, so over-penalizing costs a "
+             "healthy run nothing while under-penalizing wastes the run.",
     )
     p.add_argument(
         "--norm", type=str, default="group", choices=["group", "batch"],

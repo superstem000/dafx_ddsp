@@ -1,0 +1,41 @@
+lr: 0.001
+decay_rate: 0.99
+
+estimator:
+  _target_: diffsynth.estimator.MelEstimator
+  hidden_size: 512
+  channels: 64
+  sample_rate: ${data.sample_rate}
+  n_fft: 1024
+  hop: 256
+
+sw_loss:
+  _target_: diffsynth.loss.SpecWaveLoss
+  mag_w: 1.0
+  log_mag_w: 1.0
+  fft_sizes: [64, 128, 256, 512, 1024, 2048]
+  # 2 is power (re^2 + im^2), the published loss. 1 is magnitude, which is what
+  # the plate's linear loss uses -- and the difference is not cosmetic: on power
+  # the L1 is |a^2 - t^2|, whose derivative vanishes at a = 0, so silence is a
+  # zero-gradient stationary point a linear-only loss can sit in permanently.
+  # Declared here rather than appended with +hydra syntax so the override is a
+  # plain one and the published value is visible in the config.
+  power: 2
+  # The knee of log(x + eps), and it has to move with `power`. On power the knee
+  # sits at p = 1e-4; the same 1e-4 on magnitude sits at m = 1e-4, i.e. p = 1e-8
+  # -- four decades deeper, which is a different loss, and near the rungs that
+  # collapsed on the plate. sqrt(1e-4) = 1e-2 holds the knee where the paper put
+  # it, so `power` changes the domain and nothing else.
+  log_eps_v: 1e-4
+
+perc_model: null
+
+log_grad: true
+
+f0_encoder: null
+
+# null keeps ExponentialLR(gamma=decay_rate), exactly as published. Set it to
+# use LambdaLR instead, whose schedule comes from this config rather than from
+# a resumed checkpoint:
+#   +model.lr_schedule.type=hold +model.lr_schedule.hold_from=200
+lr_schedule: null

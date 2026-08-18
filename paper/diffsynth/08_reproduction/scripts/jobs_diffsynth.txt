@@ -1,0 +1,69 @@
+# Masuda & Saito, end to end: one base, four loss variants, both resumes each.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth.txt
+#
+# Three stages with barriers between them, so this is one command rather than
+# three launches watched by hand. gpu_queue.py holds each stage until every job
+# in it has exited, and abandons the rest if any failed -- which is the right
+# behaviour here, since every later job resumes from a checkpoint an earlier one
+# writes.
+#
+# THE BASE. Epochs 0-50 are identical for every model in the paper: param.yaml
+# is constant at param_w 10, and switch.yaml's linear_anneal returns start_v for
+# any step below its start of 12500. So the same 50 epochs were being trained
+# five times, and -- because trainer.deterministic cannot be enabled here
+# (upsample_linear1d_backward has no deterministic CUDA kernel; see
+# configs/trainer/default.yaml) -- five times with slightly different answers.
+# Measured before this change: ~1% spread in Param and ~0.2 in val_id/lsd
+# between runs that were computing the same loss.
+#
+# Training it once and branching removes that divergence entirely, and it is
+# also the more faithful reading: the paper describes those 50 epochs as one
+# procedure every model undergoes, not as five independent pretrainings.
+#
+# It does NOT make the arms bitwise comparable afterwards. Nondeterminism still
+# accumulates over epochs 50-400. What it removes is the head start on that
+# accumulation, and the awkwardness of arms that began from different places.
+#
+# Lightning restores optimizer moments, the ExponentialLR state and the RNG
+# state on resume, so a branch continues rather than restarts. The schedule is
+# rebuilt from the new config rather than the checkpoint, which is what lets
+# ploss branch off with param.yaml while the pretrains use switch.yaml.
+
+# STAGE base
+# 50 epochs, param loss only, no audio rendered (model.py:143 skips synthesis
+# while sw_w is 0) -- so this is the cheap phase and it only runs once.
+scripts/ds_run.sh pre_base pretrain "{gpu}" trainer.max_epochs=50
+
+# STAGE variants
+# All five branch from pre_base at epoch 50.
+#
+#   ploss           param loss to 400            the paper's P-loss row
+#   pre_hybrid      their mag+log to 200         the reproduction
+#   pre_mag         log_mag_w=0                  the claim
+#   pre_log         mag_w=0                      the other half
+#   pre_mag_halfw   log_mag_w=0, sw_w end 0.5    the normalisation control
+#
+# mag_halfw exists because loss.py:60 divides by len(fft_sizes)*(mag_w +
+# log_mag_w): zeroing log_mag_w takes the divisor from 12 to 6 and doubles the
+# weight the surviving term carries. Adam absorbs a constant; gradient_clip_val
+# 1.0 does not. Halving sw_w restores 1/12 per term exactly.
+RESUME=pre_base scripts/ds_run.sh ploss         ploss    "{gpu}"
+RESUME=pre_base scripts/ds_run.sh pre_hybrid    pretrain "{gpu}"
+RESUME=pre_base scripts/ds_run.sh pre_mag       pretrain "{gpu}" model.sw_loss.log_mag_w=0
+RESUME=pre_base scripts/ds_run.sh pre_log       pretrain "{gpu}" model.sw_loss.mag_w=0
+RESUME=pre_base scripts/ds_run.sh pre_mag_halfw pretrain "{gpu}" model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
+
+# STAGE resumes
+# Each pretrain branches twice, to epoch 400. resume_synth continues in-domain
+# (the paper's "Synth"); resume_real switches the training loader to NSynth
+# (the paper's "Real"). Both keep validating on both domains, which is where
+# val_id/* and val_ood/* come from.
+RESUME=pre_hybrid    scripts/ds_run.sh synth_hybrid    resume_synth "{gpu}"
+RESUME=pre_hybrid    scripts/ds_run.sh real_hybrid     resume_real  "{gpu}"
+RESUME=pre_mag       scripts/ds_run.sh synth_mag       resume_synth "{gpu}" model.sw_loss.log_mag_w=0
+RESUME=pre_mag       scripts/ds_run.sh real_mag        resume_real  "{gpu}" model.sw_loss.log_mag_w=0
+RESUME=pre_log       scripts/ds_run.sh synth_log       resume_synth "{gpu}" model.sw_loss.mag_w=0
+RESUME=pre_log       scripts/ds_run.sh real_log        resume_real  "{gpu}" model.sw_loss.mag_w=0
+RESUME=pre_mag_halfw scripts/ds_run.sh synth_mag_halfw resume_synth "{gpu}" model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
+RESUME=pre_mag_halfw scripts/ds_run.sh real_mag_halfw  resume_real  "{gpu}" model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5

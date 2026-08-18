@@ -33,6 +33,22 @@ METRICS = {
     "train_sat": ("train_loss / saturation; ~1 = gradient uninformative", "{:.3f}"),
     "ratio": ("val_nmse_6d / const_nmse_6d; ~1 = the constant predictor", "{:.2f}"),
     "spread": ("mean spread_* over the raw seven", "{:.3f}"),
+    # Head diagnostics. sat should sit near zero under stclamp by construction;
+    # if it does not, the hinge is too weak. zmax is the aggregate over the
+    # seven coordinates -- use --zmax for the per-parameter breakdown, which is
+    # what says whether one coordinate is running while six behave.
+    "sat": ("fraction of the batch with |z| > 2.5", "{:.3f}"),
+    # leakytanh only. Nonzero says the floor is carrying that step rather than
+    # tanh's own derivative -- inert on a healthy arm, so a column that stays
+    # high is a coordinate the floor is holding up and worth saying so about.
+    "floor": ("fraction of the batch riding the gradient floor", "{:.3f}"),
+    "zmax": ("max |z| over all seven parameters", "{:.2f}"),
+    # op_x alone: it was already the worst coordinate under tanh (40% of the
+    # 6d NMSE, correlation stuck at 0.84) and it is the one that ran away under
+    # stclamp, so the aggregate zmax hides exactly the thing being watched.
+    "zmax_op_x": ("|z|max for op_x specifically", "{:.2f}"),
+    "hinge": ("weighted hinge penalty, kept out of train_loss", "{:.4g}"),
+    "h_abs": ("mean |h| entering the head", "{:.3f}"),
 }
 
 
@@ -49,6 +65,8 @@ def load(root: str):
             if "val_nmse_6d" not in r:
                 continue
             sp = [r[k] for k in r if k.startswith("spread_")]
+            zc = {k[5:]: r[k] for k in r if k.startswith("zmax_")}
+            rows.setdefault("_zmax", {})[r["step"]] = zc
             rows[r["step"]] = {
                 "train": r["train_loss"],
                 "val": r.get("val_loss", float("nan")),
@@ -57,13 +75,25 @@ def load(root: str):
                 "train_sat": r["train_loss"] / d["saturation"],
                 "ratio": r["val_nmse_6d"] / d["const_nmse_6d"],
                 "spread": sum(sp) / len(sp) if sp else float("nan"),
+                "sat": r.get("sat_frac", float("nan")),
+                "floor": r.get("floor_frac", float("nan")),
+                "zmax": max(zc.values()) if zc else float("nan"),
+                "zmax_op_x": zc.get("op_x", float("nan")),
+                "hinge": r.get("hinge", float("nan")),
+                "h_abs": r.get("h_absmean", float("nan")),
             }
         h = d["history"]
         arms[name] = {
             "rows": rows,
             "last": h[-1]["step"] if h else 0,
             "rate": h[-1]["step"] / max(h[-1]["elapsed_s"], 1e-9) if h else 0.0,
+            # Lifetime clip% is dominated by warmup transients early on -- three
+            # of six logged records reads as 50% and says nothing about whether
+            # it is settling. Report the recent window too; that is the one that
+            # answers "is the clip setting the step size".
             "clip": 100.0 * sum(bool(q.get("clipped")) for q in h) / max(len(h), 1),
+            "clip_recent": 100.0 * sum(bool(q.get("clipped")) for q in h[-20:])
+                           / max(len(h[-20:]), 1),
             "gt": d.get("gt_loss", float("nan")),
             "sat": d.get("saturation", float("nan")),
             "floor": d.get("const_nmse_6d", float("nan")),
@@ -83,6 +113,8 @@ def main() -> None:
     p.add_argument("--metrics", nargs="+", default=["train", "val", "nmse"],
                    choices=sorted(METRICS))
     p.add_argument("--steps", type=int, default=40000, help="For the ETA column")
+    p.add_argument("--zmax", action="store_true",
+                   help="Per-parameter |z|max at the latest eval, per arm")
     p.add_argument("--tail", type=int, default=0,
                    help="Show only the last N eval rows (0 = all)")
     args = p.parse_args()
@@ -95,15 +127,35 @@ def main() -> None:
     names = sorted(arms)
     w = max(9, max(len(short(n)) for n in names) + 2)
 
-    print(f"{'arm':<18}{'step':>8}{'st/s':>7}{'clip%':>7}{'eta_h':>7}"
+    print(f"{'arm':<18}{'step':>8}{'st/s':>7}{'clip%':>7}{'clip20':>8}{'eta_h':>7}"
           f"{'gt_loss':>11}{'sat':>11}{'floor':>9}")
     for n in names:
         a = arms[n]
         eta = (args.steps - a["last"]) / a["rate"] / 3600 if a["rate"] > 0 else float("nan")
-        print(f"{short(n):<18}{a['last']:>8}{a['rate']:>7.2f}{a['clip']:>7.1f}{eta:>7.1f}"
+        print(f"{short(n):<18}{a['last']:>8}{a['rate']:>7.2f}{a['clip']:>7.1f}"
+              f"{a['clip_recent']:>8.1f}{eta:>7.1f}"
               f"{a['gt']:>11.3e}{a['sat']:>11.3e}{a['floor']:>9.4f}")
 
-    all_steps = sorted({s for a in arms.values() for s in a["rows"]})
+    if args.zmax:
+        keys, any_z = None, False
+        for n in names:
+            zz = arms[n]["rows"].get("_zmax", {})
+            if not zz:
+                continue
+            last = zz[max(zz)]
+            if not last:
+                continue
+            if keys is None:
+                keys = sorted(last)
+                print("\n=== per-parameter |z|max at the latest eval")
+                print(f"{'arm':<18}" + "".join(f"{k:>10}" for k in keys))
+            any_z = True
+            print(f"{short(n):<18}" + "".join(f"{last[k]:>10.2f}" for k in keys))
+        if not any_z:
+            print("\n(no zmax_* in history -- runs predate per-parameter logging)")
+
+    all_steps = sorted({s for a in arms.values() for s in a["rows"]
+                        if isinstance(s, int)})
     if args.tail:
         all_steps = all_steps[-args.tail:]
 
@@ -115,6 +167,7 @@ def main() -> None:
             cells = []
             for n in names:
                 r = arms[n]["rows"].get(s)
+                r = r if isinstance(r, dict) and "train" in r else None
                 cells.append(f"{fmt.format(r[m]):>{w}}" if r else f"{'-':>{w}}")
             print(f"{s:>8}" + "".join(cells))
 

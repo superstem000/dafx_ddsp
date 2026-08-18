@@ -1,0 +1,33 @@
+# @package _global_
+
+defaults:
+  - override /trainer: default.yaml
+  - override /model: default.yaml
+  - override /data: default.yaml
+  - override /synth: h2of.yaml
+  - override /schedule: switch.yaml
+
+data:
+  id_dir: data/diffsynth_5-6/harmor_2oscfree
+  ood_dir: data/nsynth-train
+  batch_size: 64
+  train_type: ood
+
+trainer:
+
+# 400, not 200. max_epochs is absolute in Lightning and the checkpoint restores
+# current_epoch=200, so a resume capped at 200 trains nothing and exits looking
+# like a success. The paper's total is 200 pretrain + 200 resume (sec 4.1), so
+# 400 is both the fix and the intended figure.
+  max_epochs: 400
+  gradient_clip_val: 1.0
+
+model:
+  lr: 0.001
+  decay_rate: 0.99
+  estimator:
+    _target_: diffsynth.estimator.MelEstimator
+    hidden_size: 512
+  sw_loss:
+    fft_sizes: [64, 128, 256, 512, 1024, 2048]
+  log_grad: true

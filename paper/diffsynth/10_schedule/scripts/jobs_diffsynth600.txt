@@ -1,0 +1,60 @@
+# The same design at 1.5x the learning budget: hybrid vs mag_halfw, 600 epochs.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth600.txt
+#
+# WHY THIS EXISTS. The 400-epoch runs do not stop because they have converged,
+# they stop because the schedule has run out. ExponentialLR(gamma=0.99) is a
+# geometric series, so total parameter travel is capped at lr0/(-ln gamma) =
+# 0.0995 no matter how long it runs, and by epoch 400 it has spent 98.2% of
+# that. Adding epochs to gamma=0.99 buys nothing -- 400 to 800 is worth another
+# 1.8%. Reaching a ceiling needs a bigger budget, not a longer run.
+#
+# THE RESCALE. gamma = 0.99^(400/600) = 0.99332217 puts the final learning rate
+# at 600 exactly where the 400 run's was at 400 (1.79544e-5, since
+# 0.99332217^600 = 0.99^400 = 0.0179544), while the integral rises to 0.1466 --
+# 1.5x, the epoch ratio. At a matched endpoint the budget is linear in epochs,
+# which is the whole reason 600 is worth running and 800-at-0.99 is not.
+#
+# The phase boundaries stay where they are: switch.yaml anneals on steps
+# 12500 -> 37500, i.e. epochs 50 -> 200, and that is left alone deliberately.
+# The consequence is that the ramp now runs at about twice the learning rate it
+# did before (2.62e-4 at epoch 200 against 1.34e-4), so these runs are NOT
+# comparable epoch-for-epoch with the 400 ones. All four arms here share one
+# schedule, so the comparison between them is clean; the comparison to the
+# earlier batch is not, and should not be made.
+#
+# WHY IT STARTS FROM SCRATCH. ExponentialLR.state_dict() includes gamma, and
+# load_state_dict does __dict__.update, so a resumed run takes gamma from the
+# checkpoint and silently ignores model.decay_rate. The 400 checkpoints carry
+# gamma=0.99 and cannot be rescaled by resuming from them -- the base has to be
+# retrained at the new rate. That is also why decay_rate is set on every stage
+# below rather than only on the first: consistent everywhere means it does not
+# matter which one wins.
+#
+# ARMS. Only the two the thesis turns on:
+#   hybrid      their mag+log, the reproduction
+#   mag_halfw   log_mag_w=0 with sw_w halved, so each surviving term carries
+#               1/12 exactly as in hybrid (loss.py:60 divides by
+#               len(fft_sizes)*(mag_w+log_mag_w), and zeroing log_mag_w would
+#               otherwise take the divisor from 12 to 6 and double the weight)
+# Each branches to synth and to real, as in the 400 batch.
+
+# STAGE base
+# Epochs 0-50 are identical for every arm -- param.yaml is constant at param_w
+# 10 and linear_anneal returns start_v below step 12500 -- so train them once
+# and branch. No audio is rendered while sw_w is 0, which makes this the cheap
+# one: ~1.7h on a single card at the observed 30 ep/h.
+scripts/ds_run.sh pre600_base pretrain "{gpu}" trainer.max_epochs=50 model.decay_rate=0.99332217
+
+# STAGE variants
+# 50 -> 200, the ramp. Two cards, ~5h.
+RESUME=pre600_base scripts/ds_run.sh pre600_hybrid    pretrain "{gpu}" model.decay_rate=0.99332217
+RESUME=pre600_base scripts/ds_run.sh pre600_mag_halfw pretrain "{gpu}" model.decay_rate=0.99332217 model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
+
+# STAGE resumes
+# 200 -> 600, spectral only. Four cards, ~13h. max_epochs is absolute in
+# Lightning, so the resume experiments' own 400 has to be overridden here.
+RESUME=pre600_hybrid    scripts/ds_run.sh synth600_hybrid    resume_synth "{gpu}" trainer.max_epochs=600 model.decay_rate=0.99332217
+RESUME=pre600_hybrid    scripts/ds_run.sh real600_hybrid     resume_real  "{gpu}" trainer.max_epochs=600 model.decay_rate=0.99332217
+RESUME=pre600_mag_halfw scripts/ds_run.sh synth600_mag_halfw resume_synth "{gpu}" trainer.max_epochs=600 model.decay_rate=0.99332217 model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5
+RESUME=pre600_mag_halfw scripts/ds_run.sh real600_mag_halfw  resume_real  "{gpu}" trainer.max_epochs=600 model.decay_rate=0.99332217 model.sw_loss.log_mag_w=0 schedule.sw_w.end_v=0.5

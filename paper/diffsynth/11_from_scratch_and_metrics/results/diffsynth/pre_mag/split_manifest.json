@@ -1,0 +1,68 @@
+{
+  "id_train": {
+    "n": 16000,
+    "sha1": "bd839fee1a78434d2f4aa05c7494831f07c60110",
+    "first5": [
+      "00000.wav",
+      "00001.wav",
+      "00002.wav",
+      "00003.wav",
+      "00005.wav"
+    ]
+  },
+  "id_valid": {
+    "n": 2000,
+    "sha1": "62dfa2841fd91edd85cfd7d1db548884c434ceea",
+    "first5": [
+      "00012.wav",
+      "00028.wav",
+      "00032.wav",
+      "00036.wav",
+      "00038.wav"
+    ]
+  },
+  "id_test": {
+    "n": 2000,
+    "sha1": "fad64ef1f11573f35de3f4e27ef3aba920d102b1",
+    "first5": [
+      "00004.wav",
+      "00023.wav",
+      "00061.wav",
+      "00068.wav",
+      "00074.wav"
+    ]
+  },
+  "ood_train": {
+    "n": 16000,
+    "sha1": "5bbc85c8d16071df7426d810caac7ec6e8108e0b",
+    "first5": [
+      "bass_acoustic_000-029-100.wav",
+      "bass_acoustic_000-030-050.wav",
+      "bass_acoustic_000-036-050.wav",
+      "bass_acoustic_000-043-100.wav",
+      "bass_acoustic_000-047-050.wav"
+    ]
+  },
+  "ood_valid": {
+    "n": 2000,
+    "sha1": "1926294002c9a2304059c74c8b7efc377438260c",
+    "first5": [
+      "bass_acoustic_000-027-050.wav",
+      "bass_electronic_000-046-100.wav",
+      "bass_electronic_000-048-127.wav",
+      "bass_electronic_001-027-127.wav",
+      "bass_electronic_001-050-075.wav"
+    ]
+  },
+  "ood_test": {
+    "n": 2000,
+    "sha1": "ac764d736813d6581b093347b431282189e7c4cc",
+    "first5": [
+      "bass_acoustic_000-050-127.wav",
+      "bass_electronic_000-027-050.wav",
+      "bass_electronic_000-040-075.wav",
+      "bass_electronic_000-043-127.wav",
+      "bass_electronic_000-060-075.wav"
+    ]
+  }
+}

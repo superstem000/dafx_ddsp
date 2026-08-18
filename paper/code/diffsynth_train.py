@@ -1,0 +1,99 @@
+import inspect
+import os
+
+import hydra
+import pytorch_lightning as pl
+from plot import AudioLogger
+from split_manifest import SplitManifest
+import warnings
+from pytorch_lightning.callbacks import ModelCheckpoint
+from diffsynth.model import EstimatorSynth
+
+# version_base="1.1" keeps hydra's pre-1.2 behaviour of chdir-ing into the run
+# directory. train.py writes tb_logs and checkpoints to relative paths, so
+# without it every run would scatter its outputs into the launch directory.
+@hydra.main(config_path="configs/", config_name="config.yaml", version_base="1.1")
+def main(cfg):
+    pl.seed_everything(0, workers=True)
+    warnings.simplefilter('ignore', RuntimeWarning)
+    # Hydra chdirs into outputs/<date>/<time>/ before main() runs, which is what
+    # keeps each run's tb_logs and checkpoints separate. The side effect is that
+    # every relative path in the config -- including one passed on the command
+    # line as data.id_dir=data/foo -- resolves against the run directory rather
+    # than where the command was typed. The failure mode is quiet: the dataset
+    # globs nothing, prints "loaded 0 files", and dies later on a missing
+    # param dir. Re-anchor the data paths to the launch directory instead.
+    for _k in ('id_dir', 'ood_dir'):
+        _v = cfg.data.get(_k, None)
+        if _v is not None and not os.path.isabs(_v):
+            cfg.data[_k] = os.path.join(hydra.utils.get_original_cwd(), _v)
+
+    model = EstimatorSynth(cfg.model, cfg.synth, cfg.schedule)
+    logger = pl.loggers.TensorBoardLogger("tb_logs", "", default_hp_metric=False, version='')
+    hparams = {'data': cfg.data.train_type, 'schedule': cfg.schedule.name, 'synth': cfg.synth.name}
+    # dummy value
+    logger.log_hyperparams(hparams, {'val_id/lsd': 40, 'val_ood/lsd': 40})
+    # log audio examples
+    checkpoint_callback = ModelCheckpoint(monitor="val_ood/lsd", save_top_k=1, filename="epoch_{epoch:03}_{val_ood/lsd:.2f}", save_last=True, auto_insert_metric_name=False)
+    # A checkpoint that really is the latest epoch.
+    #
+    # save_last=True above does NOT give one: Lightning writes last.ckpt only
+    # when a checkpoint is saved at all, and with save_top_k=1 and a monitor
+    # that only happens when val_ood/lsd improves. On a 50-epoch base whose
+    # metric plateaued at epoch 37, last.ckpt was byte-identical to
+    # epoch_037_*.ckpt -- so every branch resuming from it silently inherited a
+    # 37-epoch base and re-trained the remaining 12 epochs independently,
+    # defeating the point of sharing one.
+    #
+    # monitor=None means this one saves unconditionally at the end of every
+    # epoch, overwriting a single latest.ckpt. That is what ds_run.sh resumes
+    # from.
+    latest_callback = ModelCheckpoint(filename="latest", monitor=None, save_top_k=1,
+                                      save_last=False, auto_insert_metric_name=False)
+    # SplitManifest records which files landed in which split. The train/val
+    # split is drawn from the global RNG at setup() time, and Synth and Real are
+    # resumes -- so if PL restores RNG state before setup(), a resumed run gets a
+    # different split and the pretrain phase's validation data becomes the
+    # resume phase's training data. Writing the membership makes that checkable
+    # instead of assumed, and costs one small json per run.
+    callbacks = [pl.callbacks.LearningRateMonitor(logging_interval='step'), AudioLogger(),
+                 SplitManifest(), checkpoint_callback, latest_callback]
+    # Unconditional periodic checkpoints, off by default. The other two keep the
+    # best by val_ood/lsd and the latest, so there is no way to evaluate two arms
+    # at the same epoch -- and with arms that reach a given epoch hours apart,
+    # every comparison ends up being between different epochs and argued about
+    # by extrapolation. monitor=None saves regardless of any metric.
+    _every_n = cfg.trainer.get('checkpoint_every_n_epochs', 0)
+    if _every_n:
+        callbacks.append(ModelCheckpoint(filename="ep{epoch:04d}", monitor=None,
+                                         save_top_k=-1, every_n_epochs=int(_every_n),
+                                         save_last=False, auto_insert_metric_name=False))
+    # PL 2 takes the resume path at fit() rather than as a Trainer argument, so
+    # it is pulled out of the trainer config here. The config key is kept so the
+    # README's `trainer.resume_from_checkpoint=<path>` commands still work.
+    _not_trainer_args = ('resume_from_checkpoint', 'checkpoint_every_n_epochs')
+    trainer_cfg = {k: v for k, v in cfg.trainer.items() if k not in _not_trainer_args}
+    ckpt_path = cfg.trainer.get('resume_from_checkpoint', None)
+    trainer = hydra.utils.instantiate(trainer_cfg, callbacks=callbacks, logger=logger)
+    datamodule = hydra.utils.instantiate(cfg.data)
+    # make model
+    # PyTorch 2.6 flipped torch.load's weights_only default to True, and
+    # EstimatorSynth.save_hyperparameters() puts the hydra DictConfig into the
+    # checkpoint, so resuming fails with
+    #   UnpicklingError: Unsupported global: omegaconf.dictconfig.DictConfig
+    #
+    # The allowlisting route the error suggests means enumerating every omegaconf
+    # internal that lands in the pickle -- DictConfig, ListConfig,
+    # ContainerMetadata, the node types -- and revisiting it whenever omegaconf
+    # changes its representation. These checkpoints are written by this script on
+    # this machine, so the trust the flag is guarding against is not in question.
+    #
+    # Guarded by a signature check because weights_only is not a fit() argument
+    # in older Lightning, and this repo should still start under one.
+    fit_kwargs = {}
+    if 'weights_only' in inspect.signature(trainer.fit).parameters:
+        fit_kwargs['weights_only'] = False
+    trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path, **fit_kwargs)
+
+if __name__ == "__main__":
+    main()
