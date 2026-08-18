@@ -51,11 +51,25 @@ class SpecWaveLoss():
         self.spec_loss = functools.partial(spectrogram_loss, fft_sizes=fft_sizes, hop_ls=hop_lengths, win_ls=win_lengths, log_mag_w=log_mag_w, mag_w=mag_w, norm=norm, power=power, log_eps_v=log_eps_v)
         self.wave_loss = functools.partial(waveform_loss, l1_w=l1_w, l2_w=l2_w, linf_w=linf_w, linf_k=linf_k, norm=norm)
         
-    def __call__(self, x_audio, target_audio):
-        if (self.mag_w + self.log_mag_w) > 0:
-            spec_losses = self.spec_loss(x_audio, target_audio)
+    def __call__(self, x_audio, target_audio, log_mag_w=None):
+        # log_mag_w overrides the constructed weight for this call, so the
+        # linear/log balance can be SCHEDULED during training the way param_w
+        # and sw_w already are. None keeps the constructed value, which is what
+        # every run before this did, so nothing existing changes.
+        #
+        # Worth noting that the normalisation below divides by (mag_w + lmw),
+        # i.e. the loss is a weighted AVERAGE of the two halves rather than a
+        # sum. That is what makes a crossfade safe: ramping lmw from 0 to 1
+        # moves from pure linear to a 50/50 average with no jump in scale, so
+        # the optimiser sees the balance change and not a step in magnitude.
+        #
+        # self.spec_loss is a functools.partial that already binds log_mag_w;
+        # passing it again as a keyword overrides the bound value.
+        lmw = self.log_mag_w if log_mag_w is None else log_mag_w
+        if (self.mag_w + lmw) > 0:
+            spec_losses = self.spec_loss(x_audio, target_audio, log_mag_w=lmw)
             multi_spec_loss = sum(spec_losses['spec'].values()) + sum(spec_losses['logspec'].values())
-            multi_spec_loss /= (len(self.fft_sizes)*(self.mag_w + self.log_mag_w))
+            multi_spec_loss /= (len(self.fft_sizes)*(self.mag_w + lmw))
         else: # no spec loss
             multi_spec_loss = torch.tensor([0.0], device=x_audio.device)
         if (self.l1_w + self.l2_w + self.linf_w) > 0:
