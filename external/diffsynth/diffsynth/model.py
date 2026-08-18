@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import diffsynth.util as util
-from diffsynth.spectral import compute_lsd, loudness_loss, Mfcc
+from diffsynth.spectral import compute_lsd, loudness_loss, Mfcc, GammaCepstrum
 import pytorch_lightning as pl
 from diffsynth.modelutils import construct_synth_from_conf
 from diffsynth.schedules import ParamSchedule
@@ -59,6 +59,12 @@ class EstimatorSynth(pl.LightningModule):
         # None keeps the published ExponentialLR exactly. See configure_optimizers.
         self.lr_schedule = model_cfg.get('lr_schedule', None)
         self.mfcc = Mfcc(n_fft=1024, hop_length=256, n_mels=40, n_mfcc=20, sample_rate=16000)
+        # The paper's table metric at Stevens' exponent, on Hann + Slaney
+        # conventions rather than Mfcc's rectangular window and HTK filterbank.
+        # Identical by construction to ds_mfcc_check's g0.3 column, which is
+        # how every earlier run gets it. All its buffers are persistent=False,
+        # so it adds nothing to state_dict and earlier checkpoints still load.
+        self.mfcc03 = GammaCepstrum(gamma=0.3)
         self.save_hyperparameters()
 
     def param_group_losses(self, synth_output, param_dict):
@@ -197,11 +203,7 @@ class EstimatorSynth(pl.LightningModule):
         mon_losses['lsd'] = compute_lsd(target_audio, resyn_audio)
         mon_losses['loud'] = loudness_loss(resyn_audio, target_audio)
         mon_losses['mfcc'] = F.l1_loss(self.mfcc(target_audio), self.mfcc(resyn_audio))
-        # Stevens' exponent instead of the log, from the SAME mfcc module --
-        # a second Mfcc instance would add dct_mat and mel_scale.fb to
-        # state_dict and break strict loading of every earlier checkpoint.
-        mon_losses['mfcc03'] = F.l1_loss(self.mfcc.with_gamma(target_audio, 0.3),
-                                         self.mfcc.with_gamma(resyn_audio, 0.3))
+        mon_losses['mfcc03'] = F.l1_loss(self.mfcc03(target_audio), self.mfcc03(resyn_audio))
         return mon_losses
 
     def training_step(self, batch_dict, batch_idx):

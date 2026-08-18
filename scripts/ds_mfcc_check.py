@@ -80,6 +80,16 @@ def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
               mel_norm=None, mel_scale="htk", sr=16000, n_fft=1024, hop=256,
               n_mels=40, n_mfcc=20, f_min=40.0, f_max=7600.0):
     """A callable audio -> MFCC, mirroring spectral.py but with the knobs open."""
+    if log == "pow":
+        # The gamma columns come from diffsynth's own GammaCepstrum, which
+        # model.py logs as mfcc03 every epoch. Single implementation, so the
+        # number computed here from a checkpoint and the number logged during
+        # training cannot drift apart -- and they have to agree, because this
+        # script is the only way a run predating that metric gets the column.
+        from diffsynth.spectral import GammaCepstrum
+        return GammaCepstrum(gamma=gamma, n_fft=n_fft, hop_length=hop,
+                             n_mels=n_mels, n_mfcc=n_mfcc, sample_rate=sr,
+                             f_min=f_min, f_max=f_max).to(device)
     win = None if window == "rect" else torch.hann_window(n_fft, device=device)
     ms = MelScale(n_mels, sr, f_min, f_max, n_fft // 2 + 1, mel_norm,
                   mel_scale).to(device)
@@ -96,15 +106,6 @@ def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
         mel = ms(power)
         if log == "nat":
             lm = torch.log(mel + 1e-6)
-        elif log == "pow":
-            # Stevens' law: loudness ~ I^0.3 with I the intensity. `mel` is
-            # already a POWER mel spectrogram here, so the exponent applies
-            # directly with no conversion. gamma=1 is a linear metric, gamma->0
-            # approaches the log one, and 0.3 is where perception actually
-            # sits -- between them, which is the whole point: MFCC and LSD both
-            # measure at gamma->0, far past perception, and that is the domain
-            # a log-trained model is optimised for.
-            lm = (mel + 1e-12) ** gamma
         else:
             lm = 10.0 * torch.log10(mel + 1e-10)
             if top_db is not None:
