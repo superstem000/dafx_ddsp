@@ -195,6 +195,25 @@ def main() -> None:
              "the 20000-file ood pool, so most of the family is in their "
              "training set and the number is not held out.",
     )
+    p.add_argument(
+        "--crepe", action="store_true",
+        help="Add an L1 distance between CREPE embeddings. Needs torchcrepe "
+             "(pip install torchcrepe; it bundles its own weights).\n\n"
+             "The point is independence. Every other column here -- MFCC in any "
+             "variant, LSD, the gamma ladder -- is a spectral distance under "
+             "some compression, so a reviewer can answer the gamma result with "
+             "'you changed the compression to suit yourself'. A learned "
+             "embedding makes no compression choice at all, so if it agrees "
+             "with the gamma ladder that is a second, structurally different "
+             "axis rather than the same one re-scaled.\n\n"
+             "Read it for what it is, though: CREPE is a PITCH model, so this "
+             "mostly measures whether the resynthesis has the right pitch, not "
+             "whether it sounds the same. It is a check on the gamma result, "
+             "not a general perceptual metric. OpenL3 would be that, and needs "
+             "downloaded weights.\n\n"
+             "Slow on CPU -- ~124 frames per 4 s clip through the model, per "
+             "arm, per checkpoint. Use --device cuda, or cut --batches.",
+    )
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--batches", type=int, default=32)
     p.add_argument("--device", default="cpu")
@@ -202,6 +221,16 @@ def main() -> None:
 
     variants = build_variants(args.gamma)
     fns = {n: make_mfcc(args.device, **kw) for n, kw in variants}
+
+    # Imported only when asked for, so torchcrepe stays an optional dependency
+    # and every existing invocation keeps working without it.
+    crepe = None
+    if args.crepe:
+        from diffsynth.perceptual.crepe import CREPELoss
+        crepe = CREPELoss().to(args.device).eval()
+    # Column order after the cepstral ones: LSD first since it is the metric
+    # the paper already quotes, then the embedding distance.
+    extra = ["lsd"] + (["crepe"] if crepe is not None else [])
 
     runs = [d for d in sorted(glob.glob(os.path.join(args.root, "*")))
             if os.path.isdir(d) and (not args.only or re.search(args.only, Path(d).name))]
@@ -244,7 +273,7 @@ def main() -> None:
             # LSD alongside, because it is the other audio number the paper
             # quotes and it disagrees with MFCC often enough that reading one
             # without the other has already been misleading once.
-            acc, n = {k: 0.0 for k in list(fns) + ["lsd"]}, 0
+            acc, n = {k: 0.0 for k in list(fns) + extra}, 0
             with torch.no_grad():
                 for i, batch in enumerate(loader):
                     if i >= args.batches:
@@ -257,6 +286,9 @@ def main() -> None:
                     for k, fn in fns.items():
                         acc[k] += F.l1_loss(fn(tgt), fn(resyn)).item()
                     acc["lsd"] += float(compute_lsd(tgt, resyn))
+                    if crepe is not None:
+                        acc["crepe"] += float(
+                            crepe.perceptual_loss(tgt, resyn))
                     n += 1
             if not n:
                 continue
@@ -278,11 +310,12 @@ def main() -> None:
           "as the metric's compression moves from g1 (linear) toward "
           "as_logged (log).\ng0.3 is Stevens' law and is the rung to quote.\n")
     print(f"{'run':<{w}}{'epoch':>7}"
-          + "".join(f"{n:>12}" for n, _ in variants) + f"{'lsd':>12}")
+          + "".join(f"{n:>12}" for n, _ in variants)
+          + "".join(f"{k:>12}" for k in extra))
     for name, ep, v in rows:
         print(f"{name:<{w}}{ep:>7}"
               + "".join(f"{v[n]:>12.4f}" for n, _ in variants)
-              + f"{v['lsd']:>12.4f}")
+              + "".join(f"{v[k]:>12.4f}" for k in extra))
 
 
 if __name__ == "__main__":
