@@ -73,6 +73,13 @@ TAGS = {
     # penalises much.
     "id_mfcc": "val_id/mfcc",
     "ood_mfcc": "val_ood/mfcc",
+    # The same cepstral distance at Stevens' exponent, mel^0.3 in place of the
+    # log. mfcc and lsd both measure at gamma -> 0, which is where a log-trained
+    # arm is optimised and far past where hearing sits, so the pair mfcc/mfcc03
+    # is the one that says whether an ordering is a fact about the models or
+    # about the metric's compression. Absent from runs predating it.
+    "id_mfcc03": "val_id/mfcc03",
+    "ood_mfcc03": "val_ood/mfcc03",
     "id_loud": "val_id/loud",
     "ood_loud": "val_ood/loud",
 }
@@ -81,7 +88,7 @@ SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 # Bumped whenever load() extracts a different set of series. The cache is
 # keyed on TAGS, and val_id/param_group/* is not in TAGS -- without this a
 # cache written before those were read would silently keep hiding them.
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 def load(run_dir: str) -> dict | None:
@@ -350,6 +357,15 @@ def main() -> None:
                        ("ood_mfcc", "val_ood/mfcc  (log of mel BAND energies -- "
                                     "perceptual, but not bin-wise log like LSD)"),
                        ("id_mfcc", "val_id/mfcc"),
+                       # The same distance at Stevens' exponent. Read it against
+                       # ood_mfcc directly above: if the arms order the same way
+                       # in both, the ordering is a fact about the models; if it
+                       # inverts, it is a fact about the metric's compression,
+                       # and MFCC's gamma -> 0 is 60x more aggressive than
+                       # hearing.
+                       ("ood_mfcc03", "val_ood/mfcc03  (same, at Stevens' "
+                                      "gamma=0.3 instead of the log)"),
+                       ("id_mfcc03", "val_id/mfcc03"),
                        # train/total is the OPTIMISED objective, so read it only
                        # down a column, never across. Across arms it is a
                        # different quantity per arm -- log(x+1e-4) and |x| live
