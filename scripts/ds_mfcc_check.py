@@ -281,6 +281,16 @@ def main() -> None:
              "reused. Roughly doubles the metric cost, which matters for "
              "--crepe and --openl3.",
     )
+    p.add_argument(
+        "--top-db", type=float, nargs="*", default=[80.0, 60.0, 40.0, 20.0],
+        metavar="DB",
+        help="dB floors to add as extra columns: `standard` with everything "
+             "more than N dB below the clip's peak clamped flat, so those bins "
+             "contribute nothing. The complement of --gamma -- that changes "
+             "how much a quiet bin counts, this changes whether it counts at "
+             "all. db80 reproduces `standard` exactly and is the wiring check. "
+             "Pass no values to skip them.",
+    )
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--batches", type=int, default=32)
     p.add_argument("--device", default="cpu")
