@@ -223,7 +223,13 @@ def trend(pts):
         verdict = "WORSENING"
     best_e, best_v = min(pts, key=lambda p: p[1])
     return {"n": n, "last": lm, "prev": pm, "delta": delta, "noise": noise,
-            "se": se, "verdict": verdict, "best_v": best_v, "best_e": best_e}
+            "se": se, "verdict": verdict, "best_v": best_v, "best_e": best_e,
+            # The epoch `last` actually reaches. It is a block mean over the
+            # final tenth of the run, so for a run still training it sits
+            # behind the epoch just logged -- and with several arms at
+            # different epochs there was nothing on screen saying how far
+            # behind, or how far apart two arms' "last" columns were.
+            "last_e": pts[-1][0], "last_from": pts[-n][0]}
 
 
 def at(d: dict, step: int, key: str) -> float:
@@ -358,7 +364,16 @@ def main() -> None:
         if not names:
             continue
         P = {n: pairs(runs[n], key, args.steps_per_epoch) for n in names}
-        w = max(11, max(len(n) for n in names) + 2)
+        # Each run's OWN latest epoch, in the column heading. The milestone grid
+        # below is global -- built from whichever arm is furthest along -- so an
+        # arm still training shows "-" for every mark past it, and the last
+        # number in its column can be a hundred epochs back. Worse, a mark just
+        # ahead of where it has reached also reads "-", because `around` needs a
+        # point within +-2 of the mark. Nothing on screen said where any given
+        # arm actually was.
+        own = {n: max(e for e, _ in P[n]) for n in names}
+        lab = {n: f"{n}@{own[n]}" for n in names}
+        w = max(11, max(len(lab[n]) for n in names) + 2)
 
         # Milestones rather than the last N epochs. Adjacent epochs differ by
         # noise; what carries information is the shape across the whole run, and
@@ -370,7 +385,7 @@ def main() -> None:
         marks = sorted(e for e in marks if 0 < e <= top)
 
         print(f"\n=== {label}   (mean over +-2 epochs; * marks a phase boundary)")
-        print(f"{'epoch':>7} " + "".join(f"{n:>{w}}" for n in names))
+        print(f"{'epoch':>7} " + "".join(f"{lab[n]:>{w}}" for n in names))
         for e in marks:
             cells = []
             for n in names:
@@ -378,17 +393,30 @@ def main() -> None:
                 cells.append(f"{v:>{w}.4f}" if v == v else f"{'-':>{w}}")
             flag = "*" if e in (50, 200) else " "
             print(f"{e:>7}{flag}" + "".join(cells))
+        # Every arm at its own current epoch, which for a run in flight is the
+        # only row that says what it reads NOW rather than at the last global
+        # mark it happened to cover.
+        cells = []
+        for n in names:
+            v = around(P[n], own[n])
+            cells.append(f"{v:>{w}.4f}" if v == v else f"{'-':>{w}}")
+        print(f"{'now':>7} " + "".join(cells))
 
-        print(f"\n{'':7} {'best (epoch)':>18}{'last':>10}{'prev':>10}"
+        print(f"\n{'':7} {'best (epoch)':>18}{'last (epochs)':>22}{'prev':>10}"
               f"{'change':>10}{'2*se':>9}  verdict")
         for n in names:
             t = trend(P[n])
             if t is None:
                 print(f"{n:<18} too few points yet")
                 continue
-            print(f"{n:<18}{t['best_v']:>9.4f} ({t['best_e']:>3}){t['last']:>10.4f}"
-                  f"{t['prev']:>10.4f}{t['delta']:>+10.4f}{2 * t['se']:>9.4f}"
-                  f"  {t['verdict']}")
+            # `last` is a block mean over the final tenth of the run, so name
+            # the epochs it spans. Without them two arms' "last" columns look
+            # comparable when one is a mean over 390-399 and the other over
+            # 151-155.
+            span = f"({t['last_from']}-{t['last_e']})"
+            print(f"{n:<18}{t['best_v']:>9.4f} ({t['best_e']:>3}){t['last']:>11.4f} "
+                  f"{span:<10}{t['prev']:>10.4f}{t['delta']:>+10.4f}"
+                  f"{2 * t['se']:>9.4f}  {t['verdict']}")
 
     param_groups(runs, args)
 
