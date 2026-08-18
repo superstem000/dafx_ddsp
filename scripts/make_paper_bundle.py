@@ -21,6 +21,7 @@ so the bundle can be built while a sweep is still going.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -593,6 +594,36 @@ Audio is not shipped. `datasets/` carries the parameter CSVs; the commands in
 """
 
 
+def prune_split_manifests(root: Path) -> int:
+    """Drop the file lists SplitManifest used to write for every split.
+
+    Runs made before split_manifest.py was narrowed to the valid splits carry
+    all six -- 16000 id_train names among them -- which is 1.2 MB per run
+    against 1.6 KB for the hash-only form, and 124 copies of it made the
+    diffsynth sections 165 MB. Nothing reads anything but id_valid.
+
+    Rewritten on the COPY, never on the source: results/ is the record and this
+    is the bundle. Returns bytes saved.
+    """
+    saved = 0
+    for f in root.rglob("split_manifest.json"):
+        try:
+            rec = json.loads(f.read_text())
+        except Exception:
+            continue
+        before = f.stat().st_size
+        touched = False
+        for k, v in rec.items():
+            if isinstance(v, dict) and "files" in v and not k.endswith("_valid"):
+                del v["files"]
+                touched = True
+        if not touched:
+            continue
+        f.write_text(json.dumps(rec, indent=2))
+        saved += before - f.stat().st_size
+    return saved
+
+
 def copy(src: Path, dst: Path, skip=None) -> tuple[int, int]:
     """Copy a file or tree. Returns (files, bytes)."""
     if src.is_dir():
@@ -601,6 +632,7 @@ def copy(src: Path, dst: Path, skip=None) -> tuple[int, int]:
         # Checkpoints are the reason experiments/ is 21 GB and results/ddsp is
         # hundreds of MB. Nothing in the paper reads them.
         shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*(skip or SKIP)))
+        prune_split_manifests(dst)
         files = [p for p in dst.rglob("*") if p.is_file()]
         return len(files), sum(p.stat().st_size for p in files)
     dst.parent.mkdir(parents=True, exist_ok=True)
