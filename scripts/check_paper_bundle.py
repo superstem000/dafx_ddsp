@@ -14,6 +14,16 @@ Two failure classes are distinguished, because they are not equally serious:
   LIMITATION   something cannot be *drawn* but nothing is unrecoverable -- no
                per-IR predictions, no convergence traces
 
+The diffsynth half is checked the same way, and one of its checks is worth
+naming: every arm resumes from the same pretrain, and if Lightning restored RNG
+state before the datamodule's setup() the resumed run would draw a different
+train/valid split, making pretrain's validation files the resume's training
+files. That is leakage across the phase boundary, biased towards the paper's own
+result, and invisible in every metric. The split manifests carry a hash of each
+split's membership, so comparing them across runs settles it offline -- the
+bundle verifies the claim about itself rather than deferring to a script that
+has to be re-run on a GPU.
+
     python scripts/check_paper_bundle.py --bundle paper
 """
 
@@ -183,6 +193,170 @@ def check_ddsp(b: Path):
     note(LIM, "no convergence traces for CMA-ES or gradient descent -- final values only")
 
 
+# The three the diffsynth tables quote. val_id/param is the paper's own headline
+# and exists only in-domain, since NSynth has no true theta.
+DS_METRICS = ("val_id/param", "val_id/mfcc", "val_id/lsd")
+
+# log(x + eps) has to keep its knee at the same signal level when the domain
+# changes, and log(m) = 0.5*log(p) makes that eps_mag = sqrt(eps_pow). Getting
+# it wrong puts the log four decades off -- down where the plate's ladder
+# collapses -- while changing nothing that would show up as an error.
+DS_EPS = {2: 1e-4, 1: 1e-2}
+
+
+def _f(pat, text, cast=str):
+    m = re.search(pat, text, re.M)
+    return cast(m.group(1)) if m else None
+
+
+def check_diffsynth(b: Path):
+    head("diffsynth: numbers present, arms recoverable, one split across every run")
+    # 08-11 copy the same tree; 08 is the reproduction section and carries it.
+    root = b / "diffsynth/08_reproduction/results/diffsynth"
+    if not root.exists():
+        note(FUND, "no diffsynth results in the bundle"); print("  MISSING"); return
+    runs = sorted(d for d in root.iterdir() if d.is_dir())
+    if not runs:
+        note(FUND, "diffsynth results directory is empty"); print("  EMPTY"); return
+
+    no_scalars, no_metrics, eps_bad, arms, epochs = [], [], [], {}, {}
+    for d in runs:
+        sc = d / "scalars.csv"
+        if not sc.exists():
+            no_scalars.append(d.name)
+            continue
+        with sc.open() as f:
+            rows = list(csv.reader(f))
+        cols = rows[0]
+        miss = [m for m in DS_METRICS if m not in cols]
+        if miss:
+            no_metrics.append(f"{d.name}:{','.join(miss)}")
+        # Two columns are named "epoch" -- Lightning logs one as a scalar tag on
+        # top of the one ds_export_scalars derives -- so index, not DictReader.
+        epochs[d.name] = int(rows[-1][1]) if len(rows) > 1 else -1
+
+        hp = d / "tb_logs" / "hparams.yaml"
+        if hp.exists():
+            t = hp.read_text()
+            pw = _f(r"^\s*power:\s*(\d+)", t, int)
+            ev = _f(r"^\s*log_eps_v:\s*(\S+)", t, float)
+            arms[d.name] = (_f(r"^\s*mag_w:\s*(\S+)", t, float),
+                            _f(r"^\s*log_mag_w:\s*(\S+)", t, float), pw, ev)
+            if pw in DS_EPS and ev is not None and not math.isclose(ev, DS_EPS[pw], rel_tol=1e-6):
+                eps_bad.append(f"{d.name}: power={pw} with log_eps_v={ev:g}, "
+                               f"expected {DS_EPS[pw]:g}")
+
+    print(f"  {len(runs)} runs; without scalars.csv: {no_scalars or 'none'}")
+    if no_scalars:
+        note(FUND, f"{len(no_scalars)} diffsynth runs have no scalars.csv, so none of "
+                   f"their numbers can be recomputed -- run scripts/ds_export_scalars.py "
+                   f"and rebuild the bundle: {no_scalars}")
+    print(f"  runs missing a quoted metric: {no_metrics or 'none'}")
+    if no_metrics:
+        note(FUND, f"diffsynth runs missing quoted metrics: {no_metrics}")
+    elif not no_scalars:
+        note(OK, f"all {len(runs)} diffsynth runs carry {', '.join(DS_METRICS)}")
+
+    # power/log_eps_v were declared in the model config partway through, so only
+    # the arms run after that carry them in their own hparams. The rest are the
+    # published power-domain setting and inherit it from the bundled default --
+    # which has to actually say so, or their domain is only inferable from the
+    # run name. Check the default rather than assume it.
+    dflt = b / "code/diffsynth_configs/model/default.yaml"
+    dt = dflt.read_text() if dflt.exists() else ""
+    dpw, dev = _f(r"^\s*power:\s*(\d+)", dt, int), _f(r"^\s*log_eps_v:\s*(\S+)", dt, float)
+    explicit = sum(1 for v in arms.values() if v[2] is not None)
+    print(f"  power/log_eps_v: {explicit}/{len(runs)} arms record it explicitly; "
+          f"the rest inherit the config default (power={dpw}, log_eps_v={dev})")
+    print(f"  eps/domain mismatches: {eps_bad or 'none'}")
+    if eps_bad:
+        note(FUND, f"log_eps_v does not match the loss domain: {eps_bad}")
+    if dpw is None or dev is None:
+        note(FUND, "the bundled model config declares no power/log_eps_v, so the "
+                   f"{len(runs) - explicit} arms that do not record them have no "
+                   "recoverable loss domain at all")
+    elif not math.isclose(dev, DS_EPS.get(dpw, -1), rel_tol=1e-6):
+        note(FUND, f"the config default pairs power={dpw} with log_eps_v={dev:g}, "
+                   f"expected {DS_EPS.get(dpw)}")
+    elif arms:
+        note(OK, f"every arm's loss domain resolves -- {explicit} from its own hparams, "
+                 f"{len(runs) - explicit} from the bundled default -- and eps tracks the "
+                 f"domain as sqrt(eps_pow) in every case")
+
+    # The leakage check, computed rather than asserted. Every arm resumes from
+    # pre_base, and Lightning restores RNG state from a checkpoint; if it did so
+    # before the datamodule's setup(), a resumed run would draw a different
+    # split and pretrain's validation files would become the resume's training
+    # files. One hash across every run is what rules that out.
+    hashes, unnamed = {}, []
+    for d in runs:
+        sm = d / "split_manifest.json"
+        if not sm.exists():
+            continue
+        try:
+            rec = json.loads(sm.read_text())
+        except Exception:
+            note(FUND, f"{d.name}: split_manifest.json is unreadable"); continue
+        for k in ("id_valid", "ood_valid"):
+            if k in rec:
+                hashes.setdefault(k, {}).setdefault(rec[k]["sha1"], []).append(d.name)
+                if "files" not in rec[k]:
+                    unnamed.append(f"{d.name}:{k}")
+    if not hashes:
+        note(FUND, "no split manifests: whether the resumed arms share the pretrain's "
+                   "split cannot be checked from the bundle")
+        print("  split manifests: MISSING")
+    for k, hs in sorted(hashes.items()):
+        n = sum(len(v) for v in hs.values())
+        print(f"  {k}: {len(hs)} distinct membership hash(es) across {n} runs"
+              + (f"  {next(iter(hs))[:12]}" if len(hs) == 1 else ""))
+        if len(hs) == 1:
+            note(OK, f"{k}: one split across all {n} runs -- no leakage across the "
+                     f"pretrain/resume boundary")
+        else:
+            note(FUND, f"{k}: {len(hs)} DIFFERENT splits across runs, so some arm "
+                       f"validated on another's training files: "
+                       + "; ".join(f"{h[:8]}={v}" for h, v in hs.items()))
+    if unnamed:
+        note(LIM, f"{len(unnamed)} split manifests record only a hash for a valid split, "
+                  f"not the membership, so an offline evaluation can detect the wrong "
+                  f"split but cannot reproduce the right one: {unnamed[:4]}"
+                  + (" ..." if len(unnamed) > 4 else ""))
+
+    # The per-group Param table is normalised against the constant predictor;
+    # without this the raw numbers survive but the normalised ones do not.
+    pb = root / "param_baseline.json"
+    if not pb.exists():
+        print("  param_baseline.json: MISSING")
+        note(FUND, "param_baseline.json absent: the per-group Param table is normalised "
+                   "against the constant predictor and cannot be rebuilt -- run "
+                   "scripts/ds_param_baseline.py")
+    else:
+        g = json.loads(pb.read_text()).get("baseline_l1", {})
+        print(f"  param_baseline.json: {len(g)} parameter groups")
+        note(OK if len(g) >= 6 else FUND,
+             f"constant-predictor baseline covers {len(g)} groups"
+             if len(g) >= 6 else f"param_baseline.json has only {len(g)} groups, expected 6")
+
+    rd = b / "analysis/monitor_diffsynth.py"
+    print(f"  analysis/monitor_diffsynth.py: {'OK' if rd.exists() else 'MISSING'}")
+    if not rd.exists():
+        note(FUND, "monitor_diffsynth.py absent: scalars.csv is present but the reader "
+                   "that turns it into the paper's tables is not")
+
+    # Not every arm ran to 400, and comparing one that stopped at 318 against one
+    # that reached 399 is the easiest mistake to make with this tree. pre_* are
+    # excluded: they are the shared pretrain and end at 50 or 200 by design.
+    short = {k: v for k, v in sorted(epochs.items())
+             if not k.startswith("pre") and v < 399}
+    if short:
+        print(f"  did not reach epoch 399: "
+              + ", ".join(f"{k}@{v}" for k, v in short.items()))
+        note(LIM, "arms stopped at different epochs, so any cross-arm number must be "
+                  "read at a matched epoch rather than at each run's last: "
+                  + ", ".join(f"{k}@{v}" for k, v in short.items()))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--bundle", type=Path, default=Path("paper"))
@@ -197,6 +371,7 @@ def main():
     check_datasets(a.bundle)
     check_collisions(a.bundle)
     check_ddsp(a.bundle)
+    check_diffsynth(a.bundle)
 
     print("\n" + "=" * 70)
     print(f"FUNDAMENTAL ({len(FUND)}) -- a number cannot be recomputed or a run reproduced")
