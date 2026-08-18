@@ -5,7 +5,10 @@ import numpy as np, torch, glob, pandas as pd
 from pathlib import Path
 import importlib.util as ilu
 
-spec = ilu.spec_from_file_location("fit", str(Path.home()/"dafxchal/src/cmaes/fit_7param_norm_es.py"))
+# Repo-relative, like gen_torch_targets_200.py. This used to be an absolute
+# path under ~/dafxchal, which is the repo's old name -- so the bundled copy
+# could not run anywhere, including here.
+spec = ilu.spec_from_file_location("fit", "src/cmaes/fit_7param_norm_es.py")
 fit = ilu.module_from_spec(spec); spec.loader.exec_module(fit)
 from src.plate.SevenParamPlate import BatchedModalPlateTorch
 
