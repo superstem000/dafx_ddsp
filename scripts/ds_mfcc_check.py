@@ -132,8 +132,28 @@ def _se(vals):
     return (var / len(vals)) ** 0.5
 
 
-def build_variants(gammas):
-    """The three log variants, plus one power-cepstrum column per gamma.
+def build_variants(gammas, top_dbs=()):
+    """The three log variants, a power-cepstrum column per gamma, a dB-floor
+    column per top_db.
+
+    The two ladders attack the same question from opposite directions. gamma
+    changes HOW MUCH a quiet bin counts -- continuously, from linear at 1 to
+    log at 0. top_db changes WHETHER it counts at all: everything more than N
+    dB below the clip's peak is clamped flat, so it contributes nothing. Both
+    are `standard` with one thing altered.
+
+    A floor is the easier claim to defend in a paper -- "energy 40 dB below the
+    peak is inaudible here" is a statement anyone can evaluate, where an
+    exponent needs Stevens' law to license it. If the arm ordering moves the
+    same way along both ladders, the result does not depend on which knob was
+    chosen.
+
+    NOTE the clamp is against the peak of the WHOLE clip (amax over mels and
+    time), which is librosa's convention for power_to_db(top_db=...). For a
+    decaying note that means the tail is clamped wholesale once it falls far
+    enough, rather than each frame being floored against its own peak. That is
+    the standard behaviour, not an oversight, but it is why a tight floor
+    removes decay tails specifically.
 
     The gamma columns are `standard` with its dB step replaced by mel^gamma and
     nothing else changed -- same Hann window, same Slaney mel scale and
@@ -158,6 +178,10 @@ def build_variants(gammas):
         (f"g{g:g}", dict(window="hann", log="pow", gamma=g,
                          mel_norm="slaney", mel_scale="slaney"))
         for g in gammas
+    ) + tuple(
+        (f"db{t:g}", dict(window="hann", log="db", top_db=float(t),
+                          mel_norm="slaney", mel_scale="slaney"))
+        for t in top_dbs
     )
 
 
@@ -262,7 +286,7 @@ def main() -> None:
     p.add_argument("--device", default="cpu")
     args = p.parse_args()
 
-    variants = build_variants(args.gamma)
+    variants = build_variants(args.gamma, args.top_db)
     fns = {n: make_mfcc(args.device, **kw) for n, kw in variants}
 
     # Imported only when asked for, so torchcrepe stays an optional dependency
