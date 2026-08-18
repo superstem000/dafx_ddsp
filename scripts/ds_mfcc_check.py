@@ -122,6 +122,15 @@ _FIXED = (
 )
 
 
+def _se(vals):
+    """Standard error of the mean across batches, or nan for a single batch."""
+    if len(vals) < 2:
+        return float("nan")
+    m = sum(vals) / len(vals)
+    var = sum((v - m) ** 2 for v in vals) / (len(vals) - 1)
+    return (var / len(vals)) ** 0.5
+
+
 def build_variants(gammas):
     """The three log variants, plus one power-cepstrum column per gamma.
 
@@ -230,6 +239,23 @@ def main() -> None:
              "1 s windows, so a 4 s clip is 4 forward passes. Use --device "
              "cuda or cut --batches.",
     )
+    p.add_argument(
+        "--saturation", action="store_true",
+        help="Also score UNRELATED pairs -- each target against a shuffled "
+             "target from the same batch -- and report it as a row per "
+             "column.\n\n"
+             "Without it none of these numbers has a scale. An OpenL3 cosine "
+             "distance of 0.042 against 0.047 could be eight near-perfect "
+             "models 12%% apart, or a metric with no dynamic range reporting "
+             "noise, and the table cannot tell you which. Saturation is what "
+             "an arm that learned nothing about THIS target would score, so "
+             "value/saturation says how much of the available range is "
+             "actually being used. Same discipline as gt_loss and saturation "
+             "on the plate side.\n\n"
+             "Model-independent, so it is computed once on the first arm and "
+             "reused. Roughly doubles the metric cost, which matters for "
+             "--crepe and --openl3.",
+    )
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--batches", type=int, default=32)
     p.add_argument("--device", default="cpu")
@@ -261,6 +287,12 @@ def main() -> None:
     runs = [d for d in sorted(glob.glob(os.path.join(args.root, "*")))
             if os.path.isdir(d) and (not args.only or re.search(args.only, Path(d).name))]
     rows = []
+    # Model-independent -- unrelated real audio against unrelated real audio --
+    # so it is measured once on the first arm and reused for every row.
+    sat, sat_per = {}, {k: [] for k in (
+        [n for n, _ in variants] + ["lsd"]
+        + (["crepe"] if crepe is not None else [])
+        + (["openl3"] if openl3 is not None else []))}
     for d in runs:
         name = Path(d).name
         cdir = os.path.join(d, "tb_logs", "checkpoints")
@@ -299,7 +331,11 @@ def main() -> None:
             # LSD alongside, because it is the other audio number the paper
             # quotes and it disagrees with MFCC often enough that reading one
             # without the other has already been misleading once.
-            acc, n = {k: 0.0 for k in list(fns) + extra}, 0
+            cols = list(fns) + extra
+            # Per-batch values rather than a running sum: the spread across
+            # batches is the only estimate of noise available here, and several
+            # of these columns differ between arms by less than it.
+            per = {k: [] for k in cols}
             with torch.no_grad():
                 for i, batch in enumerate(loader):
                     if i >= args.batches:
@@ -310,18 +346,34 @@ def main() -> None:
                     resyn, _out = model(batch)
                     tgt = batch["audio"]
                     for k, fn in fns.items():
-                        acc[k] += F.l1_loss(fn(tgt), fn(resyn)).item()
-                    acc["lsd"] += float(compute_lsd(tgt, resyn))
+                        per[k].append(F.l1_loss(fn(tgt), fn(resyn)).item())
+                    per["lsd"].append(float(compute_lsd(tgt, resyn)))
                     if crepe is not None:
-                        acc["crepe"] += float(
-                            crepe.perceptual_loss(tgt, resyn))
+                        per["crepe"].append(
+                            float(crepe.perceptual_loss(tgt, resyn)))
                     if openl3 is not None:
-                        acc["openl3"] += openl3(tgt, resyn)
-                    n += 1
+                        per["openl3"].append(openl3(tgt, resyn))
+                    # Unrelated pairs, for the saturation row. Shuffled within
+                    # the batch, so it is real audio against other real audio
+                    # and shares every property of the eval set but identity.
+                    if args.saturation and not sat:
+                        sh = tgt[torch.randperm(tgt.shape[0], device=tgt.device)]
+                        for k, fn in fns.items():
+                            sat_per[k].append(F.l1_loss(fn(tgt), fn(sh)).item())
+                        sat_per["lsd"].append(float(compute_lsd(tgt, sh)))
+                        if crepe is not None:
+                            sat_per["crepe"].append(
+                                float(crepe.perceptual_loss(tgt, sh)))
+                        if openl3 is not None:
+                            sat_per["openl3"].append(openl3(tgt, sh))
+            n = len(per["lsd"])
             if not n:
                 continue
+            if args.saturation and not sat and sat_per["lsd"]:
+                sat = {k: sum(v) / len(v) for k, v in sat_per.items()}
             ep = int(note.split()[-1]) if note.split()[-1].isdigit() else -1
-            rows.append((name, ep, {k: v / n for k, v in acc.items()}))
+            rows.append((name, ep, {k: sum(v) / len(v) for k, v in per.items()},
+                         {k: _se(v) for k, v in per.items()}))
             print(f"{name:<20} {note:<12} {n} batches -- {how}")
 
     if not rows:
@@ -337,13 +389,41 @@ def main() -> None:
           "the ORDER of the arms within a column, and how that order\nchanges "
           "as the metric's compression moves from g1 (linear) toward "
           "as_logged (log).\ng0.3 is Stevens' law and is the rung to quote.\n")
-    print(f"{'run':<{w}}{'epoch':>7}"
-          + "".join(f"{n:>12}" for n, _ in variants)
-          + "".join(f"{k:>12}" for k in extra))
-    for name, ep, v in rows:
-        print(f"{name:<{w}}{ep:>7}"
-              + "".join(f"{v[n]:>12.4f}" for n, _ in variants)
-              + "".join(f"{v[k]:>12.4f}" for k in extra))
+    cols = [n for n, _ in variants] + extra
+    print(f"{'run':<{w}}{'epoch':>7}" + "".join(f"{k:>12}" for k in cols))
+    for name, ep, v, _e in rows:
+        print(f"{name:<{w}}{ep:>7}" + "".join(f"{v[k]:>12.4f}" for k in cols))
+
+    # Two references, without which none of the above has a scale.
+    #
+    # 2*se is the batch noise: the standard error of each arm's own mean across
+    # batches, doubled, taken as the median over arms. An arm-to-arm difference
+    # smaller than this is not a difference.
+    #
+    # saturation is what unrelated audio scores -- the value an arm that
+    # learned nothing about THIS target would reach. spread/sat says how much
+    # of the available range the eight arms occupy: a metric where every arm
+    # sits at a few percent of saturation and they differ by a hair is not
+    # resolving them, however clean the ordering looks.
+    print()
+    med = lambda xs: sorted(xs)[len(xs) // 2]
+    print(f"{'2*se (median over arms)':<{w}}{'':>7}"
+          + "".join(f"{2 * med([r[3][k] for r in rows]):>12.4f}" for k in cols))
+    lo = {k: min(r[2][k] for r in rows) for k in cols}
+    hi = {k: max(r[2][k] for r in rows) for k in cols}
+    print(f"{'spread (max-min)':<{w}}{'':>7}"
+          + "".join(f"{hi[k] - lo[k]:>12.4f}" for k in cols))
+    if sat:
+        print(f"{'SATURATION (unrelated)':<{w}}{'':>7}"
+              + "".join(f"{sat[k]:>12.4f}" for k in cols))
+        print(f"{'best as % of saturation':<{w}}{'':>7}"
+              + "".join(f"{100 * lo[k] / sat[k]:>11.1f}%" for k in cols))
+        print(f"{'spread as % of saturation':<{w}}{'':>7}"
+              + "".join(f"{100 * (hi[k] - lo[k]) / sat[k]:>11.1f}%" for k in cols))
+    else:
+        print("\n  (no saturation reference -- pass --saturation. Without it "
+              "a small\n   arm-to-arm difference cannot be told from a metric "
+              "with no dynamic range.)")
 
 
 if __name__ == "__main__":
