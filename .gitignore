@@ -10,3 +10,15 @@ data/
 
 # Checkpoints: 43-89 MB each.
 *.pt
+
+# stray file from a mangled pip command
+26.2.1
+*.db-wal
+# model weights
+*.pt
+*.ckpt
+# training outputs (tensorboard, audio, figures)
+results/diffsynth/
+external/diffmoog/experiments/
+diffmoog_archive/
+FETCH_HEAD
