@@ -23,9 +23,28 @@ Three variants are reported so the effect is visible rather than asserted:
               Expect roughly 4.343x the natural-log values from the log base
               alone, so read it against itself, not against the other columns.
 
-The ORDERING across arms is what matters. If it survives all three the result
-does not depend on the metric's implementation details; if it moves, that is
-worth knowing before the number goes in a table.
+Then a POWER-CEPSTRUM ladder, g1 / g0.6 / g0.3 / g0.15: `standard` with its dB
+step replaced by mel^gamma and nothing else changed, so moving along it changes
+the metric's compression and only that.
+
+  Every audio metric here measures in the log domain -- MFCC logs mel-band
+  totals, LSD logs per bin -- and a log-trained model is optimised for exactly
+  that domain, so ranking losses by them is close to circular. g1 is a linear
+  metric and the linear-trained arms win it by construction; as_logged is the
+  log one and they lose it. So a crossover exists, and where it sits is the
+  question. Stevens' law puts loudness at I^0.3, which makes g0.3 the
+  perceptually calibrated rung -- pure linear and pure log are both wrong, on
+  opposite sides, and MFCC and LSD sit far past perception. If the crossover is
+  below 0.3, the linear loss wins where hearing actually is.
+
+  Quoting a stated ladder with a reference fixed by psychoacoustics is what
+  separates this from picking whichever metric happens to be flattering.
+
+The ORDERING across arms is what matters. If it survives all three log variants
+the result does not depend on the metric's implementation details; if it moves,
+that is worth knowing before the number goes in a table. Read every column
+DOWN -- dB is ~4.34x natural log by base alone, and each gamma is a different
+power of the same numbers, so nothing compares across columns.
 
 Only checkpointed epochs can be recomputed -- MFCC was never logged any other
 way. --ckpt takes a glob, so 'ep*.ckpt' gives the 50-epoch trajectory for runs
@@ -57,7 +76,7 @@ from diffsynth.spectral import compute_lsd              # noqa: E402
 import ds_param_breakdown as pb                         # noqa: E402
 
 
-def make_mfcc(device, window="rect", log="nat", top_db=None,
+def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
               mel_norm=None, mel_scale="htk", sr=16000, n_fft=1024, hop=256,
               n_mels=40, n_mfcc=20, f_min=40.0, f_max=7600.0):
     """A callable audio -> MFCC, mirroring spectral.py but with the knobs open."""
@@ -77,6 +96,15 @@ def make_mfcc(device, window="rect", log="nat", top_db=None,
         mel = ms(power)
         if log == "nat":
             lm = torch.log(mel + 1e-6)
+        elif log == "pow":
+            # Stevens' law: loudness ~ I^0.3 with I the intensity. `mel` is
+            # already a POWER mel spectrogram here, so the exponent applies
+            # directly with no conversion. gamma=1 is a linear metric, gamma->0
+            # approaches the log one, and 0.3 is where perception actually
+            # sits -- between them, which is the whole point: MFCC and LSD both
+            # measure at gamma->0, far past perception, and that is the domain
+            # a log-trained model is optimised for.
+            lm = (mel + 1e-12) ** gamma
         else:
             lm = 10.0 * torch.log10(mel + 1e-10)
             if top_db is not None:
@@ -86,12 +114,41 @@ def make_mfcc(device, window="rect", log="nat", top_db=None,
     return f
 
 
-VARIANTS = (
+_FIXED = (
     ("as_logged", dict(window="rect", log="nat")),
     ("hann", dict(window="hann", log="nat")),
     ("standard", dict(window="hann", log="db", top_db=80.0,
                       mel_norm="slaney", mel_scale="slaney")),
 )
+
+
+def build_variants(gammas):
+    """The three log variants, plus one power-cepstrum column per gamma.
+
+    The gamma columns are `standard` with its dB step replaced by mel^gamma and
+    nothing else changed -- same Hann window, same Slaney mel scale and
+    filterbank normalisation -- so moving down the gamma list changes the
+    metric's COMPRESSION and only that.
+
+    Why this is worth having. Every audio metric in this project measures in
+    the log domain: MFCC logs mel-band totals, LSD logs per bin. A log-trained
+    model is optimised for that domain, so ranking losses by them is close to
+    circular. gamma=1 is a linear metric and the linear-trained arms must win
+    it by construction; gamma->0 is the log metric and they must lose. There is
+    therefore a crossover, and where it sits is the actual question.
+
+    Stevens' law puts loudness at I^0.3, so gamma=0.3 is the perceptually
+    calibrated rung -- both pure linear and pure log are wrong, on opposite
+    sides, and MFCC/LSD sit far past perception at gamma->0. If the crossover
+    is below 0.3 the linear loss wins where hearing actually is; if above, it
+    does not. Reading the answer off a stated ladder with a reference point
+    fixed by psychoacoustics is what keeps this from being metric-shopping.
+    """
+    return _FIXED + tuple(
+        (f"g{g:g}", dict(window="hann", log="pow", gamma=g,
+                         mel_norm="slaney", mel_scale="slaney"))
+        for g in gammas
+    )
 
 
 def main() -> None:
@@ -102,6 +159,17 @@ def main() -> None:
                    help="Checkpoint file name or glob within the run's "
                         "checkpoints/ directory, e.g. 'ep*.ckpt'")
     p.add_argument("--domain", default="id", choices=("id", "ood"))
+    p.add_argument(
+        "--gamma", type=float, nargs="*", default=[1.0, 0.6, 0.3, 0.15],
+        metavar="G",
+        help="Power-cepstrum exponents to add as extra columns: mel^gamma in "
+             "place of the log, everything else held at the `standard` "
+             "conventions. 1.0 is a linear metric, ->0 approaches the log one, "
+             "and 0.3 is Stevens' law (loudness ~ I^0.3) -- the perceptually "
+             "calibrated rung, which MFCC and LSD both sit far past. The "
+             "default ladder brackets it on both sides so the crossover is "
+             "visible rather than assumed. Pass no values to skip them.",
+    )
     p.add_argument(
         "--family", default=None, metavar="PREFIX",
         help="Score against one NSynth instrument family instead of the ood "
@@ -132,7 +200,8 @@ def main() -> None:
     p.add_argument("--device", default="cpu")
     args = p.parse_args()
 
-    fns = {n: make_mfcc(args.device, **kw) for n, kw in VARIANTS}
+    variants = build_variants(args.gamma)
+    fns = {n: make_mfcc(args.device, **kw) for n, kw in variants}
 
     runs = [d for d in sorted(glob.glob(os.path.join(args.root, "*")))
             if os.path.isdir(d) and (not args.only or re.search(args.only, Path(d).name))]
@@ -202,14 +271,17 @@ def main() -> None:
              else f"the {args.domain} validation split")
     print(f"\n=== MFCC on {where}, up to "
           f"{args.batches * args.batch_size} clips")
-    print("'standard' uses dB rather than natural log, so it runs ~4.34x the "
-          "others by\nconvention alone -- compare each column down, not "
-          "across.\n")
+    print("Every column has its own scale -- dB is ~4.34x natural log by base "
+          "alone, and each\ngamma is a different power of the same numbers. "
+          "Read each column DOWN, never across.\nWhat carries information is "
+          "the ORDER of the arms within a column, and how that order\nchanges "
+          "as the metric's compression moves from g1 (linear) toward "
+          "as_logged (log).\ng0.3 is Stevens' law and is the rung to quote.\n")
     print(f"{'run':<{w}}{'epoch':>7}"
-          + "".join(f"{n:>12}" for n, _ in VARIANTS) + f"{'lsd':>12}")
+          + "".join(f"{n:>12}" for n, _ in variants) + f"{'lsd':>12}")
     for name, ep, v in rows:
         print(f"{name:<{w}}{ep:>7}"
-              + "".join(f"{v[n]:>12.4f}" for n, _ in VARIANTS)
+              + "".join(f"{v[n]:>12.4f}" for n, _ in variants)
               + f"{v['lsd']:>12.4f}")
 
 
