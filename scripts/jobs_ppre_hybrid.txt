@@ -1,0 +1,93 @@
+# Parameter pretraining, and the hybrid loss, on the plate encoder.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_ppre_hybrid.txt
+#
+# Two questions, and they are separable.
+#
+# 1. THE HYBRID. Every arm of the eps ladder is log-ONLY. That answers "what
+#    does compression do to the terrain" and does not answer "does keeping a
+#    linear term alongside it rescue the compressed one" -- which is the
+#    configuration the field actually deploys. Masuda & Saito's SpecWaveLoss is
+#    mag_w*L1(|S|) + log_mag_w*L1(log(|S|+eps)) with both weights 1, and
+#    DiffMoog's presets are the same shape. So a reviewer reading the ladder can
+#    say, correctly, that nobody runs a log-only loss and the result may not
+#    transfer. These arms close that.
+#
+#    Two eps values because they are different questions. Our loss is on
+#    MAGNITUDE (_stft_mag is torch.abs) where diffsynth's is on power, and
+#    log(m) = 0.5*log(p) makes the equivalent eps sqrt(eps_pow) -- their 1e-4 on
+#    power is 1e-2 on magnitude. hyb1e4 pairs against the EXISTING eps1e4 rung
+#    and differs from it in exactly one thing, the added linear term, so that
+#    pair isolates the hybrid. hyb1e2 is where their knee actually sits once
+#    translated, so it is the parity arm. Neither is "the" right eps; the knee's
+#    percentile against our own bin distribution decides that and the ladder's
+#    table already has it.
+#
+# 2. PARAMETER PRETRAINING. Masuda & Saito and DiffMoog both train on parameter
+#    loss first and hand the objective over to a spectral one. No encoder run
+#    here has ever done that, so the ladder tests a configuration nobody runs --
+#    the same criticism as (1), one level up. It also buys a positive control:
+#    if pretraining brings every cell to a reasonable point and the spectral
+#    phase then separates them, the ordering cannot be blamed on the encoder
+#    failing to train, which is the strongest available objection to a result
+#    whose best cell is 2.8e-3 against a 4.7e-2 constant-predictor floor.
+#
+#    The schedule is theirs, as fractions rather than step counts: parameter
+#    loss alone for 12.5% of the run, a linear crossfade ending at 50%,
+#    spectral alone thereafter, param_w 10 -> 0. At their 100k steps that is
+#    12500 and 50000, i.e. epochs 50 and 200 of 400. At our 40k it is 5000 and
+#    20000. Matching the shape rather than the boundaries is deliberate: 12500
+#    absolute would put the whole crossfade inside the first third of a 40k run.
+#
+#    Expect the handover to be where anything happens. DiffMoog's narrow_* runs
+#    collapsed exactly at the switch -- narrow_spectrogram_magnitude 10x its
+#    best and then FLAT for 4000 steps, narrow_spectrogram_logmag_eps_l1 18x --
+#    while narrow_ploss, which never switches, did not. If a plate arm does the
+#    same, that is the phenomenon reproduced in a second system on a task with
+#    true parameters, which is a stronger result than either system alone.
+#
+# WHAT IS NOT RE-RUN. The spectral-only ladder already exists at exactly these
+# settings in results/ddsp/eps_ladder_adam1e8 (norm=batch, tanh, adam_eps 1e-8,
+# 40000 steps, lr 3e-4). That is the control for the pretrained ladder and the
+# eps1e4 pair for hyb1e4. Only the two hybrids need a spectral-only run.
+#
+# The L1_STFT anchor IS re-run in each new directory even though an identical
+# one exists. It costs one arm and it doubles as a regression check on the
+# losses.py edit: if the refactor that added _make_stft_hybrid moved L1_STFT at
+# all, that arm says so immediately instead of silently rebasing every ratio.
+#
+# ORDERING. Each group's anchor first, then the arms that answer the headline,
+# then the middle rungs. Every number in these directories is reported as a
+# ratio against L1_STFT and the constant-predictor floor, so a queue that stops
+# halfway is still interpretable -- but only if the anchor got in.
+#
+# BEFORE QUEUEING, one 300-step arm to prove the plumbing:
+#
+#   NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=300 \
+#     EVAL_EVERY=100 OUT=/tmp/ppre_smoke ARMS="L1_STFT_hyb1e4" \
+#     EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" \
+#     scripts/eps_ladder.sh 0
+#
+# history.json should show param_loss falling and spec_w stepping 0 -> 1 across
+# steps 37..150, with train_loss (which stays the spectral value alone, so it
+# remains comparable to gt_loss and saturation) roughly flat until the handover.
+
+# STAGE hybrid, spectral only -- the configuration the field actually deploys
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/hybrid_raw ARMS="L1_STFT"           scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/hybrid_raw ARMS="L1_STFT_hyb1e4"    scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/hybrid_raw ARMS="L1_STFT_hyb1e2"    scripts/eps_ladder.sh "{gpu}"
+
+# STAGE parameter pretraining -- anchor and the two ends, where a change shows first
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_ppre ARMS="L1_STFT"        EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_ppre ARMS="L1_STFT_eps1e7" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_ppre ARMS="L1_STFT_eps1"   EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE parameter pretraining -- the hybrids, i.e. both changes at once
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_ppre ARMS="L1_STFT_hyb1e4" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE parameter pretraining -- the middle rungs, to complete the ladder
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_ppre ARMS="L1_STFT_eps1e1" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_ppre ARMS="L1_STFT_eps1e3" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_ppre ARMS="L1_STFT_eps1e4" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/eps_ladder_ppre ARMS="L1_STFT_eps1e5" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"

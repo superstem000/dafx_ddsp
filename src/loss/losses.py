@@ -878,6 +878,51 @@ for _tag, _eps in _EPS_LADDER.items():
     _DECOMP_LOSSES[f"L1_STFT_eps{_tag}"] = _make_stft_l1([4096], comp="c1", eps=_eps)
 
 
+# ---------------------------------------------------------------------------
+# The hybrid: linear and log summed, which is what a standard implementation
+# actually runs. Masuda & Saito's SpecWaveLoss is mag_w * L1(|S|) + log_mag_w *
+# L1(log(|S| + eps)) with both weights 1, and DiffMoog's presets are the same
+# shape. Every arm of the eps ladder is log-ONLY, so the ladder answers "what
+# does compression do to the terrain" and does not answer "does keeping a linear
+# term alongside it rescue the compressed one" -- which is the configuration the
+# field deploys and therefore the one a reviewer will ask about.
+#
+# One STFT per size, not two: composing L1_STFT with L1_STFT_eps* would compute
+# the same magnitudes twice, and at 4096 with a 1024 hop that is the dominant
+# cost of the loss.
+#
+# On eps. These are on MAGNITUDE (_stft_mag is torch.abs), where diffsynth's is
+# on power, and log(m) = 0.5*log(p) makes the equivalent eps sqrt(eps_pow) --
+# their 1e-4 on power is 1e-2 on magnitude. Both are provided because they are
+# different questions: 1e-4 is an existing ladder rung, so hyb1e4 differs from
+# eps1e4 in exactly one thing (the added linear term) and the pair isolates it;
+# 1e-2 is where diffsynth's knee actually sits once translated, so hyb1e2 is the
+# parity arm. Neither is "the" right answer -- the knee's percentile against our
+# own bin distribution is what decides that, and the ladder's table has it.
+def _make_stft_hybrid(n_ffts, eps: float, mag_w: float = 1.0, log_w: float = 1.0):
+    """L1 on linear magnitude plus L1 on log magnitude, summed per FFT size."""
+
+    def _loss(target: torch.Tensor, candidate: torch.Tensor) -> torch.Tensor:
+        total = None
+        for nf in n_ffts:
+            nf_ = min(nf, target.shape[-1])
+            hop = nf_ // 4
+            t = _stft_mag(target, nf_, hop)
+            c = _stft_mag(candidate, nf_, hop)
+            term = mag_w * torch.mean(torch.abs(t - c), dim=(1, 2)) + log_w * torch.mean(
+                torch.abs(torch.log(t + eps) - torch.log(c + eps)), dim=(1, 2)
+            )
+            total = term if total is None else total + term
+        return total / len(n_ffts)
+
+    return _loss
+
+
+_HYBRID_EPS = {"1e2": 1e-2, "1e4": 1e-4}
+for _tag, _eps in _HYBRID_EPS.items():
+    _DECOMP_LOSSES[f"L1_STFT_hyb{_tag}"] = _make_stft_hybrid([4096], eps=_eps)
+
+
 # ===========================================================================
 # Spectral Optimal Transport (Torres, Peeters & Richard, ICASSP 2024)
 # "Unsupervised Harmonic Parameter Estimation Using DDSP and Spectral OT"
@@ -1002,6 +1047,7 @@ for _name, _fn in (
     ("SOT_lin", _DECOMP_LOSSES["SOT_lin"]),
     ("SOT_lin_paper", _DECOMP_LOSSES["SOT_lin_paper"]),
     *((f"L1_STFT_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_eps{_t}"]) for _t in _EPS_LADDER),
+    *((f"L1_STFT_hyb{_t}", _DECOMP_LOSSES[f"L1_STFT_hyb{_t}"]) for _t in _HYBRID_EPS),
 ):
     LOSS_COMPONENTS[_name] = _fn
     LOSS_NAME_ALIASES[_normalize_name(_name)] = _name

@@ -800,6 +800,34 @@ def run(args) -> None:
     if refiner is not None:
         groups.append({"params": list(refiner.parameters()), "lr": args.lr})
     opt = torch.optim.Adam(groups, lr=args.lr, eps=args.adam_eps)
+
+    def handover(step: int) -> Tuple[float, float]:
+        """Masuda & Saito's parameter-to-spectral crossfade, as (spec_w, param_w).
+
+        Their schedule is stated in epochs -- parameter loss alone for 50, a
+        linear crossfade to spectral over 50-200, spectral alone to 400 -- which
+        at 250 steps/epoch is param-only to step 12500, crossfade ending at
+        50000, spectral alone to 100000. The shape is what transfers, not the
+        step counts: as fractions of the run that is 12.5% held, then a
+        crossfade ending at 50%. Expressed as fractions here so a 40k ladder arm
+        gets the same schedule as a 100k diffsynth arm rather than the same
+        absolute boundaries, which would put the entire crossfade inside the
+        first third and leave nothing to compare.
+
+        param_w starts at 10.0, also theirs. It is not a tuning knob so much as
+        a unit conversion: the parameter loss is an L1 on z in [-1, 1] and the
+        spectral loss is an L1 on peak-normalized STFT magnitudes, and the two
+        are not the same size.
+
+        With --param-loss none this is (1.0, 0.0) at every step, which is the
+        objective every existing run used.
+        """
+        if args.param_loss == "none":
+            return 1.0, 0.0
+        hold = args.param_hold_frac * args.steps
+        ramp = max(1.0, args.param_ramp_frac * args.steps)
+        f = min(1.0, max(0.0, (step - hold) / ramp))
+        return f, args.param_w * (1.0 - f)
     def cosine(step: int, start: int, end: int) -> float:
         """Warmup, cosine decay to a floor, then hold that floor.
 
@@ -967,6 +995,22 @@ def run(args) -> None:
         finite = torch.isfinite(loss)
         obj = torch.where(finite, loss, torch.zeros_like(loss)).mean()
 
+        # The parameter term, and the crossfade that hands the objective over to
+        # the spectral one. Structured to mirror the spectral loss exactly --
+        # scored on the final prediction, with the same deep supervision weight
+        # on stage 0 -- so the two halves differ in what they measure and in
+        # nothing else.
+        spec_w, param_w = handover(step)
+        param_term = torch.zeros((), device=obj.device)
+        if args.param_loss != "none":
+            zb = _batch(z_tr, idx, device)
+            def _pl(zp):
+                d = zp - zb
+                return d.abs().mean() if args.param_loss == "l1" else (d * d).mean()
+            param_term = _pl(z1 if two_stage else z0)
+            if two_stage:
+                param_term = param_term + args.deep_supervision * _pl(z0)
+
         # Kept out of `obj` until after loss_scale is fixed, and reported
         # separately below: train_loss has to stay comparable to `saturation`
         # and `gt_loss`, which are audio-only quantities. At step 1 the head is
@@ -983,7 +1027,20 @@ def run(args) -> None:
             print(f"loss scale (fixed): {loss_scale:.4e}")
 
         opt.zero_grad(set_to_none=True)
-        ((obj + hinge) / loss_scale).backward()
+        # loss_scale stays calibrated on the SPECTRAL objective even while
+        # spec_w is 0, so a pretrained arm and its control divide by the same
+        # thing and their train_loss curves are on one axis.
+        #
+        # spec_w == 0 drops the spectral term from the graph rather than
+        # multiplying it by zero: the forward has already rendered x0, but the
+        # backward through the modal sum is the expensive half and there is no
+        # gradient in it to collect. The forward is kept because the spectral
+        # loss during the parameter-only phase is exactly the trajectory that
+        # made DiffMoog's handover collapse visible.
+        total = param_w * param_term + hinge
+        if spec_w > 0:
+            total = total + spec_w * obj
+        (total / loss_scale).backward()
         # Clip each network separately: one shared norm would let stage 0's much
         # larger gradient decide how much the refiner's gets scaled.
         gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip))
@@ -1005,6 +1062,12 @@ def run(args) -> None:
                 # meaningful under leakytanh; zero elsewhere.
                 "floor_frac": float(getattr(model, "last_floor_frac", 0.0)),
                 "hinge": float(hinge.detach()),
+                # train_loss above stays the spectral value alone, so it remains
+                # comparable to gt_loss and saturation. These are what the
+                # optimizer actually saw.
+                "param_loss": float(param_term.detach()),
+                "spec_w": spec_w,
+                "param_w": param_w,
                 "h_absmean": float(getattr(model, "last_h_absmean", 0.0)),
                 **{f"zmax_{k}": float(v) for k, v in
                    zip(PARAM_KEYS, getattr(model, "last_z_absmax", torch.zeros(len(PARAM_KEYS))))},
@@ -1236,6 +1299,31 @@ def build_parser() -> argparse.ArgumentParser:
              "of compression in the loss; state it separately in writeups.",
     )
     p.add_argument("--log-input", action="store_true", help="Deprecated alias for --input-mode log")
+    p.add_argument(
+        "--param-loss", type=str, default="none", choices=("none", "l1", "mse"),
+        help="Supervise on the true parameters for the first part of the run, "
+             "then hand the objective over to the spectral loss -- the schedule "
+             "Masuda & Saito and DiffMoog both use, and which no encoder run "
+             "here has used. 'none' reproduces the spectral-only objective "
+             "exactly. The parameter loss is on z in [-1, 1], i.e. the "
+             "normalized space the head emits, not on physical units.",
+    )
+    p.add_argument(
+        "--param-w", type=float, default=10.0,
+        help="Weight on the parameter loss during its own phase, decaying to 0 "
+             "across the crossfade. 10.0 is theirs; it converts between an L1 "
+             "on z and an L1 on peak-normalized STFT magnitudes.",
+    )
+    p.add_argument(
+        "--param-hold-frac", type=float, default=0.125,
+        help="Fraction of --steps trained on the parameter loss alone before "
+             "the crossfade starts. 0.125 is their 50 epochs of 400.",
+    )
+    p.add_argument(
+        "--param-ramp-frac", type=float, default=0.375,
+        help="Fraction of --steps the crossfade spans. 0.375 puts its end at "
+             "50%% of the run, which is their epoch 200 of 400.",
+    )
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--data-device", type=str, default="cpu", choices=["cpu", "cuda"],
