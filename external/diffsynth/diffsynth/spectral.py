@@ -58,29 +58,12 @@ class Spec(nn.Module):
         return spec
 
 class Mfcc(nn.Module):
-    def __init__(self, n_fft=2048, hop_length=1024, n_mels=128, n_mfcc=40, norm='ortho', sample_rate=16000, f_min=40, f_max=7600, pad_end=True, center=False, gamma=None):
+    def __init__(self, n_fft=2048, hop_length=1024, n_mels=128, n_mfcc=40, norm='ortho', sample_rate=16000, f_min=40, f_max=7600, pad_end=True, center=False):
         """
         uses log mels
-
-        gamma, when set, replaces the log with (mel + 1e-6)^gamma, i.e. a power
-        cepstrum instead of a log one. Stevens' law puts loudness at I^0.3 and
-        the mel spectrogram here is already power (MelSpec power=2), so
-        gamma=0.3 measures where hearing sits. The log this otherwise takes is
-        the gamma -> 0 limit, far past it.
-
-        Everything else is held identical, so `mfcc` and a gamma instance differ
-        in the compression and nothing else -- which is the comparison worth
-        watching during a run.
-
-        NOT identical to ds_mfcc_check's g0.3 column: that one is built on the
-        `standard` conventions, a Hann window and a Slaney-normalised mel scale,
-        where this inherits MelSpec's rectangular window and HTK unnormalised
-        filterbank. Same exponent, different frontend, so the two are not
-        interchangeable in a table.
         """
         super().__init__()
         self.norm = norm
-        self.gamma = gamma
         self.n_mfcc = n_mfcc
         self.melspec = MelSpec(n_fft, hop_length, n_mels, sample_rate, power=2, f_min=f_min, f_max=f_max, pad_end=pad_end, center=center)
         dct_mat = create_dct(self.n_mfcc, self.melspec.n_mels, self.norm)
@@ -88,14 +71,35 @@ class Mfcc(nn.Module):
 
     def forward(self, audio):
         mel_spec = self.melspec(audio)
-        if self.gamma is None:
-            mel_spec = torch.log(mel_spec+1e-6)
-        else:
-            mel_spec = (mel_spec + 1e-6) ** self.gamma
+        mel_spec = torch.log(mel_spec+1e-6)
         # (batch, n_mels, time).tranpose(...) dot (n_mels, n_mfcc)
         # -> (batch, time, n_mfcc).tranpose(...)
         mfcc = torch.matmul(mel_spec.transpose(1, 2), self.dct_mat).transpose(1, 2)
         return mfcc
+
+    def with_gamma(self, audio, gamma):
+        """The same cepstrum with (mel + 1e-6)^gamma in place of the log.
+
+        Stevens' law puts loudness at I^0.3 and MelSpec here is power=2, so
+        gamma=0.3 measures where hearing sits; the log forward() takes is the
+        gamma -> 0 limit, far past it. Comparing the two says whether an arm
+        ordering is a fact about the models or about the metric's compression.
+
+        A METHOD rather than a second Mfcc instance, deliberately. A second
+        instance registers its own dct_mat and mel_scale.fb buffers, which land
+        in state_dict -- and every checkpoint written before it existed then
+        fails to load with strict=True on the missing keys. Reusing this
+        module's own melspec and DCT adds nothing to state_dict and cannot
+        drift from forward() either.
+
+        NOT identical to ds_mfcc_check's g0.3 column: that is built on the
+        `standard` conventions, Hann window and Slaney-normalised mel, where
+        this inherits MelSpec's rectangular window and HTK unnormalised
+        filterbank. Same exponent, different frontend -- do not put both in one
+        table as the same quantity.
+        """
+        mel_spec = (self.melspec(audio) + 1e-6) ** gamma
+        return torch.matmul(mel_spec.transpose(1, 2), self.dct_mat).transpose(1, 2)
 
 def spectrogram(audio, size=2048, hop_length=1024, power=2, center=False, window=None):
     power_spec = amp(torch.view_as_real(torch.stft(audio, size, window=window, hop_length=hop_length, center=center, return_complex=True)))
