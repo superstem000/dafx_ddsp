@@ -167,7 +167,18 @@ class EstimatorSynth(pl.LightningModule):
         resyn_audio = output['output']
         if loss_w['sw_w'] > 0.0 and sw_loss is not None:
             # Reconstruction loss
-            spec_loss, wave_loss = sw_loss(target_audio, resyn_audio)
+            # log_mag_w is forwarded only when the schedule carries it.
+            # ParamSchedule returns every key in sched_cfg, so a schedule
+            # without it yields None here and SpecWaveLoss keeps its
+            # constructed weight -- every existing config is unaffected.
+            #
+            # Validation calls this with loss_w=None, so the reported val
+            # spec/wave always use the CONSTRUCTED weight rather than the
+            # scheduled one. That is deliberate: it keeps val/spec comparable
+            # across epochs while the balance is still moving. The metrics the
+            # paper reads -- param, mfcc, lsd -- do not depend on it at all.
+            spec_loss, wave_loss = sw_loss(target_audio, resyn_audio,
+                                           log_mag_w=loss_w.get('log_mag_w'))
             loss_dict['spec'], loss_dict['wave'] = loss_w['sw_w'] * spec_loss, loss_w['sw_w'] * wave_loss
         else:
             loss_dict['spec'], loss_dict['wave'] = (0, 0)

@@ -1,0 +1,69 @@
+# When is the log term introduced? Never / at 50 / at 150.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_logfade.txt
+#
+# THE QUESTION. magx and hybridx trade against each other and neither wins
+# both. At epoch 399 on the synth branch, magx has the better parameters
+# (id_param 0.0559 against 0.0596) and hybridx the better audio match
+# (ood_mfcc 2.303 against 2.419); on the real branch hybridx leads ood_mfcc
+# 1.704 to 1.852. So the log term costs parameter accuracy and buys spectral
+# match, which is the paper's thesis stated as a trade rather than a defeat.
+#
+# This asks whether the trade is forced. If the log term is kept OUT while the
+# parameters are being learned and faded in only afterwards, does the result
+# keep magx's parameters and reach hybridx's audio match? A yes is the thesis
+# with a mechanism attached -- the damage is specific to parameter estimation
+# and it is schedulable around. A no is also worth having: it would mean the
+# log term has to be present during parameter learning to help at all, and the
+# trade is real.
+#
+# Read the (Param, MFCC) PAIR, not MFCC alone. Beating 1.704 on its own invites
+# "so log was fine, you just needed a better schedule", which is the reading
+# that hurts.
+#
+# THE AXIS. Three points, and both controls are already run on both branches:
+#
+#   never        magx / synth_magx / real_magx
+#   at epoch 50  hybridx / synth_hybridx / real_hybridx
+#   at epoch 150 these runs
+#
+# One variable separates the destination from the origin: log_mag_w 0 -> 1.
+# Same domain (power=1, magnitude), same eps (1e-2, which is sqrt of the
+# power-domain 1e-4 and so puts the knee at the same signal level). magx -> log
+# would have moved composition AND domain and could not have been read.
+#
+# WHY THE FADE ENDS AT 200. Epoch 200 is where the real branch switches its
+# training data to NSynth, and that is where the power-domain linear arms
+# break: real_mag 2.727 -> 3.164 on ood_mfcc at the switch, real_mag_halfw
+# 2.628 -> 3.131 and never recovering -- it ends at 2.679, worse than epoch
+# 199. Every other arm improves immediately. The boundary is DOMAIN, not
+# composition: magx and magx_halfw are linear too and fall straight through the
+# switch without a bump, because on magnitude there is no |a^2 - t^2| dead zone
+# for NSynth's extra near-silence to find.
+#
+# So the loss crossfade is finished before the data crossfade starts, and the
+# two never coincide. Starting the fade at 200 instead would have put both
+# changes on the same epoch on the real branch, which is the one criticism this
+# design can cheaply avoid.
+#
+# RESUMES FROM ep0149.ckpt, not latest.ckpt. pre_magx ran with
+# checkpoint_every_n_epochs=50, so ep0149 is a real epoch-150 branch point.
+# latest.ckpt is epoch 199 and would give an abrupt switch, not a fade.
+#
+# NOISE. The gap being chased is 5-8% and there is no seed-noise estimate for
+# MFCC -- the ~1% figure from five pretrainings was Param, during the pretrain
+# phase. That is why BOTH branches are run: they share epochs 0-200 but train
+# on different data for 200-400, so agreement in direction and rough magnitude
+# across the two is evidence and disagreement means stop.
+#
+# Note also that val/spec on these runs is computed with the CONSTRUCTED
+# log_mag_w (1.0) rather than the scheduled one, since validation does not pass
+# a schedule. That keeps val/spec comparable across epochs while the balance
+# moves, and param/mfcc/lsd do not depend on it.
+
+# STAGE fade the log term in over epochs 150-200, from the magx trunk
+CKPT=ep0149.ckpt RESUME=pre_magx scripts/ds_run.sh pre_magx2hybx pretrain "{gpu}" trainer.checkpoint_every_n_epochs=50 schedule=switch_logfade model.sw_loss.power=1 model.sw_loss.log_eps_v=0.01
+
+# STAGE branch at 200, both halves, full hybridx from here on
+RESUME=pre_magx2hybx scripts/ds_run.sh synth_magx2hybx resume_synth "{gpu}" trainer.checkpoint_every_n_epochs=50 schedule=switch_logfade model.sw_loss.power=1 model.sw_loss.log_eps_v=0.01
+RESUME=pre_magx2hybx scripts/ds_run.sh real_magx2hybx  resume_real  "{gpu}" trainer.checkpoint_every_n_epochs=50 schedule=switch_logfade model.sw_loss.power=1 model.sw_loss.log_eps_v=0.01
