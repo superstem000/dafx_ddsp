@@ -112,7 +112,7 @@ MANIFEST = [
             "earlier four-loss sweep it supersedes, kept because the ladder "
             "runs at 40k steps and sweep120k at 120k. l1_stft_tgtnorm is the "
             "250k linear run and is where the converged linear number comes "
-            "from -- the ladder's linear arm reaches ~0.015 at 40k against "
+            "from -- the ladder's linear arm reaches 0.0061 at 40k against "
             "that run's 0.0002 at 250k. Note the ladder uses BatchNorm and "
             "sweep120k GroupNorm, so their numbers are not interchangeable."
         ),
@@ -133,7 +133,7 @@ MANIFEST = [
             "results/ddsp/lr_MSS_3e-5",
             "results/ddsp/lr_MSS_1e-5",
         ],
-        scripts=["scripts/lr_probe.sh"],
+        scripts=["scripts/lr_probe.sh", "scripts/jobs_lr_probe.txt"],
         note=(
             "The stated grid answering 'you did not tune the learning rate'. "
             "The lr_* directories are the older cells under pre-ladder names "
@@ -146,7 +146,12 @@ MANIFEST = [
         slug="06_ddsp_eps_ladder",
         title="DiffMoog encoder, log(x + eps) ladder on the fixed-pitch task",
         sources=["results/diffmoog"],
-        scripts=[],
+        # The recreation of Masuda & Saito's design in DiffMoog, plus the
+        # linear swap. Its header is where the 16000-train / 250-steps-per-epoch
+        # alignment is explained -- DiffMoog's ramp is epoch-indexed and theirs
+        # is step-indexed, so the dataset size is what makes the two land on
+        # each other.
+        scripts=["scripts/jobs_diffmoog_dsrecreation.txt"],
         extra_globs=[
             "external/diffmoog/configs/loss_study/q_*.yaml",
             # The resolved config and the git commit + argv each run actually
@@ -196,7 +201,14 @@ MANIFEST = [
             "results/ddsp/eps_ladder_adam1e8",
             "results/ddsp/head_probe",
         ],
-        scripts=["scripts/eps_ladder.sh"],
+        scripts=[
+            "scripts/eps_ladder.sh",
+            # The launchers for the two runs this section is actually built
+            # from. eps_ladder.sh alone is the ladder's own recipe, not these.
+            "scripts/head_probe.sh",
+            "scripts/jobs_head_probe.txt",
+            "scripts/jobs_ladder_adam1e8.txt",
+        ],
         extra_globs=[],
         note=(
             "The answers to 'you did not tune X'. 05 covers the learning rate; "
@@ -216,7 +228,16 @@ MANIFEST = [
             "head WAS a real failure earlier in this project (see "
             "train_encoder.py's leakytanh, kept in the source as a measured "
             "failure), and ruling it out here is what makes that episode "
-            "irrelevant to the ladder."
+            "irrelevant to the ladder.\n\n"
+            "    jobs_ladder_adam1e8.txt carries the argument for why 1e-16 is "
+            "a bug rather than a setting, and it is not written down anywhere "
+            "else: once a coordinate's surface goes flat both m and v are ~0, "
+            "so m/(sqrt(v) + 1e-16) is noise divided by noise and the "
+            "coordinate takes full-lr steps in a rounding-determined "
+            "direction. head_probe.sh and jobs_head_probe.txt are the same six "
+            "cells -- {tanh, normtanh, softcap} x {L1_STFT, L1_STFT_eps1e1} at "
+            "12k steps -- run as a fixed claim on GPUs and as a queue "
+            "respectively; either reproduces the runs here."
         ),
     ),
     dict(
@@ -229,6 +250,12 @@ MANIFEST = [
             "scripts/jobs_diffsynth.txt",
             "scripts/gpu_queue.py",
             "scripts/ds_export_scalars.py",
+            # The gates. Run in this order before any arm; each answers one
+            # question and stops before the next becomes expensive.
+            "scripts/diffsynth_smoke.sh",
+            "scripts/diffsynth_preflight.sh",
+            "scripts/diffsynth_split_check.sh",
+            "scripts/diffsynth_determinism_check.sh",
         ],
         extra_globs=[],
         note=(
@@ -251,6 +278,38 @@ MANIFEST = [
             "Param spread that five independent pretrainings showed, "
             "trainer.deterministic being unavailable here (see "
             "configs/trainer/default.yaml).\n\n"
+            "    Four gates establish that the reproduction is faithful, and "
+            "they are what to run first. diffsynth_smoke.sh answers 'does the "
+            "vendored code import and fit at all' on CPU in minutes, so an "
+            "environment fault is never mistaken for a recipe fault. "
+            "diffsynth_preflight.sh checks everything else that needs no GPU: "
+            "20000 in-domain sounds exactly, because 16000 train at batch 64 "
+            "is what makes 250 steps/epoch and puts the ramp on epochs 50 and "
+            "200; that every NSynth clip is exactly length*sample_rate samples, "
+            "since WaveParamDataset asserts it and one short file crashes "
+            "training hours in; and the loss schedule evaluated at its own "
+            "boundaries rather than trusted.\n\n"
+            "    diffsynth_split_check.sh is the one that could invalidate the "
+            "comparison rather than merely bias a number, and it is why "
+            "split_manifest.py exists. IdOodDataModule.create_split draws from "
+            "the global RNG at setup() time -- random_split with no generator, "
+            "plus np.random.choice for the OOD pool -- so the split is "
+            "reproducible only if every run makes the same number of draws "
+            "before setup(). Every arm here is a resume from pre_base, and "
+            "Lightning restores RNG state from a checkpoint; if it does so "
+            "before setup(), the resumed run draws a DIFFERENT split and "
+            "pretrain's validation files become the resume's training files. "
+            "That is leakage across the phase boundary, biased towards the "
+            "paper's own result, and invisible in every metric. The script "
+            "runs a pretrain and a resume and diffs their manifests; the "
+            "manifests in each run directory here are the standing record.\n\n"
+            "    diffsynth_determinism_check.sh runs the same configuration "
+            "twice on GPU. trainer.deterministic=True asks for reproducibility "
+            "and does not guarantee it -- the cuDNN GRU backward and the linear "
+            "interpolation in util.resample_frames are the likely offenders -- "
+            "so this is what settles whether to pay for it, and it is why "
+            "epochs 0-50 are trained once and shared rather than repeated per "
+            "arm.\n\n"
             "    Seven upstream defects were fixed to get this running at all; "
             "they are in the vendored external/diffsynth under code/, each "
             "with the reason in a comment. The one that changes numbers rather "
@@ -446,6 +505,15 @@ GENERATORS = [
     # the first place.
     ("confirm_f32_gt.py", "datasets/generators/confirm_f32_gt.py"),
     ("src/data/make_dataset.py", "datasets/generators/make_dataset.py"),
+    # The diffsynth halves. Without these the synth_ and real_ arms are not
+    # reproducible at all -- the in-domain half is rendered from harmor and the
+    # out-of-domain half is a sample of NSynth, and neither is shipped as audio.
+    ("external/diffsynth/gen_dataset.py", "datasets/generators/diffsynth_gen_dataset.py"),
+    ("scripts/get_nsynth.sh", "datasets/generators/get_nsynth.sh"),
+    # Separate from get_nsynth.sh on purpose: the archive arrives on stdin, so a
+    # heredoc would take stdin away from the pipe and leave tarfile with an
+    # exhausted stream.
+    ("scripts/nsynth_sample.py", "datasets/generators/nsynth_sample.py"),
 ]
 
 CODE = [
@@ -458,9 +526,31 @@ CODE = [
     ("external/diffsynth/configs", "code/diffsynth_configs"),
     ("external/diffsynth/train.py", "code/diffsynth_train.py"),
     ("external/diffsynth/split_manifest.py", "code/diffsynth_split_manifest.py"),
+    # The AudioLogger train.py imports, ours as modified: upstream logged audio
+    # and figures every validation, which dominated wall clock once the arms
+    # were running in parallel.
+    ("external/diffsynth/plot.py", "code/diffsynth_plot.py"),
     ("external/diffmoog/src", "code/diffmoog_src"),
     ("external/diffmoog/configs/loss_study", "code/diffmoog_configs"),
     ("external/diffmoog/tools", "code/diffmoog_tools"),
+    # y(mu) = y(mu_ref)*(mu_ref/mu) is exact, not approximate, and that identity
+    # is what lets the mu stage cost one multiply instead of a resynthesis. It
+    # would break silently if a change made the mode grid depend on mu other
+    # than through T0/mu and D/mu, so it is checked rather than asserted. The
+    # only executable proof of a structural claim in the plate pipeline.
+    ("tests", "code/plate_tests"),
+    # The environments. Three, because the two vendored repos are pinned
+    # against each other's era rather than against ours; diffsynth's is
+    # deliberately NOT a reconstruction of the 2021 stack, since PL 1.4/1.5
+    # pairs with torch wheels that have no kernel image for a current card.
+    ("requirements.txt", "code/requirements/plate.txt"),
+    ("external/diffsynth/requirements-modern.txt", "code/requirements/diffsynth.txt"),
+    ("external/diffmoog/requirements.txt", "code/requirements/diffmoog.txt"),
+    # The bundle's own builder and its checker, so paper/ can be rebuilt and
+    # audited by its own criteria rather than by ours. check_paper_bundle.py
+    # separates FUNDAMENTAL (a number cannot be recomputed) from the rest.
+    ("scripts/make_paper_bundle.py", "code/bundle/make_paper_bundle.py"),
+    ("scripts/check_paper_bundle.py", "code/bundle/check_paper_bundle.py"),
 ]
 
 DATASETS = [
@@ -591,6 +681,32 @@ before a sweep is attributable at all.
 
 Audio is not shipped. `datasets/` carries the parameter CSVs; the commands in
 `docs/DATASETS.md` regenerate the audio, and every flag in them is load-bearing.
+
+## `generators/diffsynth_gen_dataset.py` and `generators/get_nsynth.sh`
+
+The two halves of the diffsynth data (sections 08-11), which have no parameter
+CSV to ship and so are regenerated rather than copied.
+
+**In-domain**, `diffsynth_gen_dataset.py`: renders from the harmor synth against
+a hydra synth config, sampling each static and time-varying parameter and
+writing the audio alongside the parameters that produced it. This is the half
+with a true theta, and it is the only half on which `val_id/param` means
+anything -- the paper's own headline metric is defined only here.
+
+**Out-of-domain**, `get_nsynth.sh` plus `nsynth_sample.py`: NSynth, sampled
+rather than extracted whole. `nsynth-train` is 289205 files of 4 s at 16 kHz,
+so a full extraction is ~37 GB on top of a 22 GB archive; the paper (sec 4.3.2)
+uses 20000 sounds "randomly selected from the full dataset", and
+`IdOodDataModule` then narrows whatever pool it is given down to the in-domain
+size anyway, so sampling 25000 during extraction reaches the same place for a
+fraction of the disk. `nsynth_sample.py` is a separate file rather than a
+heredoc because the archive arrives on stdin and a heredoc would take stdin
+away from the pipe, leaving `tarfile` with an exhausted stream and no error.
+
+There is no `gt_loss` for the real half, and that is the point of having both:
+NSynth has no true parameters, so the model is necessarily misspecified there
+and the only question the weighting decides is where the bias lands. The
+in-domain half is what makes the bias measurable at all.
 """
 
 
