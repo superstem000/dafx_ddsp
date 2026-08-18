@@ -1,0 +1,72 @@
+# From scratch, spectral only, on MAGNITUDE -- the control the freeze never had.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_specx.txt
+#
+# WHAT THIS TESTS. jobs_diffsynth_spec.txt ran four arms with no parameter
+# pretraining, spectral loss from random init. Two of them died almost at once:
+#
+#   spec_mag         linear only, power     stopped at epoch 12
+#   spec_mag_halfw   linear only, power     stopped at epoch 16
+#   spec_hybrid      linear + log, power    ran to 399
+#   spec_log_halfw   log only, power        ran to 399
+#
+# The two that died froze at 10.0138 and 5.0069, unchanged to four decimals from
+# epoch 4 and exactly 2x apart -- one stuck trajectory scaled by the arm's own
+# weight. The explanation on record is the power-domain dead zone: on power the
+# L1 is |a^2 - t^2|, whose derivative 2a vanishes as a -> 0, so silence is a
+# stationary point with exactly zero gradient and a linear-only loss can sit in
+# it forever. Arms carrying a log term escape because d log(p + eps)/dp is 1e4
+# at the origin rather than 0, which is why hybrid and log_halfw trained.
+#
+# But every one of those four arms is POWER. Nothing was ever run from scratch
+# on magnitude, so the mechanism is an inference from the derivative plus the
+# 2x coincidence -- not a demonstration. On magnitude the loss is |a - t| with
+# derivative +-1 and no such point, so the prediction is unambiguous:
+#
+#   spec_magx and spec_magx_halfw should TRAIN, where their power counterparts
+#   froze inside 16 epochs.
+#
+# If they do, the dead zone is shown rather than argued, and it is the same
+# one-variable change (power=2 -> power=1) that section 09 already rests on.
+# If they freeze too, the explanation is wrong and 09 needs rewriting -- which
+# is worth finding out now rather than from a reviewer.
+#
+# THE PAIRS. Each new arm differs from an existing one in exactly `power`, and
+# log_eps_v moves with it because the knee has to stay at the same signal level
+# -- log(m) = 0.5*log(p), so the power-domain 1e-4 is 1e-2 on magnitude. The
+# two linear-only arms do not use eps at all (log_mag_w=0) but it is set anyway
+# so the four lines differ in nothing else.
+#
+#   spec_magx        <-> spec_mag         (the headline pair)
+#   spec_magx_halfw  <-> spec_mag_halfw
+#   spec_hybridx     <-> spec_hybrid      completes the grid; both should train
+#   spec_logx_halfw  <-> spec_log_halfw
+#
+# WHICH TWO. Only spec_magx_halfw and spec_hybridx are run. They are the pair
+# that carries the argument, and each is still a one-variable change:
+#
+#   spec_magx_halfw <-> spec_mag_halfw   both sw_w 0.5, both linear only,
+#                                        only `power` differs. THIS is the test:
+#                                        its counterpart froze at epoch 16.
+#   spec_hybridx    <-> spec_hybrid      both weights 1.0, only `power` differs.
+#                                        Its counterpart trained to 399, so this
+#                                        is the reference the frozen arm is read
+#                                        against on the same domain.
+#
+# spec_magx and spec_logx_halfw are left out. spec_magx would be the cleaner
+# headline pair -- sw_w 1.0 against spec_mag, no halfw anywhere -- but
+# mag_halfw is the linear arm the tables already report, so magx_halfw keeps
+# this consistent with them. spec_logx_halfw is pure grid completion; its power
+# counterpart trained fine and nothing hinges on it. Both lines are in the git
+# history of this file if they are wanted later.
+#
+# Both run in ONE stage, in parallel, because neither depends on the other.
+#
+# NOTE these are full 400-epoch runs from random init. The answer arrives long
+# before that: spec_mag_halfw was already frozen at epoch 4, so spec_magx_halfw
+# still moving at epoch 20 settles it and the remaining 380 epochs are only for
+# the endpoint number.
+
+# STAGE magnitude from scratch -- the frozen arm's control, and its reference
+scripts/ds_run.sh spec_magx_halfw pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 model.sw_loss.log_eps_v=0.01 schedule.sw_w=0.5
+scripts/ds_run.sh spec_hybridx    pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=0.01
