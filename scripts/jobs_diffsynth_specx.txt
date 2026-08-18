@@ -42,20 +42,31 @@
 #   spec_hybridx     <-> spec_hybrid      completes the grid; both should train
 #   spec_logx_halfw  <-> spec_log_halfw
 #
-# ORDERING. The two magnitude linear arms first, because they answer the
-# question on their own and they answer it EARLY -- their power counterparts
-# were already frozen by epoch 4. A glance at the first 20 epochs of spec_magx
-# settles it; the remaining 380 are for the endpoint number. The hybrid and log
-# arms are queued after because both of their power counterparts trained fine,
-# so they are grid completion rather than a test.
+# WHICH TWO. Only spec_magx_halfw and spec_hybridx are run. They are the pair
+# that carries the argument, and each is still a one-variable change:
 #
-# NOTE these are full 400-epoch runs from random init, four of them. If the
-# cards are wanted elsewhere, run only the first line -- it is the experiment.
+#   spec_magx_halfw <-> spec_mag_halfw   both sw_w 0.5, both linear only,
+#                                        only `power` differs. THIS is the test:
+#                                        its counterpart froze at epoch 16.
+#   spec_hybridx    <-> spec_hybrid      both weights 1.0, only `power` differs.
+#                                        Its counterpart trained to 399, so this
+#                                        is the reference the frozen arm is read
+#                                        against on the same domain.
+#
+# spec_magx and spec_logx_halfw are left out. spec_magx would be the cleaner
+# headline pair -- sw_w 1.0 against spec_mag, no halfw anywhere -- but
+# mag_halfw is the linear arm the tables already report, so magx_halfw keeps
+# this consistent with them. spec_logx_halfw is pure grid completion; its power
+# counterpart trained fine and nothing hinges on it. Both lines are in the git
+# history of this file if they are wanted later.
+#
+# Both run in ONE stage, in parallel, because neither depends on the other.
+#
+# NOTE these are full 400-epoch runs from random init. The answer arrives long
+# before that: spec_mag_halfw was already frozen at epoch 4, so spec_magx_halfw
+# still moving at epoch 20 settles it and the remaining 380 epochs are only for
+# the endpoint number.
 
-# STAGE magnitude, linear only -- the arms whose power counterparts froze
-scripts/ds_run.sh spec_magx       pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 model.sw_loss.log_eps_v=0.01
+# STAGE magnitude from scratch -- the frozen arm's control, and its reference
 scripts/ds_run.sh spec_magx_halfw pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 model.sw_loss.log_eps_v=0.01 schedule.sw_w=0.5
-
-# STAGE magnitude, the log-carrying arms -- grid completion, both expected to train
 scripts/ds_run.sh spec_hybridx    pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=0.01
-scripts/ds_run.sh spec_logx_halfw pretrain "{gpu}" schedule=spec trainer.max_epochs=400 trainer.checkpoint_every_n_epochs=50 model.sw_loss.mag_w=0 model.sw_loss.power=1 model.sw_loss.log_eps_v=0.01 schedule.sw_w=0.5
