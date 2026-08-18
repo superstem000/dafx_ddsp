@@ -364,16 +364,14 @@ def main() -> None:
         if not names:
             continue
         P = {n: pairs(runs[n], key, args.steps_per_epoch) for n in names}
-        # Each run's OWN latest epoch, in the column heading. The milestone grid
-        # below is global -- built from whichever arm is furthest along -- so an
+        # Each run's OWN latest epoch, for the `now` row below. The milestone
+        # grid is global -- built from whichever arm is furthest along -- so an
         # arm still training shows "-" for every mark past it, and the last
-        # number in its column can be a hundred epochs back. Worse, a mark just
-        # ahead of where it has reached also reads "-", because `around` needs a
-        # point within +-2 of the mark. Nothing on screen said where any given
-        # arm actually was.
+        # number in its column can be a hundred epochs back. A mark just ahead
+        # of where it has reached also reads "-", since `around` needs a point
+        # within +-2 of the mark.
         own = {n: max(e for e, _ in P[n]) for n in names}
-        lab = {n: f"{n}@{own[n]}" for n in names}
-        w = max(11, max(len(lab[n]) for n in names) + 2)
+        w = max(11, max(len(n) for n in names) + 2)
 
         # Milestones rather than the last N epochs. Adjacent epochs differ by
         # noise; what carries information is the shape across the whole run, and
@@ -385,7 +383,7 @@ def main() -> None:
         marks = sorted(e for e in marks if 0 < e <= top)
 
         print(f"\n=== {label}   (mean over +-2 epochs; * marks a phase boundary)")
-        print(f"{'epoch':>7} " + "".join(f"{lab[n]:>{w}}" for n in names))
+        print(f"{'epoch':>7} " + "".join(f"{n:>{w}}" for n in names))
         for e in marks:
             cells = []
             for n in names:
