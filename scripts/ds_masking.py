@@ -203,10 +203,18 @@ def frame_maskers(P, freqs, zb, ath_b, bands, tonal_mode, decimate, bin_hz):
 
 
 def global_threshold(lev, zm, ton, zb, ath_b):
-    """Power-sum of every masker's spread threshold with the ATH."""
+    """(T_global, T_maskers): with the ATH, and from the maskers alone.
+
+    Both are needed. T_global is the model's answer and is what a cell has to
+    fall under to be inaudible. But the claim being supported is about
+    SIMULTANEOUS MASKING BY THE SIGNAL, and at 90.302 dB full scale a cell 70 dB
+    below peak sits near 20 dB SPL -- which is under the ATH outright at low
+    frequency, where Terhardt is +30 dB at 100 Hz. Reporting only T_global would
+    let the absolute threshold carry a claim about masking.
+    """
     tot = 10.0 ** (0.1 * ath_b)
     if lev.size == 0:
-        return 10.0 * np.log10(tot)
+        return 10.0 * np.log10(tot), np.full_like(ath_b, -np.inf)
     dz = zb[None, :] - zm[:, None]
     # Schroeder et al.: -27 dB/Bark below the masker, and an upper slope that
     # shallows with level -- the upward spread of masking.
@@ -214,7 +222,9 @@ def global_threshold(lev, zm, ton, zb, ath_b):
                   (-27.0 + 0.37 * np.maximum(lev[:, None] - 40.0, 0.0)) * dz)
     off = np.where(ton, 14.5 + zm, 5.5)
     T = lev[:, None] - off[:, None] + sf
-    return 10.0 * np.log10(tot + np.sum(10.0 ** (0.1 * T), axis=0))
+    m = np.sum(10.0 ** (0.1 * T), axis=0)
+    with np.errstate(divide="ignore"):
+        return 10.0 * np.log10(tot + m), 10.0 * np.log10(m)
 
 
 def analyse(x, floors, tonal_mode, decimate):
@@ -234,21 +244,28 @@ def analyse(x, floors, tonal_mode, decimate):
     bands = build_bands(freqs)
 
     T = np.empty_like(P)
+    TM = np.empty_like(P)
     n_ton = []
     for t in range(P.shape[1]):
         lev, zm, ton, raw = frame_maskers(P[:, t], freqs, zb, ath_b, bands,
                                           tonal_mode, decimate, bin_hz)
-        T[:, t] = global_threshold(lev, zm, ton, zb, ath_b)
+        T[:, t], TM[:, t] = global_threshold(lev, zm, ton, zb, ath_b)
         n_ton.append(raw)
 
     e = 10.0 ** (0.1 * P)
     peak, tot_e = P.max(), e.sum()
-    below = P < T
+    below = P < T                 # inaudible: masking OR the absolute threshold
+    below_m = P < TM              # inaudible from the signal's maskers alone
     out = {"frames": P.shape[1], "n_tonal_mean": float(np.mean(n_ton))}
     for F in floors:
         S = P < peak - F
         eS = e[S].sum()
-        out[f"frac_energy_masked_{F:g}"] = float(e[S & below].sum() / eS) if eS > 0 else float("nan")
+        if eS > 0:
+            out[f"frac_energy_masked_{F:g}"] = float(e[S & below].sum() / eS)
+            out[f"frac_energy_smasked_{F:g}"] = float(e[S & below_m].sum() / eS)
+        else:
+            out[f"frac_energy_masked_{F:g}"] = float("nan")
+            out[f"frac_energy_smasked_{F:g}"] = float("nan")
         out[f"frac_bins_masked_{F:g}"] = float(below[S].mean()) if S.any() else float("nan")
         out[f"frac_total_energy_{F:g}"] = float(eS / tot_e)
     return out
@@ -275,7 +292,7 @@ def selftest():
     amp = 10.0 ** ((80.0 - PN) / 20.0)
     P = frame_of(amp * np.sin(2 * np.pi * 1000 * n / SR))
     lev, zm, ton, raw = frame_maskers(P, freqs, zb, ath_b, bands, "hz", "all", bin_hz)
-    T = global_threshold(lev, zm, ton, zb, ath_b)
+    T, _tm = global_threshold(lev, zm, ton, zb, ath_b)
     k = int(np.argmin(np.abs(freqs - 1000)))
     tk = np.nonzero(ton)[0]
     print(f"   tonal maskers: {int(ton.sum())} (raw peaks passing 7 dB: {raw})")
@@ -299,19 +316,28 @@ def selftest():
     sig = sum(np.sin(2 * np.pi * 200 * h * n / SR) / h for h in range(1, 21))
     P = frame_of(0.2 * sig / np.max(np.abs(sig)))
     lev, zm, ton, raw = frame_maskers(P, freqs, zb, ath_b, bands, "hz", "all", bin_hz)
-    T = global_threshold(lev, zm, ton, zb, ath_b)
+    TT, _tm = global_threshold(lev, zm, ton, zb, ath_b)
     if lev.size:
         dz = zb[None, :] - zm[:, None]
         sf = np.where(dz < 0, 27.0 * dz,
                       (-27.0 + 0.37 * np.maximum(lev[:, None] - 40.0, 0.0)) * dz)
         off = np.where(ton, 14.5 + zm, 5.5)
-        single = (lev[:, None] - off[:, None] + sf).max(axis=0)
+        Tm = lev[:, None] - off[:, None] + sf
+        single = Tm.max(axis=0)
+        comp = 10.0 * np.log10(np.sum(10.0 ** (0.1 * Tm), axis=0))
         lo, hi = 0, int(np.argmin(np.abs(freqs - 4000)))
+        bound = 10.0 * np.log10(lev.size)
         print(f"   maskers: {lev.size} ({int(ton.sum())} tonal)")
-        print(f"   max(T_global - best single masker) below 4 kHz = "
-              f"{np.max(T[lo:hi] - single[lo:hi]):.2f} dB")
-        print("   must be clearly positive -- the composite threshold exceeding"
-              "\n   any one masker is the effect the whole argument relies on.")
+        print(f"   max(composite - best single masker) below 4 kHz = "
+              f"{np.max(comp[lo:hi] - single[lo:hi]):.2f} dB "
+              f"(bound 10log10({lev.size}) = {bound:.2f})")
+        print("   MASKERS ONLY, deliberately. Comparing T_global instead would"
+              "\n   put the ATH on one side of the subtraction and a spread"
+              "\n   masker decayed to -200 dB on the other, giving tens of dB"
+              "\n   that say nothing about superposition.")
+        atd = float(np.mean(TT[lo:hi] > comp[lo:hi] + 0.5))
+        print(f"   bins below 4 kHz where the ATH dominates the composite: "
+              f"{100 * atd:.1f}%")
 
     print("\n=== 4. ATH")
     ff = np.linspace(20, 8000, 4000)
@@ -406,7 +432,8 @@ def main():
 
     cols = ["file", "family", "frames", "n_tonal_mean"] + [
         f"{m}_{F:g}" for F in args.floors
-        for m in ("frac_energy_masked", "frac_bins_masked", "frac_total_energy")]
+        for m in ("frac_energy_masked", "frac_energy_smasked",
+                  "frac_bins_masked", "frac_total_energy")]
     path = os.path.join(args.out, "masking.csv")
     with open(path, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
@@ -426,8 +453,12 @@ def main():
           "window\n  and the 0.5 Bark decimation is visible rather than "
           "discovered in the aggregate.")
 
+    print("\nmasked = under T_global (maskers OR absolute threshold)")
+    print("smask  = under the maskers alone -- simultaneous masking by the "
+          "signal,\n         which is what the paper's sentence actually "
+          "claims")
     print(f"\n{'floor':>6}{'median':>10}{'IQR':>20}{'>0.9':>8}"
-          f"{'med frac_bins':>15}{'med frac_tot_E':>16}")
+          f"{'med smask':>11}{'med frac_bins':>15}{'med frac_tot_E':>16}")
     for F in args.floors:
         v = [r[f"frac_energy_masked_{F:g}"] for r in rows
              if r[f"frac_energy_masked_{F:g}"] == r[f"frac_energy_masked_{F:g}"]]
@@ -435,10 +466,12 @@ def main():
         t = [r[f"frac_total_energy_{F:g}"] for r in rows]
         if not v:
             continue
+        sm = [r[f"frac_energy_smasked_{F:g}"] for r in rows
+              if r[f"frac_energy_smasked_{F:g}"] == r[f"frac_energy_smasked_{F:g}"]]
         print(f"{F:>6.0f}{st.median(v):>10.4f}"
               f"{f'[{q(v, .25):.4f}, {q(v, .75):.4f}]':>20}"
               f"{sum(x > 0.9 for x in v) / len(v):>8.2f}"
-              f"{st.median(b):>15.4f}{st.median(t):>16.6f}")
+              f"{st.median(sm):>11.4f}{st.median(b):>15.4f}{st.median(t):>16.6f}")
 
     fams = sorted({r["family"] for r in rows})
     print(f"\nby family, frac_energy_masked median")
