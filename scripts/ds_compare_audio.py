@@ -64,6 +64,13 @@ def main() -> None:
     p.add_argument("--ckpt", default="latest.ckpt")
     p.add_argument("--domain", default="ood", choices=("id", "ood"))
     p.add_argument("--n", type=int, default=5, help="How many clips")
+    p.add_argument(
+        "--skip", type=int, default=0, metavar="N",
+        help="Skip the first N clips of the split and take the next --n. A "
+             "fixed offset rather than a random draw, so every arm still gets "
+             "the SAME clips -- which is the one property this comparison "
+             "cannot lose. --skip 5, 10, 15 walk through the split five at a "
+             "time.")
     p.add_argument("--out", default="compare_audio")
     p.add_argument("--device", default="cpu")
     p.add_argument("--no-png", action="store_true")
@@ -94,6 +101,13 @@ def main() -> None:
         if vset is None:
             print(f"{arm:<20} skipped: {how}")
             continue
+        if args.skip:
+            from torch.utils.data import Subset
+            hi = min(args.skip + args.n, len(vset))
+            if args.skip >= len(vset):
+                raise SystemExit(f"--skip {args.skip} is past the end of the "
+                                 f"{len(vset)}-clip split")
+            vset = Subset(vset, range(args.skip, hi))
         loader = DataLoader(vset, batch_size=args.n, num_workers=0)
         batch = next(iter(loader))
         batch = {k: (v.to(args.device) if torch.is_tensor(v) else
@@ -121,14 +135,17 @@ def main() -> None:
     print(f"{'clip':>6}{head}")
     for i in range(target.shape[0]):
         row = "".join(f"{scores[a][k][i]:>26.4f}" for a in arms for k in metrics)
-        print(f"{i:>6}{row}")
+        print(f"{args.skip + i:>6}{row}")
 
     win = torch.hann_window(1024)
     for i in range(target.shape[0]):
-        sf.write(os.path.join(args.out, f"clip{i}_target.wav"),
+        # Numbered by position in the split, not within this batch, so two
+        # runs at different --skip cannot produce colliding filenames.
+        c = args.skip + i
+        sf.write(os.path.join(args.out, f"clip{c}_target.wav"),
                  target[i].numpy(), sr)
         for a in arms:
-            sf.write(os.path.join(args.out, f"clip{i}_{a}.wav"),
+            sf.write(os.path.join(args.out, f"clip{c}_{a}.wav"),
                      resyn[a][i].numpy(), sr)
         if args.no_png:
             continue
@@ -151,10 +168,10 @@ def main() -> None:
             ax.set_title(tag, fontsize=9)
             ax.set_ylabel("kHz", fontsize=7)
             ax.tick_params(labelsize=6)
-        fig.suptitle(f"clip {i}   (colour scale: target peak-100 dB .. peak)",
+        fig.suptitle(f"clip {c}   (colour scale: target peak-100 dB .. peak)",
                      fontsize=10)
         fig.tight_layout()
-        fig.savefig(os.path.join(args.out, f"clip{i}.png"), dpi=110)
+        fig.savefig(os.path.join(args.out, f"clip{c}.png"), dpi=110)
         plt.close(fig)
 
     print(f"\nwrote {args.out}: target + {len(arms)} arm(s) per clip, "
