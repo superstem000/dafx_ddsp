@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import os
 import statistics as st
 import sys
@@ -227,7 +228,31 @@ def global_threshold(lev, zm, ton, zb, ath_b):
         return 10.0 * np.log10(tot + m), 10.0 * np.log10(m)
 
 
-def analyse(x, floors, tonal_mode, decimate):
+def audio_key(x):
+    """Content hash of one clip's samples, for the threshold cache.
+
+    Keyed on the AUDIO rather than on a file index or name, because
+    ds_mfcc_check reaches the same clips through a different code path
+    (--domain, --family, its own DataLoader) and matching by position would
+    silently pair a threshold with the wrong clip if either split ever moved.
+    A hash cannot do that quietly: it either hits or it raises.
+    """
+    a = np.ascontiguousarray(x.detach().cpu().numpy(), dtype=np.float32)
+    return hashlib.blake2b(a.tobytes(), digest_size=8).hexdigest()
+
+
+def spl_offset(win):
+    """dB to add to 10*log10(|stft|**2) to land on this file's SPL scale.
+
+    P here is PN + 20*log10(2*|stft|/win.sum()), while ds_mfcc_check works in
+    plain 10*log10(power). The cache carries this constant so the consumer
+    never has to re-derive the window normalisation -- getting it wrong would
+    shift every threshold by tens of dB while still looking perfectly sane.
+    """
+    return PN + 20.0 * float(np.log10(2.0 / float(win.sum())))
+
+
+def analyse(x, floors, tonal_mode, decimate, want_T=False):
     """One clip -> per-floor fractions, plus masker counts."""
     win = torch.hann_window(N_FFT)
     rem = (x.shape[-1] - N_FFT) % HOP
@@ -268,7 +293,7 @@ def analyse(x, floors, tonal_mode, decimate):
             out[f"frac_energy_smasked_{F:g}"] = float("nan")
         out[f"frac_bins_masked_{F:g}"] = float(below[S].mean()) if S.any() else float("nan")
         out[f"frac_total_energy_{F:g}"] = float(eS / tot_e)
-    return out
+    return (out, T) if want_T else out
 
 
 # --------------------------------------------------------------------------
@@ -378,6 +403,15 @@ def main():
     p.add_argument("--out", default="masking")
     p.add_argument("--hist", type=float, default=70.0,
                    help="Floor to histogram frac_energy_masked at")
+    p.add_argument(
+        "--dump-thresholds", default=None, metavar="PATH",
+        help="Also write T_global per clip to an .npz, for ds_mfcc_check "
+             "--mask to use as a per-bin floor. Falls out of this run for "
+             "free: the same self-tested numpy that produces the analysis "
+             "produces the metric's thresholds, so the physics in the table "
+             "and the physics in the justification cannot drift apart. About "
+             "250 kB per clip (float16, [bins, frames]), so ~500 MB for the "
+             "full 2000-file split.")
     p.add_argument("--selftest", action="store_true")
     args = p.parse_args()
 
@@ -402,7 +436,7 @@ def main():
     names = [os.path.basename(base.raw_files[i]) for i in idx]
 
     os.makedirs(args.out, exist_ok=True)
-    rows = []
+    rows, keys, Ts = [], [], []
     loader = DataLoader(vset, batch_size=args.batch_size, num_workers=0)
     done = 0
     print(f"{args.run}: {len(vset)} ood valid files, floors {args.floors}, "
@@ -417,7 +451,16 @@ def main():
                     "differently and S would misalign")
                 print(f"  {x.shape[-1]} samples -> {nf} frames "
                       f"(compute_lsd's grid)")
-            r = analyse(x, args.floors, args.tonal_window, args.decimate)
+            if args.dump_thresholds:
+                r, T = analyse(x, args.floors, args.tonal_window,
+                               args.decimate, want_T=True)
+                keys.append(audio_key(x))
+                # float16: the spacing at a 100 dB threshold is 0.06 dB, four
+                # orders below anything that changes which side of the floor a
+                # bin lands on, and it halves a cache that is already 0.5 GB.
+                Ts.append(T.astype(np.float16))
+            else:
+                r = analyse(x, args.floors, args.tonal_window, args.decimate)
             r["file"] = names[done]
             r["family"] = names[done].split("_acoustic_")[0] \
                 .split("_electronic_")[0].split("_synthetic_")[0]
@@ -429,6 +472,21 @@ def main():
                 break
         if args.limit and done >= args.limit:
             break
+
+    if args.dump_thresholds:
+        shp = {t.shape for t in Ts}
+        if len(shp) != 1:
+            raise SystemExit(f"clips gave differing STFT shapes {shp}; the "
+                             f"cache is one dense array and cannot hold them")
+        os.makedirs(os.path.dirname(os.path.abspath(args.dump_thresholds)),
+                    exist_ok=True)
+        np.savez(args.dump_thresholds, keys=np.array(keys), T=np.stack(Ts),
+                 C=np.float64(spl_offset(torch.hann_window(N_FFT))),
+                 tonal_window=args.tonal_window, decimate=args.decimate)
+        mb = os.path.getsize(args.dump_thresholds) / 1024 / 1024
+        print(f"\nwrote {args.dump_thresholds}  ({len(keys)} clips, "
+              f"{next(iter(shp))[0]}x{next(iter(shp))[1]}, {mb:.0f} MB)")
+        print(f"  ds_mfcc_check.py --mask {args.dump_thresholds}")
 
     cols = ["file", "family", "frames", "n_tonal_mean"] + [
         f"{m}_{F:g}" for F in args.floors

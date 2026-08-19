@@ -40,6 +40,26 @@ the metric's compression and only that.
   Quoting a stated ladder with a reference fixed by psychoacoustics is what
   separates this from picking whichever metric happens to be flattering.
 
+With --mask, a MASKING row is added on top of the dB ladder: `mask`, whose
+floor is the target's own per-bin MPEG-1 psychoacoustic threshold rather than a
+constant offset from its peak, and `mask+80 ... mask+20` crossing it with each
+dB rung. Both are floors on the same dB quantity, so the cross clamps to the
+higher of the two -- at 80 the mask dominates, at 20 the fixed floor does, and
+the row is an interpolation between the two mechanisms.
+
+  The dB ladder always invites "why that floor". The mask has no free
+  parameter to argue about: it is what the signal itself renders inaudible,
+  computed by ds_masking.py, whose four self-tests check it against the
+  canonical 1 kHz SMR, white noise, superposition, and the Terhardt ATH. If
+  the arm ordering is the same at `mask` as at some dB rung, the rung was a
+  fair stand-in; if it is not, the mask is the one to quote.
+
+  Thresholds come from the TARGET for both members of a pair. An arm that
+  under-synthesises quiet content must not get a lower floor for having done
+  so. Note the dB floors keep librosa's per-signal peak, so the two mechanisms
+  differ there -- stated rather than harmonised, since changing it would
+  restate every dB number already reported.
+
 The ORDERING across arms is what matters. If it survives all three log variants
 the result does not depend on the metric's implementation details; if it moves,
 that is worth knowing before the number goes in a table. Read every column
@@ -74,12 +94,75 @@ from torchaudio.functional import create_dct            # noqa: E402
 from diffsynth.spectral import compute_lsd              # noqa: E402
 
 import ds_param_breakdown as pb                         # noqa: E402
+import ds_masking as dm_mask                            # noqa: E402
+
+
+class MaskCache:
+    """Per-bin masking thresholds, precomputed by ds_masking.py --dump-thresholds.
+
+    The MPEG-1 model is a per-frame sweep over maskers with a 0.5 Bark
+    decimation that does not vectorise cleanly, so it is not recomputed here.
+    It is computed once by the numpy implementation the four self-tests
+    validate, and this loads the result. One implementation of the physics
+    means the threshold justifying the floor in the text and the threshold
+    setting the floor in the table are the same number, which is the only
+    version of this worth publishing.
+
+    Keyed by a content hash of the target audio, so a moved split raises
+    instead of silently pairing a clip with someone else's threshold.
+    """
+
+    def __init__(self, path, device):
+        import numpy as np
+        z = np.load(path, allow_pickle=False)
+        self.T = z["T"]                        # [N, bins, frames], dB SPL
+        self.key = {k: i for i, k in enumerate(z["keys"].tolist())}
+        # The SPL offset the dump was built with. Carried in the file rather
+        # than re-derived: ds_masking normalises by the window sum and adds
+        # PN, and reconstructing that here from memory would misplace every
+        # threshold by tens of dB while still looking entirely plausible.
+        self.C = float(z["C"])
+        self.note = (f"{self.T.shape[0]} clips, tonal-window="
+                     f"{z['tonal_window']}, decimate={z['decimate']}")
+        self.device = device
+        self._np = np
+
+    def floor(self, ref):
+        """Target audio [B, samples] -> floor in 10*log10(power) units."""
+        import torch as _t
+        rows = []
+        for i in range(ref.shape[0]):
+            h = dm_mask.audio_key(ref[i])
+            j = self.key.get(h)
+            if j is None:
+                raise SystemExit(
+                    "a target clip is not in the threshold cache. The cache "
+                    "was dumped over one split; this run is scoring a "
+                    "different one. Re-dump with matching --domain/--family, "
+                    f"or drop --mask.\n  cache: {self.note}")
+            rows.append(self.T[j])
+        t = _t.from_numpy(self._np.stack(rows)).float().to(self.device)
+        return t - self.C
 
 
 def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
               mel_norm=None, mel_scale="htk", sr=16000, n_fft=1024, hop=256,
-              n_mels=40, n_mfcc=20, f_min=40.0, f_max=7600.0):
-    """A callable audio -> MFCC, mirroring spectral.py but with the knobs open."""
+              n_mels=40, n_mfcc=20, f_min=40.0, f_max=7600.0,
+              mask=None, pre_mel=False):
+    """A callable (audio, ref) -> MFCC, mirroring spectral.py but with the knobs open.
+
+    `ref` is the TARGET for both members of a pair. Only the masked columns
+    read it: the threshold has to come from the target for the resynthesis
+    too, since an arm that under-synthesises quiet content would otherwise be
+    graded against a floor its own quietness lowered -- biasing the comparison
+    in exactly the direction under dispute.
+
+    `pre_mel` moves the dB clamp ahead of the filterbank. The mask has no
+    choice: a masking threshold is defined per FFT bin, and a mel band at 6 kHz
+    spans several critical bands with no single threshold to speak of. The dB
+    floors move with it so the table is one table rather than two conventions
+    side by side.
+    """
     if log == "pow":
         # The gamma columns come from diffsynth's own GammaCepstrum, which
         # model.py logs as mfcc03 every epoch. Single implementation, so the
@@ -87,15 +170,16 @@ def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
         # training cannot drift apart -- and they have to agree, because this
         # script is the only way a run predating that metric gets the column.
         from diffsynth.spectral import GammaCepstrum
-        return GammaCepstrum(gamma=gamma, n_fft=n_fft, hop_length=hop,
-                             n_mels=n_mels, n_mfcc=n_mfcc, sample_rate=sr,
-                             f_min=f_min, f_max=f_max).to(device)
+        gc = GammaCepstrum(gamma=gamma, n_fft=n_fft, hop_length=hop,
+                           n_mels=n_mels, n_mfcc=n_mfcc, sample_rate=sr,
+                           f_min=f_min, f_max=f_max).to(device)
+        return lambda audio, ref=None: gc(audio)
     win = None if window == "rect" else torch.hann_window(n_fft, device=device)
     ms = MelScale(n_mels, sr, f_min, f_max, n_fft // 2 + 1, mel_norm,
                   mel_scale).to(device)
     dct = create_dct(n_mfcc, n_mels, "ortho").to(device)
 
-    def f(audio):
+    def f(audio, ref=None):
         # MelSpec.pad_end: zero-pad up to a whole number of hops.
         rem = (audio.shape[-1] - n_fft) % hop
         if rem:
@@ -103,12 +187,30 @@ def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
         st = torch.stft(audio, n_fft, hop_length=hop, window=win,
                         center=False, return_complex=True)
         power = st.real ** 2 + st.imag ** 2
+        if mask is not None or (top_db is not None and pre_mel):
+            pdb = 10.0 * torch.log10(power + 1e-30)
+            fl = None
+            if mask is not None:
+                fl = mask.floor(ref if ref is not None else audio)
+                if fl.shape[-2:] != pdb.shape[-2:]:
+                    raise SystemExit(
+                        f"threshold cache is {tuple(fl.shape[-2:])} but this "
+                        f"STFT is {tuple(pdb.shape[-2:])}; the dump used a "
+                        f"different frame grid")
+            if top_db is not None and pre_mel:
+                # Peak of THIS signal, as librosa's power_to_db does it and as
+                # every dB column already reported did. Note the asymmetry
+                # against the mask, which is target-derived: a quiet
+                # resynthesis lowers its own dB floor but not its mask.
+                pk = pdb.amax(dim=(-2, -1), keepdim=True) - top_db
+                fl = pk if fl is None else torch.maximum(fl, pk)
+            power = 10.0 ** (0.1 * torch.maximum(pdb, fl))
         mel = ms(power)
         if log == "nat":
             lm = torch.log(mel + 1e-6)
         else:
             lm = 10.0 * torch.log10(mel + 1e-10)
-            if top_db is not None:
+            if top_db is not None and not pre_mel:
                 lm = torch.maximum(lm, lm.amax(dim=(-2, -1), keepdim=True) - top_db)
         return torch.matmul(lm.transpose(1, 2), dct).transpose(1, 2)
 
@@ -132,7 +234,7 @@ def _se(vals):
     return (var / len(vals)) ** 0.5
 
 
-def build_variants(gammas, top_dbs=()):
+def build_variants(gammas, top_dbs=(), mask=None):
     """The three log variants, a power-cepstrum column per gamma, a dB-floor
     column per top_db.
 
@@ -174,15 +276,31 @@ def build_variants(gammas, top_dbs=()):
     does not. Reading the answer off a stated ladder with a reference point
     fixed by psychoacoustics is what keeps this from being metric-shopping.
     """
-    return _FIXED + tuple(
+    std = dict(window="hann", log="db", mel_norm="slaney", mel_scale="slaney")
+    out = _FIXED + tuple(
         (f"g{g:g}", dict(window="hann", log="pow", gamma=g,
                          mel_norm="slaney", mel_scale="slaney"))
         for g in gammas
     ) + tuple(
-        (f"db{t:g}", dict(window="hann", log="db", top_db=float(t),
-                          mel_norm="slaney", mel_scale="slaney"))
+        (f"db{t:g}", dict(std, top_db=float(t), pre_mel=mask is not None))
         for t in top_dbs
     )
+    if mask is None:
+        return out
+    # The masked row, and the cross. Both floors clamp the same dB quantity,
+    # so applying both means taking the higher of them -- which makes the row
+    # an interpolation rather than two effects piled up. At 80 the mask
+    # dominates (it sits above peak-80 for ~99.9% of the bins below that
+    # floor); at 20 the fixed floor does. If the arm ordering flips somewhere
+    # in between, the flip point says which mechanism owns the disagreement.
+    #
+    # db70post reproduces the OLD post-mel convention, unchanged, so this
+    # table can be tied back to every db70 already reported. Without it the
+    # move to a pre-mel clamp would silently restate published numbers.
+    return out + (("db70post", dict(std, top_db=70.0, pre_mel=False)),
+                  ("mask", dict(std, mask=mask, pre_mel=True))) + tuple(
+        (f"mask+{t:g}", dict(std, mask=mask, top_db=float(t), pre_mel=True))
+        for t in top_dbs)
 
 
 def main() -> None:
@@ -296,12 +414,32 @@ def main() -> None:
              "all. db80 reproduces `standard` exactly and is the wiring check. "
              "Pass no values to skip them.",
     )
+    p.add_argument(
+        "--mask", default=None, metavar="NPZ",
+        help="Threshold cache from ds_masking.py --dump-thresholds. Adds a "
+             "`mask` column whose floor is the target's own per-bin MPEG-1 "
+             "masking threshold instead of a constant offset from its peak, "
+             "and a mask+N cross against each --top-db rung. The point is a "
+             "floor with NO free parameter: nobody can ask why 70. Supplying "
+             "this also moves the plain dbN clamps ahead of the mel "
+             "filterbank, since the mask has to be there and a table cannot "
+             "mix conventions -- db70post is added to bridge back to the "
+             "post-mel numbers already reported.")
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--batches", type=int, default=32)
     p.add_argument("--device", default="cpu")
     args = p.parse_args()
 
-    variants = build_variants(args.gamma, args.top_db)
+    mask = None
+    if args.mask:
+        mask = MaskCache(args.mask, args.device)
+        print(f"masking thresholds: {args.mask} ({mask.note})")
+        print("  dbN columns are now clamped PRE-mel so the table is one "
+              "convention; db70post keeps the old post-mel one for continuity")
+        print("  so `standard` vs `db80` and `db70post` vs `db70` are two "
+              "pre/post-mel bridge pairs -- if each pair agrees, the stage "
+              "change never mattered and the old numbers still stand")
+    variants = build_variants(args.gamma, args.top_db, mask)
     fns = {n: make_mfcc(args.device, **kw) for n, kw in variants}
 
     # Imported only when asked for, so torchcrepe stays an optional dependency
@@ -386,7 +524,8 @@ def main() -> None:
                     resyn, _out = model(batch)
                     tgt = batch["audio"]
                     for k, fn in fns.items():
-                        per[k].append(F.l1_loss(fn(tgt), fn(resyn)).item())
+                        per[k].append(
+                            F.l1_loss(fn(tgt, tgt), fn(resyn, tgt)).item())
                     per["lsd"].append(float(compute_lsd(tgt, resyn)))
                     if crepe is not None:
                         per["crepe"].append(
@@ -399,7 +538,8 @@ def main() -> None:
                     if args.saturation and not sat:
                         sh = tgt[torch.randperm(tgt.shape[0], device=tgt.device)]
                         for k, fn in fns.items():
-                            sat_per[k].append(F.l1_loss(fn(tgt), fn(sh)).item())
+                            sat_per[k].append(
+                                F.l1_loss(fn(tgt, tgt), fn(sh, tgt)).item())
                         sat_per["lsd"].append(float(compute_lsd(tgt, sh)))
                         if crepe is not None:
                             sat_per["crepe"].append(
