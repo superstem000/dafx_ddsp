@@ -56,9 +56,13 @@ the row is an interpolation between the two mechanisms.
 
   Thresholds come from the TARGET for both members of a pair. An arm that
   under-synthesises quiet content must not get a lower floor for having done
-  so. Note the dB floors keep librosa's per-signal peak, so the two mechanisms
-  differ there -- stated rather than harmonised, since changing it would
-  restate every dB number already reported.
+  so. --shared-peak extends the same discipline to the dB floors, which
+  otherwise keep librosa's per-signal peak: a resynthesis 3 dB quiet gets a
+  3 dB lower floor and keeps relatively more low-level detail than the target,
+  putting a gain term into a distance that is supposed to measure spectral
+  accuracy. Off by default so nothing already reported moves silently; if the
+  columns agree with and without it, no arm here has a gain offset worth
+  worrying about, which is itself worth knowing.
 
 The ORDERING across arms is what matters. If it survives all three log variants
 the result does not depend on the metric's implementation details; if it moves,
@@ -148,7 +152,7 @@ class MaskCache:
 def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
               mel_norm=None, mel_scale="htk", sr=16000, n_fft=1024, hop=256,
               n_mels=40, n_mfcc=20, f_min=40.0, f_max=7600.0,
-              mask=None, pre_mel=False):
+              mask=None, pre_mel=False, shared_peak=False):
     """A callable (audio, ref) -> MFCC, mirroring spectral.py but with the knobs open.
 
     `ref` is the TARGET for both members of a pair. Only the masked columns
@@ -179,14 +183,23 @@ def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
                   mel_scale).to(device)
     dct = create_dct(n_mfcc, n_mels, "ortho").to(device)
 
-    def f(audio, ref=None):
+    def spec(audio):
         # MelSpec.pad_end: zero-pad up to a whole number of hops.
         rem = (audio.shape[-1] - n_fft) % hop
         if rem:
             audio = F.pad(audio, (0, hop - rem), "constant")
         st = torch.stft(audio, n_fft, hop_length=hop, window=win,
                         center=False, return_complex=True)
-        power = st.real ** 2 + st.imag ** 2
+        return st.real ** 2 + st.imag ** 2
+
+    def f(audio, ref=None):
+        power = spec(audio)
+        # The spectrum the dB FLOOR is taken from. Per-signal by default, which
+        # is librosa's convention and what every dB number reported so far
+        # used. shared_peak takes it from the target for both members of the
+        # pair instead -- see build_variants.
+        rpow = (spec(ref) if (shared_peak and ref is not None
+                              and ref is not audio) else power)
         if mask is not None or (top_db is not None and pre_mel):
             pdb = 10.0 * torch.log10(power + 1e-30)
             fl = None
@@ -198,11 +211,8 @@ def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
                         f"STFT is {tuple(pdb.shape[-2:])}; the dump used a "
                         f"different frame grid")
             if top_db is not None and pre_mel:
-                # Peak of THIS signal, as librosa's power_to_db does it and as
-                # every dB column already reported did. Note the asymmetry
-                # against the mask, which is target-derived: a quiet
-                # resynthesis lowers its own dB floor but not its mask.
-                pk = pdb.amax(dim=(-2, -1), keepdim=True) - top_db
+                rdb = pdb if rpow is power else 10.0 * torch.log10(rpow + 1e-30)
+                pk = rdb.amax(dim=(-2, -1), keepdim=True) - top_db
                 fl = pk if fl is None else torch.maximum(fl, pk)
             power = 10.0 ** (0.1 * torch.maximum(pdb, fl))
         mel = ms(power)
@@ -211,7 +221,10 @@ def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
         else:
             lm = 10.0 * torch.log10(mel + 1e-10)
             if top_db is not None and not pre_mel:
-                lm = torch.maximum(lm, lm.amax(dim=(-2, -1), keepdim=True) - top_db)
+                rlm = (lm if rpow is power
+                       else 10.0 * torch.log10(ms(rpow) + 1e-10))
+                lm = torch.maximum(
+                    lm, rlm.amax(dim=(-2, -1), keepdim=True) - top_db)
         return torch.matmul(lm.transpose(1, 2), dct).transpose(1, 2)
 
     return f
@@ -234,7 +247,8 @@ def _se(vals):
     return (var / len(vals)) ** 0.5
 
 
-def build_variants(gammas, top_dbs=(), mask=None, pre_mel=None):
+def build_variants(gammas, top_dbs=(), mask=None, pre_mel=None,
+                   shared_peak=False):
     """The three log variants, a power-cepstrum column per gamma, a dB-floor
     column per top_db.
 
@@ -276,7 +290,8 @@ def build_variants(gammas, top_dbs=(), mask=None, pre_mel=None):
     does not. Reading the answer off a stated ladder with a reference point
     fixed by psychoacoustics is what keeps this from being metric-shopping.
     """
-    std = dict(window="hann", log="db", mel_norm="slaney", mel_scale="slaney")
+    std = dict(window="hann", log="db", mel_norm="slaney", mel_scale="slaney",
+               shared_peak=shared_peak)
     # The mask forces pre-mel, but pre-mel is useful on its own: post-mel a band
     # holding one strong partial sits above the floor and shelters every quiet
     # bin in it, so the clamp barely bites and the ladder understates its own
@@ -436,6 +451,18 @@ def main() -> None:
              "mix conventions -- db70post is added to bridge back to the "
              "post-mel numbers already reported.")
     p.add_argument(
+        "--shared-peak", action="store_true",
+        help="Take the dB floor's reference peak from the TARGET for both "
+             "members of a pair, instead of each signal using its own. "
+             "librosa's convention is per-signal and every dB number reported "
+             "so far used it, but for a COMPARISON it is wrong: a resynthesis "
+             "3 dB quiet gets a 3 dB lower floor and keeps relatively more "
+             "low-level detail than the target does, so the distance picks up "
+             "a gain term that has nothing to do with spectral accuracy. The "
+             "mask column has always been target-derived for exactly this "
+             "reason; this makes the dB columns agree. Off by default so "
+             "nothing already reported moves without being asked.")
+    p.add_argument(
         "--pre-mel", action="store_true",
         help="Clamp the dB floors before the mel filterbank, without needing a "
              "threshold cache. Post-mel, a band holding one strong partial "
@@ -461,8 +488,11 @@ def main() -> None:
     if args.pre_mel and not args.mask:
         print("dB floors clamped PRE-mel; db70post carries the post-mel "
               "convention sections 08-11 used, as a bridge")
+    if args.shared_peak:
+        print("dB floors take their peak from the TARGET for both signals; a "
+              "gain offset no longer moves an arm's own floor")
     variants = build_variants(args.gamma, args.top_db, mask,
-                              True if args.pre_mel else None)
+                              True if args.pre_mel else None, args.shared_peak)
     fns = {n: make_mfcc(args.device, **kw) for n, kw in variants}
 
     # Imported only when asked for, so torchcrepe stays an optional dependency
