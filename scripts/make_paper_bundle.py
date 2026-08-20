@@ -461,6 +461,128 @@ MANIFEST = [
             "under test."
         ),
     ),
+    dict(
+        section="diffsynth",
+        slug="12_masking_metric",
+        title="A dB floor that is not a free parameter: masking as the evaluation threshold",
+        sources=["masking", "results/eval"],
+        scripts=[
+            "scripts/ds_masking.py",
+            "scripts/ds_mfcc_check.py",
+            "scripts/ds_floor_audio.py",
+            "scripts/ds_compare_audio.py",
+        ],
+        extra_globs=[],
+        note=(
+            "THE PROBLEM. MFCC logs mel-band totals, so it keeps scoring bins "
+            "far below anything audible, and how far down it counts decides "
+            "which loss wins. Clamping everything more than N dB below a "
+            "clip's peak makes that explicit -- and on the real branch the "
+            "arm ordering FLIPS across the ladder. So N is doing the arguing, "
+            "and 'why N' has no answer from inside the metric.\n\n"
+            "    THE REPLACEMENT. ds_masking.py computes, per bin and per "
+            "frame, the level below which the target signal renders content "
+            "inaudible: MPEG-1 psychoacoustic model 1, following Painter & "
+            "Spanias (2000) section V. Tonal maskers at local maxima 7 dB "
+            "above their neighbourhood, one noise masker per critical band "
+            "from what is left, decimation against the absolute threshold and "
+            "within 0.5 Bark, two-slope spreading (Schroeder et al. 1979) with "
+            "the level-dependent upward slope, masking index 14.5 + z_m for "
+            "tonal and 5.5 for noise, power-summed with the Terhardt ATH. That "
+            "floor has NO free parameter to argue about.\n\n"
+            "    ONE ISO PARAMETER HAD TO BE RESCALED, and it is the only "
+            "judgement call in the model. The tonal neighbourhood is +/-2 bins "
+            "at ISO's 86.13 Hz per bin (512-point at 44.1 kHz); ours are "
+            "15.625 Hz, so the same 172.3 Hz is +/-11 of our bins. "
+            "--tonal-window switches between the frequency-scaled reading "
+            "(default) and the literal bin count, so the choice is a flag "
+            "rather than an assumption.\n\n"
+            "    FOUR SELF-TESTS, and what each rules out. A 1 kHz sine at "
+            "80 dB SPL gives one tonal masker at 8.51 Bark and SMR 21.2 dB -- "
+            "printed APART from the canonical ~24 dB tone-masks-noise figure, "
+            "because reaching it via 14.5 + z_m at 1 kHz is arithmetic and "
+            "would otherwise read as agreement. White noise gives zero tonal "
+            "maskers. A 20-partial tone gives a composite threshold at most "
+            "3.53 dB above the best single masker against the superposition "
+            "bound 10*log10(21) = 13.22 dB -- this check was WRONG on first "
+            "writing, reporting 80.44 dB, because it subtracted a global "
+            "threshold carrying the ATH from a spread masker decayed to "
+            "-200 dB. The ATH minimum is -4.98 dB SPL at 3325 Hz, which is "
+            "Terhardt's fit rather than the idealised '0 dB at 4 kHz'.\n\n"
+            "    That bug mattered beyond the test. At PN = 90.302 a bin 70 dB "
+            "below peak sits near 20 dB SPL, under the ATH outright below a "
+            "few hundred Hz where Terhardt is +30 dB, so a threshold carrying "
+            "the ATH would let 'too quiet to hear' masquerade as 'masked by "
+            "the signal'. Every floor is therefore reported twice: "
+            "frac_energy_masked against the full threshold, and "
+            "frac_energy_smasked against the maskers alone. Over the 2000-clip "
+            "held-out split at a 70 dB floor those are 0.8701 and 0.7722, so "
+            "masking carries 89% of the verdict and the claim is about masking "
+            "rather than about quietness. Family medians at that floor run "
+            "0.83 (flute) to 0.94 (string).\n\n"
+            "    AS A METRIC. --dump-thresholds writes the thresholds once and "
+            "ds_mfcc_check --mask uses them as the MFCC floor, giving a `mask` "
+            "column and a mask+N cross against each dB rung (both clamp the "
+            "same dB quantity, so the cross takes the higher of the two). The "
+            "physics is NOT reimplemented for the metric: the 0.5 Bark "
+            "decimation is a sequential sweep that does not vectorise cleanly, "
+            "and a second batched implementation would be a second thing that "
+            "can be subtly wrong. The numpy path the self-tests validate "
+            "writes the thresholds; the metric loads them. The cache is keyed "
+            "by a content hash of the target audio, so a split that moved "
+            "raises rather than pairing a clip with the wrong threshold, and "
+            "it carries the SPL offset so the consumer never re-derives the "
+            "window normalisation.\n\n"
+            "    The 484 MB cache is NOT copied here -- regenerate it with "
+            "scripts/ds_masking.py --dump-thresholds masking/T_ood.npz, which "
+            "also reproduces masking.csv.\n\n"
+            "    THE CLAMP MOVED PRE-MEL, and this restates an earlier number. "
+            "A masking threshold is defined per FFT bin and a 6 kHz mel band "
+            "spans several critical bands, so the mask has no choice; the dB "
+            "columns moved with it or the table would be two conventions side "
+            "by side. It is not cosmetic. Post-mel a mel band holding one "
+            "strong partial sits above the floor and shelters every quiet bin "
+            "in it, so the clamp barely bites; pre-mel those bins are raised "
+            "individually. At 70 dB post-mel put hybridx marginally ahead "
+            "(8.0404 vs magx 8.0631, a dead tie against 2*se 0.4274); pre-mel "
+            "magx leads by 0.49 (7.0168 vs 7.5084, 2*se 0.4264). At 80 dB both "
+            "conventions agree, and every rung below 70 agrees. So the "
+            "crossover is real but its LOCATION is convention-dependent -- it "
+            "must not be quoted as sitting at 70 dB. db70post is retained as "
+            "the old convention so nothing here is a silent restatement.\n\n"
+            "    THE RESULT. Under the mask, magx_halfw beats hybridx by "
+            "0.4082, which is 3.9 se and 4.1% of the metric's range against "
+            "the unrelated-pairs saturation of 9.9442. Statistically clear, "
+            "perceptually modest: the claim it supports is not that the linear "
+            "loss is much better, but that the log term's advantage lives in "
+            "the 70-80 dB shell and does not survive at the threshold of "
+            "audibility. gam03, trained on the gamma=0.3 compression the "
+            "metric ladder calls perceptually calibrated, does not beat magx "
+            "(0.1149 against 2*se 0.2078) -- which is the answer to 'why not "
+            "just train on the metric'.\n\n"
+            "    THE SATURATION ROW IS WHAT MAKES THOSE READABLE, and it "
+            "disqualifies two columns. Scoring each target against an "
+            "unrelated real clip gives each column's range. `mask` has the "
+            "LOWEST best-arm fraction of any column at 30.4% -- a trained "
+            "model is 3.3x closer to the target than unrelated audio, where "
+            "under the conventional log and dB columns it is only ~2.1x -- "
+            "while separating arms better than the gamma ladder (17.0% vs "
+            "10.9%). Meanwhile db20 and mask+20 sit at 78.7% and 84.7%: a "
+            "trained model is barely distinguishable from randomly paired "
+            "audio there, so whatever those columns rank is not synthesis "
+            "quality, and a large-looking gap in them means nothing. Only "
+            "floors at 60 dB and above, and the mask itself, carry usable "
+            "signal.\n\n"
+            "    ds_floor_audio.py and ds_compare_audio.py are the listening "
+            "checks behind all of this: the first gates a clip into keep<N> "
+            "and drop<N> so what a floor discards can be played at its own "
+            "level (they sum back to the original sample-for-sample), the "
+            "second resynthesises the SAME clips through several arms via "
+            "load_arm's reproduced split. An argument about audibility settled "
+            "by listening rather than by asserting that librosa's default is "
+            "reasonable."
+        ),
+    ),
 ]
 
 
@@ -571,6 +693,12 @@ DATASET_GLOBS = [
 
 
 SKIP = ["*.pt", "*.ckpt", "*.db", "__pycache__", "events.out.tfevents.*",
+        # The masking threshold cache, 484 MB for the 2000-clip ood split.
+        # Regenerable, and gitignored for the same reason -- ds_masking.py
+        # --dump-thresholds rebuilds it alongside masking.csv. Named rather
+        # than "*.npz", which would also drop the rendered plate IRs under
+        # results/postprocessing.
+        "T_*.npz",
         # monitor_diffsynth's accelerator, keyed on file size and mtime and
         # carrying only the tags it happens to plot. scalars.csv from
         # ds_export_scalars.py is the record; this is not.

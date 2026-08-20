@@ -6,10 +6,11 @@
 
 WHY. LSD and MFCC are computed on a log whose dynamic-range floor is an
 undocumented parameter, and the ranking of two training losses reverses across
-it: on the real branch hybrid wins unfloored and at 80 dB below peak, ties at
-70, and linear wins at 60/40/20. Choosing a floor by convention decides the
-result, so it has to be chosen from psychoacoustics instead. The claim this
-supports:
+it: on the real branch hybridx wins unfloored and at 80 dB below peak, and magx
+wins at the rungs below. Where exactly it turns over is not even stable -- it
+sits at 70 dB with the clamp applied after the mel filterbank and between 70
+and 80 with it applied before -- so the floor is doing the arguing and it has
+to come from psychoacoustics instead. The claim this supports:
 
     content more than N dB below peak lies beneath the simultaneous-masking
     threshold of the signal itself, and should therefore not be credited by an
@@ -297,7 +298,7 @@ def analyse(x, floors, tonal_mode, decimate, want_T=False):
 
 
 # --------------------------------------------------------------------------
-def selftest():
+def selftest(out="."):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -377,8 +378,10 @@ def selftest():
     plt.plot(ff, a)
     plt.xscale("log"); plt.ylim(-10, 60); plt.grid(alpha=.3)
     plt.xlabel("Hz"); plt.ylabel("dB SPL"); plt.title("Terhardt ATH")
-    plt.tight_layout(); plt.savefig("ath.png", dpi=110)
-    print("   curve written to ath.png")
+    os.makedirs(out, exist_ok=True)
+    fig = os.path.join(out, "ath.png")
+    plt.tight_layout(); plt.savefig(fig, dpi=110)
+    print(f"   curve written to {fig}")
 
 
 def main():
@@ -416,7 +419,7 @@ def main():
     args = p.parse_args()
 
     if args.selftest:
-        selftest()
+        selftest(args.out)
         return
 
     import ds_param_breakdown as pb

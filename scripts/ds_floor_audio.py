@@ -4,11 +4,16 @@
     python scripts/ds_floor_audio.py --family synth_lead --top-db 60 40
 
 WHY. ds_mfcc_check's db80/db60/db40/db20 columns clamp everything more than N
-dB below a clip's peak, and on the real branch the arm ordering flips between
-80 and 60: hybridx wins while content 60-80 dB down still counts, magx wins as
-soon as it does not. That is an argument about audibility, and an argument
-about audibility should be settled by listening rather than by asserting that
-Stevens' law or librosa's default makes 60 dB reasonable.
+dB below a clip's peak, and on the real branch the arm ordering flips somewhere
+in that ladder: hybridx wins while content in the 70-80 dB shell still counts,
+magx wins as soon as it does not. That is an argument about audibility, and an
+argument about audibility should be settled by listening rather than by
+asserting that Stevens' law or librosa's default makes 60 dB reasonable.
+
+ds_masking.py now answers the same question from psychoacoustics -- a per-bin
+masking threshold with no floor to choose. This stays because a threshold model
+is still a model, and being able to HEAR what a floor discards is the check
+that does not depend on believing MPEG-1.
 
 WHAT IS WRITTEN, per clip and per floor:
 

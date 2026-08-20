@@ -357,6 +357,86 @@ def check_diffsynth(b: Path):
                   + ", ".join(f"{k}@{v}" for k, v in short.items()))
 
 
+# Every floor ds_masking reports, and the two ways each is reported: against the
+# full threshold and against the maskers alone. The pair is the point -- a
+# single column would let the absolute threshold carry a claim about masking.
+MASK_FLOORS = (80, 70, 60, 40, 20)
+MASK_COLS = ("frac_energy_masked", "frac_energy_smasked", "frac_bins_masked",
+             "frac_total_energy")
+
+
+def check_masking(b: Path):
+    head("masking: the evaluation floor is derived rather than chosen")
+    root = b / "diffsynth/12_masking_metric/results"
+    csvp = root / "masking/masking.csv"
+    if not csvp.exists():
+        note(FUND, "no masking/masking.csv in the bundle, so the psychoacoustic "
+                   "justification for the evaluation floor cannot be recomputed "
+                   "-- run scripts/ds_masking.py and rebuild")
+        print("  MISSING"); return
+
+    cols = csv_cols(csvp)
+    want = [f"{m}_{F:g}" for F in MASK_FLOORS for m in MASK_COLS]
+    miss = [c for c in want if c not in cols]
+    with csvp.open() as f:
+        rows = list(csv.DictReader(f))
+    print(f"  masking.csv: {len(rows)} clips, {len(cols)} columns; "
+          f"missing: {miss or 'none'}")
+    if miss:
+        note(FUND, f"masking.csv is missing columns the text quotes: {miss}")
+    elif len(rows) < 500:
+        note(LIM, f"masking.csv covers {len(rows)} clips; the quoted medians "
+                  f"and the family breakdown are from the full 2000-clip ood "
+                  f"split, and a short run's family rows are n=2-4")
+    else:
+        # The smask column is what separates "masked by the signal" from
+        # "below the absolute threshold". If it were ever dropped the paper's
+        # sentence would still typeset and would no longer be supported.
+        note(OK, f"masking thresholds recomputable over {len(rows)} clips, with "
+                 f"masker-only fractions reported beside the full-threshold "
+                 f"ones at every floor")
+
+    # The cache must NOT be here: 484 MB, and regenerable. Its absence is the
+    # correct state, so what is checked is that the regeneration path exists.
+    big = [p for p in root.rglob("*") if p.is_file()
+           and p.stat().st_size > 50 * 1024 * 1024]
+    if big:
+        note(LIM, "large regenerable files copied into the bundle: "
+                  + ", ".join(f"{p.name} ({p.stat().st_size >> 20} MB)"
+                              for p in big))
+    if not (b / "diffsynth/12_masking_metric/scripts/ds_masking.py").exists():
+        note(FUND, "ds_masking.py is not in the bundle, so neither masking.csv "
+                   "nor the threshold cache behind the `mask` metric column "
+                   "can be regenerated")
+
+    # The eval tables. These are the only record of the mask and saturation
+    # columns -- no scalars.csv carries them, because they are recomputed from
+    # checkpoints rather than logged during training.
+    ev = root / "eval"
+    logs = sorted(ev.glob("*.log")) if ev.exists() else []
+    txt = "\n".join(p.read_text(errors="replace") for p in logs)
+    print(f"  eval tables: {[p.name for p in logs] or 'none'}")
+    if not logs:
+        note(FUND, "no results/eval tables in the bundle; the mask and "
+                   "saturation columns are recomputed from checkpoints and "
+                   "logged nowhere else, so nothing quoted from them is "
+                   "recoverable without a rerun")
+    else:
+        for tag, msg in (
+            ("mask", "the `mask` column"),
+            ("SATURATION", "the unrelated-pairs saturation row, without which a "
+                           "gap cannot be read as a fraction of the metric's range"),
+            ("db70post", "db70post, the pre/post-mel bridge -- without it the "
+                         "move to a pre-mel clamp silently restates every dB "
+                         "number in sections 08-11"),
+        ):
+            if tag not in txt:
+                note(FUND, f"the eval tables do not carry {msg}")
+        if all(t in txt for t in ("mask", "SATURATION", "db70post")):
+            note(OK, "mask, saturation and the pre/post-mel bridge column are "
+                     "all present in the eval tables")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--bundle", type=Path, default=Path("paper"))
@@ -372,6 +452,7 @@ def main():
     check_collisions(a.bundle)
     check_ddsp(a.bundle)
     check_diffsynth(a.bundle)
+    check_masking(a.bundle)
 
     print("\n" + "=" * 70)
     print(f"FUNDAMENTAL ({len(FUND)}) -- a number cannot be recomputed or a run reproduced")

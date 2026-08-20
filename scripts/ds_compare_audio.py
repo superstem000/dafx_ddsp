@@ -6,11 +6,13 @@
 Every audio number in this project is a mean over 512 clips of a distance whose
 compression is itself the thing under dispute. At some point that has to be
 checked against what the models actually sound like, and on the real branch
-there is a specific reason to: hybridx and magx_halfw are a dead tie at a 70 dB
-floor (8.0404 vs 7.9766 against a 2*se of 0.4761), hybridx wins above it and
-magx_halfw below. If the difference is audible, one of those regimes is the
-right one to quote; if it is not, that is worth knowing before either goes in a
-paper as a perceptual claim.
+there is a specific reason to: hybridx wins above the crossover and magx_halfw
+below it, and the crossover itself moves with a convention -- 70 dB with the
+clamp after the mel filterbank, between 70 and 80 with it before. Under the
+psychoacoustic mask, which has no floor to choose, magx_halfw leads by 3.9 se,
+but that is 4.1% of the metric's range against unrelated audio. Statistically
+clear and perceptually modest is exactly the regime where the number should be
+checked by ear before it goes in a paper as a perceptual claim.
 
 Per clip it writes the target, one resynthesis per arm, and a spectrogram panel
 for each on ONE colour scale pinned to the target's peak, then tars the lot --
