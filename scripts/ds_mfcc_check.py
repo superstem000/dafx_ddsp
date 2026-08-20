@@ -234,7 +234,7 @@ def _se(vals):
     return (var / len(vals)) ** 0.5
 
 
-def build_variants(gammas, top_dbs=(), mask=None):
+def build_variants(gammas, top_dbs=(), mask=None, pre_mel=None):
     """The three log variants, a power-cepstrum column per gamma, a dB-floor
     column per top_db.
 
@@ -277,14 +277,24 @@ def build_variants(gammas, top_dbs=(), mask=None):
     fixed by psychoacoustics is what keeps this from being metric-shopping.
     """
     std = dict(window="hann", log="db", mel_norm="slaney", mel_scale="slaney")
+    # The mask forces pre-mel, but pre-mel is useful on its own: post-mel a band
+    # holding one strong partial sits above the floor and shelters every quiet
+    # bin in it, so the clamp barely bites and the ladder understates its own
+    # effect. --pre-mel runs the ladder without needing a threshold cache.
+    if pre_mel is None:
+        pre_mel = mask is not None
     out = _FIXED + tuple(
         (f"g{g:g}", dict(window="hann", log="pow", gamma=g,
                          mel_norm="slaney", mel_scale="slaney"))
         for g in gammas
     ) + tuple(
-        (f"db{t:g}", dict(std, top_db=float(t), pre_mel=mask is not None))
+        (f"db{t:g}", dict(std, top_db=float(t), pre_mel=pre_mel))
         for t in top_dbs
     )
+    # The bridge back to the post-mel convention every number in sections 08-11
+    # was computed under. Needed whenever the ladder moved, mask or no mask.
+    if pre_mel and top_dbs:
+        out = out + (("db70post", dict(std, top_db=70.0, pre_mel=False)),)
     if mask is None:
         return out
     # The masked row, and the cross. Both floors clamp the same dB quantity,
@@ -425,6 +435,15 @@ def main() -> None:
              "filterbank, since the mask has to be there and a table cannot "
              "mix conventions -- db70post is added to bridge back to the "
              "post-mel numbers already reported.")
+    p.add_argument(
+        "--pre-mel", action="store_true",
+        help="Clamp the dB floors before the mel filterbank, without needing a "
+             "threshold cache. Post-mel, a band holding one strong partial "
+             "sits above the floor and shelters every quiet bin inside it, so "
+             "the ladder barely bites; pre-mel those bins are raised "
+             "individually. Implied by --mask, which has no choice about it. "
+             "Adds db70post either way, since this changes what dbN means and "
+             "sections 08-11 were computed under the post-mel convention.")
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--batches", type=int, default=32)
     p.add_argument("--device", default="cpu")
@@ -439,7 +458,11 @@ def main() -> None:
         print("  so `standard` vs `db80` and `db70post` vs `db70` are two "
               "pre/post-mel bridge pairs -- if each pair agrees, the stage "
               "change never mattered and the old numbers still stand")
-    variants = build_variants(args.gamma, args.top_db, mask)
+    if args.pre_mel and not args.mask:
+        print("dB floors clamped PRE-mel; db70post carries the post-mel "
+              "convention sections 08-11 used, as a bridge")
+    variants = build_variants(args.gamma, args.top_db, mask,
+                              True if args.pre_mel else None)
     fns = {n: make_mfcc(args.device, **kw) for n, kw in variants}
 
     # Imported only when asked for, so torchcrepe stays an optional dependency
