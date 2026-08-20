@@ -54,6 +54,18 @@ the definition of masking rather than a failure of it. A dB floor makes the
 weaker claim that what it discards is quiet in absolute terms, which is why
 drop60 being near-silent means something and dropmask being audible does not.
 
+THE FIRST VERSION OF THAT GATE FAILED THIS TEST, and --naive-mask reproduces it
+so the difference can be heard rather than believed. It thresholded each bin
+against the maskers of the FULL signal, which double-counts the removed content
+as its own masker: a noise masker is a whole critical band summed at a 5.5 dB
+offset, one bin of a flat band sits 10*log10(N) below that sum, and N reaches 83
+here. The model says any ONE such bin is masked by the rest of its band, which
+is true and licenses nothing about removing the band. The gate removed the band.
+Every noise floor disappeared, the harmonics survived, and it was obvious on the
+first two clips. The gate now solves for the largest JOINTLY removable set --
+threshold from what survives, iterated to a fixed point, then a per-band energy
+budget on the total removed.
+
 GATING, not clamping. The metric clamps to a floor value; doing that to audio
 would BOOST the quiet bins up to the floor, which is not a thing to listen to.
 Zeroing them asks the question the clamp is a proxy for: does this content
@@ -90,20 +102,30 @@ import torch
 import ds_masking as dm                                  # noqa: E402
 
 
-def masking_floor(mag, win):
-    """Per-bin, per-frame masking threshold for one clip, in the same dB units
-    as 20*log10(mag).
+def masking_keep(mag, win, naive=False):
+    """Bins to KEEP: the complement of the largest jointly-removable set.
 
-    Computed here rather than read from ds_masking's cache. The cache is keyed
-    by a content hash of DATASET-loaded audio, and this script reads wav files
-    off disk -- so a lookup would miss. Ten clips is 2470 frames of numpy,
-    which costs nothing, and it keeps the demo independent of whether a cache
-    has been dumped.
+    The first version of this gated each bin against the threshold of the full
+    signal, and it was audible on the first two clips tried -- correctly, and
+    for a reason worth keeping written down. A noise masker is the power sum of
+    a whole critical band at an offset of 5.5 dB, while one bin of a flat band
+    sits 10*log10(N) below that sum, which is +13.7 dB in the widest band here.
+    So the model says any ONE bin of broadband content is masked by the rest of
+    its band -- true, and no licence at all to remove all of them at once. The
+    gate did exactly that, and every noise floor vanished while the harmonics
+    survived.
 
-    The frames are the ones being gated, which here are center=True (the metric
-    uses center=False). Centring is right for a resynthesis -- it avoids edge
-    artefacts that would be mistaken for the gate's doing -- and the masking
-    model does not care how the frames were placed.
+    ds_masking.safe_removal_mask asks the answerable question instead: iterate
+    the threshold against what SURVIVES until it settles, then enforce a
+    per-band energy budget on the total removed. --naive-mask reproduces the
+    broken version, because a correction nobody can hear the before-and-after
+    of is just an assertion.
+
+    Computed here rather than read from ds_masking's cache: the cache is keyed
+    by a content hash of DATASET-loaded audio and this script reads wavs off
+    disk, so a lookup would miss. Frames are center=True (the metric uses
+    center=False) -- centring avoids edge artefacts that would be mistaken for
+    the gate's doing, and the masking model does not care how frames are placed.
     """
     freqs = np.fft.rfftfreq(dm.N_FFT, 1.0 / dm.SR)
     bin_hz = dm.SR / dm.N_FFT
@@ -111,13 +133,14 @@ def masking_floor(mag, win):
     bands = dm.build_bands(freqs)
     P = dm.PN + 20.0 * np.log10(
         np.maximum(2.0 * mag.numpy() / float(win.sum()), 1e-30))
-    T = np.empty_like(P)
-    for t in range(P.shape[1]):
-        lev, zm, ton, _raw = dm.frame_maskers(
-            P[:, t], freqs, zb, ath_b, bands, "hz", "all", bin_hz)
-        T[:, t], _tm = dm.global_threshold(lev, zm, ton, zb, ath_b)
-    # Back from SPL to the 20*log10(mag) scale the caller compares against.
-    return torch.from_numpy(P - T).float()
+    if naive:
+        T, _tm, _n = dm.threshold_from(P, freqs, zb, ath_b, bands, "hz",
+                                       "all", bin_hz)
+        drop = P < T
+    else:
+        drop = dm.safe_removal_mask(P, freqs, zb, ath_b, bands, "hz", "all",
+                                    bin_hz)
+    return torch.from_numpy(~drop)
 
 
 def main() -> None:
@@ -144,6 +167,11 @@ def main() -> None:
              "check that does not require believing the model: keepmask should "
              "be indistinguishable from orig. dropmask is a different matter "
              "-- see the note printed at the end.")
+    p.add_argument(
+        "--naive-mask", action="store_true",
+        help="Also write the FALSIFIED gate -- each bin against the threshold "
+             "of the full signal -- as _keepnaivemask/_dropnaivemask. Pair it "
+             "with --mask to hear the correction rather than take it on trust.")
     p.add_argument("--out", default="floor_demo")
     p.add_argument("--sr", type=int, default=16000)
     p.add_argument("--n-fft", type=int, default=1024)
@@ -188,11 +216,12 @@ def main() -> None:
         gates = [(f"{db:g}", mag >= peak * (10.0 ** (-db / 20.0)))
                  for db in args.top_db]
         if args.mask:
-            # Above the threshold by any margin is kept. Per bin AND per frame,
-            # so unlike the dB floors this one moves with the signal -- a
-            # sustain that decays does not lose proportionally more, it loses
-            # whatever its own maskers stop covering.
-            gates.append(("mask", masking_floor(mag, win) >= 0.0))
+            # Per bin AND per frame, so unlike the dB floors this one moves
+            # with the signal -- a sustain that decays does not lose
+            # proportionally more, it loses whatever its maskers stop covering.
+            gates.append(("mask", masking_keep(mag, win)))
+        if args.naive_mask:
+            gates.append(("naivemask", masking_keep(mag, win, naive=True)))
         for tag, keep in gates:
             kept_st = torch.where(keep, st, torch.zeros_like(st))
             drop_st = st - kept_st
