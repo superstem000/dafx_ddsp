@@ -45,6 +45,15 @@ If keep60 is indistinguishable and drop60 is silence-with-a-hiss, then the
 metric's disagreement between magx and hybridx lives entirely in content below
 audibility, and db60/db40 are the honest rungs to quote.
 
+--mask adds keepmask/dropmask, gated on the MPEG-1 threshold instead of an
+offset from the peak, and it is read DIFFERENTLY from the dB pairs. Masking
+claims the removed content is inaudible IN THE PRESENCE OF the rest of the
+signal, which is the condition keepmask reproduces and dropmask destroys. So
+keepmask vs orig is the test; dropmask WILL be audible on its own, and that is
+the definition of masking rather than a failure of it. A dB floor makes the
+weaker claim that what it discards is quiet in absolute terms, which is why
+drop60 being near-silent means something and dropmask being audible does not.
+
 GATING, not clamping. The metric clamps to a floor value; doing that to audio
 would BOOST the quiet bins up to the floor, which is not a thing to listen to.
 Zeroing them asks the question the clamp is a proxy for: does this content
@@ -68,11 +77,47 @@ import random
 import subprocess
 import sys
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import soundfile as sf
 import torch
+
+import ds_masking as dm                                  # noqa: E402
+
+
+def masking_floor(mag, win):
+    """Per-bin, per-frame masking threshold for one clip, in the same dB units
+    as 20*log10(mag).
+
+    Computed here rather than read from ds_masking's cache. The cache is keyed
+    by a content hash of DATASET-loaded audio, and this script reads wav files
+    off disk -- so a lookup would miss. Ten clips is 2470 frames of numpy,
+    which costs nothing, and it keeps the demo independent of whether a cache
+    has been dumped.
+
+    The frames are the ones being gated, which here are center=True (the metric
+    uses center=False). Centring is right for a resynthesis -- it avoids edge
+    artefacts that would be mistaken for the gate's doing -- and the masking
+    model does not care how the frames were placed.
+    """
+    freqs = np.fft.rfftfreq(dm.N_FFT, 1.0 / dm.SR)
+    bin_hz = dm.SR / dm.N_FFT
+    zb, ath_b = dm.bark(freqs), dm.ath(freqs)
+    bands = dm.build_bands(freqs)
+    P = dm.PN + 20.0 * np.log10(
+        np.maximum(2.0 * mag.numpy() / float(win.sum()), 1e-30))
+    T = np.empty_like(P)
+    for t in range(P.shape[1]):
+        lev, zm, ton, _raw = dm.frame_maskers(
+            P[:, t], freqs, zb, ath_b, bands, "hz", "all", bin_hz)
+        T[:, t], _tm = dm.global_threshold(lev, zm, ton, zb, ath_b)
+    # Back from SPL to the 20*log10(mag) scale the caller compares against.
+    return torch.from_numpy(P - T).float()
 
 
 def main() -> None:
@@ -88,8 +133,17 @@ def main() -> None:
     p.add_argument("--family", default=None, metavar="PREFIX",
                    help="Restrict to one NSynth family, e.g. synth_lead")
     p.add_argument("--n", type=int, default=5, help="How many clips")
-    p.add_argument("--top-db", type=float, nargs="+",
-                   default=[80.0, 60.0, 40.0, 20.0])
+    p.add_argument("--top-db", type=float, nargs="*",
+                   default=[80.0, 60.0, 40.0, 20.0],
+                   help="Pass with no values for none, e.g. --top-db --mask "
+                        "to hear only the psychoacoustic gate.")
+    p.add_argument(
+        "--mask", action="store_true",
+        help="Also gate on the MPEG-1 masking threshold instead of a constant "
+             "offset from the peak, writing _keepmask/_dropmask. THIS is the "
+             "check that does not require believing the model: keepmask should "
+             "be indistinguishable from orig. dropmask is a different matter "
+             "-- see the note printed at the end.")
     p.add_argument("--out", default="floor_demo")
     p.add_argument("--sr", type=int, default=16000)
     p.add_argument("--n-fft", type=int, default=1024)
@@ -113,7 +167,7 @@ def main() -> None:
     os.makedirs(args.out, exist_ok=True)
     win = torch.hann_window(args.n_fft)
     print(f"{len(files)} clips -> {args.out}\n")
-    print(f"{'clip':<34}{'floor':>7}{'bins kept':>11}{'energy kept':>13}")
+    print(f"{'clip':<34}{'gate':>7}{'bins kept':>11}{'energy kept':>13}")
 
     for path in files:
         audio, sr = sf.read(path, dtype="float32")
@@ -131,20 +185,27 @@ def main() -> None:
         # threshold is 10^(-N/20) of the peak amplitude.
         peak = mag.max()
         total = (mag ** 2).sum()
-        for db in args.top_db:
-            keep = mag >= peak * (10.0 ** (-db / 20.0))
+        gates = [(f"{db:g}", mag >= peak * (10.0 ** (-db / 20.0)))
+                 for db in args.top_db]
+        if args.mask:
+            # Above the threshold by any margin is kept. Per bin AND per frame,
+            # so unlike the dB floors this one moves with the signal -- a
+            # sustain that decays does not lose proportionally more, it loses
+            # whatever its own maskers stop covering.
+            gates.append(("mask", masking_floor(mag, win) >= 0.0))
+        for tag, keep in gates:
             kept_st = torch.where(keep, st, torch.zeros_like(st))
             drop_st = st - kept_st
-            for tag, spec in (("keep", kept_st), ("drop", drop_st)):
+            for which, spec in (("keep", kept_st), ("drop", drop_st)):
                 y = torch.istft(spec, args.n_fft, hop_length=args.hop,
                                 window=win, center=True, length=x.shape[-1])
-                sf.write(os.path.join(args.out, f"{stem}_{tag}{db:g}.wav"),
+                sf.write(os.path.join(args.out, f"{stem}_{which}{tag}.wav"),
                          y.numpy(), sr)
-            panels.append((f"keep{db:g}", kept_st.abs()))
-            panels.append((f"drop{db:g}", drop_st.abs()))
+            panels.append((f"keep{tag}", kept_st.abs()))
+            panels.append((f"drop{tag}", drop_st.abs()))
             frac_bins = keep.float().mean().item()
             frac_energy = ((mag * keep) ** 2).sum().item() / max(total.item(), 1e-30)
-            print(f"{stem:<34}{db:>7.0f}{100 * frac_bins:>10.1f}%"
+            print(f"{stem:<34}{tag:>7}{100 * frac_bins:>10.1f}%"
                   f"{100 * frac_energy:>12.4f}%")
 
         if not args.no_png:
@@ -175,6 +236,27 @@ def main() -> None:
     print(f"\nkeep<N> + drop<N> reconstructs orig exactly -- same complex STFT, "
           f"same phase.\nPlay drop<N> at the SAME gain as orig; it is not "
           f"normalised, and that is the point.")
+    if args.mask:
+        print(
+            "\nHOW TO READ keepmask/dropmask, because one of them is a trap.\n"
+            "\n"
+            "  keepmask vs orig  IS the test. Masking says the removed content\n"
+            "                    is inaudible IN THE PRESENCE OF the rest of\n"
+            "                    the signal, and that is exactly the condition\n"
+            "                    keepmask reproduces. If these are\n"
+            "                    indistinguishable, the threshold is doing what\n"
+            "                    it claims and the evaluation floor is earned.\n"
+            "\n"
+            "  dropmask alone    IS NOT a test, and it WILL be audible. Take\n"
+            "                    the masker away and what it was masking\n"
+            "                    becomes audible again -- that is the\n"
+            "                    definition of masking, not a failure of it.\n"
+            "                    Hearing dropmask proves nothing either way.\n"
+            "\n"
+            "This is where the psychoacoustic gate differs from the dB floors.\n"
+            "drop60 being near-silent is evidence a 60 dB floor discards little;\n"
+            "dropmask can be perfectly audible on its own while keepmask is\n"
+            "still identical to orig, and both statements are consistent.")
 
     if not args.no_tar:
         base = os.path.basename(os.path.normpath(args.out))
