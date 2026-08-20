@@ -22,3 +22,13 @@ results/diffsynth/
 external/diffmoog/experiments/
 diffmoog_archive/
 FETCH_HEAD
+
+# Masking threshold cache: 484 MB, and regenerable with
+#   scripts/ds_masking.py --dump-thresholds masking/T_ood.npz
+masking/*.npz
+# Raw training stdout, 269 MB -> 20 MB gzipped. The .gz alongside is what is
+# kept: the diffmoog experiments/ tree is ignored, so these logs are the only
+# surviving record of those runs and deleting them outright would lose the
+# evidence behind section 06.
+dm_*.log
+archive_extract.log

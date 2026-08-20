@@ -1,0 +1,112 @@
+/home/bhpark3/dsenv/lib/python3.12/site-packages/nnAudio/Spectrogram.py:4: Warning: importing Spectrogram subpackage will be deprecated soon. You should import the feature extractor from the feature subpackage. See actual documentation.
+  warnings.warn(
+masking thresholds: masking/T_ood.npz (2000 clips, tonal-window=hz, decimate=all)
+  dbN columns are now clamped PRE-mel so the table is one convention; db70post keeps the old post-mel one for continuity
+  so `standard` vs `db80` and `db70post` vs `db70` are two pre/post-mel bridge pairs -- if each pair agrees, the stage change never mattered and the old numbers still stand
+Seed set to 0
+STFT kernels created, time used = 0.0239 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0012 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+/home/bhpark3/dsenv/lib/python3.12/site-packages/torch/functional.py:680: UserWarning: A window was not provided. A rectangular window will be applied,which is known to cause spectral leakage. Other windows such as torch.hann_window or torch.hamming_window are recommended to reduce spectral leakage.To suppress this warning and use a rectangular window, explicitly set `window=torch.ones(n_fft, device=<device>)`. (Triggered internally at /__w/pytorch/pytorch/aten/src/ATen/native/SpectralOps.cpp:835.)
+  return _VF.stft(  # type: ignore[attr-defined]
+real_gam03           epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0220 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_hybrid          epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0178 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0010 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_hybridx         epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0166 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_log             epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0167 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_logx_halfw      epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0168 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_mag             epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0166 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_mag_halfw       epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0167 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_magx            epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0169 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0010 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_magx2hybx       epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0164 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_magx_halfw      epoch 399    32 batches -- ood split reproduced
+
+=== MFCC on the ood validation split, up to 512 clips
+Every column has its own scale -- dB is ~4.34x natural log by base alone, and each
+gamma is a different power of the same numbers. Read each column DOWN, never across.
+What carries information is the ORDER of the arms within a column, and how that order
+changes as the metric's compression moves from g1 (linear) toward as_logged (log).
+g0.3 is Stevens' law and is the rung to quote.
+
+run                   epoch   as_logged        hann    standard          g1        g0.6        g0.3       g0.15        db80        db70        db60        db40        db20    db70post        mask     mask+80     mask+70     mask+60     mask+40     mask+20         lsd
+real_gam03              399      1.7934      2.7005      9.0981      5.8895      0.7557      0.1956      0.1271      8.0970      6.5697      5.3059      3.5545      2.3852      7.4312      3.0219      3.4152      3.6048      3.5870      3.1703      2.4246     13.9861
+real_hybrid             399      1.9451      2.7894      9.7727      5.7897      0.7728      0.2122      0.1383      8.7307      7.1523      5.8342      3.8843      2.5275      8.0753      3.2051      3.6330      3.9312      3.9888      3.3829      2.5653     14.3887
+real_hybridx            399      1.7451      2.3064      9.0207      7.3600      0.9692      0.2556      0.1459      8.4510      7.5084      6.6123      4.9204      3.3187      8.0404      3.5450      4.1026      4.6014      4.7551      4.2240      3.3390     13.8535
+real_log                399      1.8241      2.3867      8.4786      7.8440      0.9732      0.2433      0.1386      7.8808      6.8378      5.9390      4.3543      2.8122      7.3215      3.3018      3.8492      4.2338      4.3242      3.7863      2.8360     13.4350
+real_logx_halfw         399      1.8923      2.4879      9.8303      8.9988      1.1673      0.3084      0.1704      9.3949      8.5127      7.6026      5.6417      3.5921      8.9348      3.9416      4.6147      5.2217      5.4373      4.7747      3.6103     14.2958
+real_mag                399      2.6470      3.7348     13.2770      5.6363      0.7676      0.2345      0.1715     11.9751      9.9545      8.0003      4.7028      2.7929     11.2266      4.7146      4.8753      5.0182      4.8056      3.9060      2.8755     16.8006
+real_mag_halfw          399      2.7167      3.8055     13.5759      5.8598      0.7957      0.2410      0.1755     12.3151     10.3017      8.3102      4.8984      2.9264     11.5432      4.8391      5.0335      5.2351      5.0449      4.0576      2.9898     16.9618
+real_magx               399      1.8916      2.8979      9.8959      5.3551      0.6964      0.1904      0.1322      8.7261      7.0168      5.5694      3.5073      2.2681      8.0631      3.1406      3.4783      3.5966      3.5332      3.0671      2.3247     14.7878
+real_magx2hybx          399      1.7883      2.4145      9.0228      7.3008      0.9547      0.2494      0.1428      8.4365      7.4381      6.5352      4.9293      3.3933      7.9509      3.4681      4.0558      4.5900      4.7623      4.2982      3.4547     13.4720
+real_magx_halfw         399      1.8960      2.8716      9.8087      5.3814      0.6991      0.1904      0.1315      8.6528      6.9489      5.5204      3.5062      2.2825      7.9766      3.1368      3.4671      3.5892      3.5346      3.0852      2.3463     14.8347
+
+2*se (median over arms)             0.0710      0.0917      0.4518      0.8953      0.0863      0.0175      0.0078      0.4500      0.4264      0.3984      0.3379      0.2837      0.4274      0.2096      0.2198      0.2495      0.3064      0.3400      0.3091      0.6999
+spread (max-min)                 0.9716      1.4991      5.0974      3.6436      0.4709      0.1181      0.0485      4.4343      3.7320      3.0043      2.1355      1.3239      4.2216      1.8172      1.6184      1.6459      1.9041      1.7076      1.2856      3.5267
+
+  (no saturation reference -- pass --saturation. Without it a small
+   arm-to-arm difference cannot be told from a metric with no dynamic range.)
