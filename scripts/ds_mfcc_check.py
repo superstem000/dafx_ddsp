@@ -23,9 +23,17 @@ Three variants are reported so the effect is visible rather than asserted:
               Expect roughly 4.343x the natural-log values from the log base
               alone, so read it against itself, not against the other columns.
 
-Then a POWER-CEPSTRUM ladder, g1 / g0.6 / g0.3 / g0.15: `standard` with its dB
-step replaced by mel^gamma and nothing else changed, so moving along it changes
-the metric's compression and only that.
+Then a POWER-CEPSTRUM ladder, g1 / g0.6 / g0.3 / g0.15 / g0: `standard` with its
+dB step replaced by mel^gamma and nothing else changed, so moving along it
+changes the metric's compression and only that.
+
+  g0 is the ladder's OWN log rung, and it is not as_logged. Box-Cox says
+  (x^g - 1)/g -> ln x, so the log is the limit of this ladder rather than a
+  different metric -- but only when it shares the ladder's conventions.
+  as_logged is rectangular-windowed and HTK; hann is HTK and unnormalised;
+  standard puts an 80 dB floor on top. g0 is Hann + Slaney + Slaney with eps
+  1e-12, GammaCepstrum's own, because for a log metric the eps IS the floor and
+  1e-6 would sit six decades higher. So g1 -> g0 is one knob moving, end to end.
 
   Every audio metric here measures in the log domain -- MFCC logs mel-band
   totals, LSD logs per bin -- and a log-trained model is optimised for exactly
@@ -152,7 +160,7 @@ class MaskCache:
 def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
               mel_norm=None, mel_scale="htk", sr=16000, n_fft=1024, hop=256,
               n_mels=40, n_mfcc=20, f_min=40.0, f_max=7600.0,
-              mask=None, pre_mel=False, shared_peak=False):
+              mask=None, pre_mel=False, shared_peak=False, eps=None):
     """A callable (audio, ref) -> MFCC, mirroring spectral.py but with the knobs open.
 
     `ref` is the TARGET for both members of a pair. Only the masked columns
@@ -217,9 +225,9 @@ def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
             power = 10.0 ** (0.1 * torch.maximum(pdb, fl))
         mel = ms(power)
         if log == "nat":
-            lm = torch.log(mel + 1e-6)
+            lm = torch.log(mel + (1e-6 if eps is None else eps))
         else:
-            lm = 10.0 * torch.log10(mel + 1e-10)
+            lm = 10.0 * torch.log10(mel + (1e-10 if eps is None else eps))
             if top_db is not None and not pre_mel:
                 rlm = (lm if rpow is power
                        else 10.0 * torch.log10(ms(rpow) + 1e-10))
@@ -302,7 +310,17 @@ def build_variants(gammas, top_dbs=(), mask=None, pre_mel=None,
         (f"g{g:g}", dict(window="hann", log="pow", gamma=g,
                          mel_norm="slaney", mel_scale="slaney"))
         for g in gammas
-    ) + tuple(
+    ) + ((
+        # The ladder's own gamma -> 0 rung. Box-Cox: (x^g - 1)/g -> ln x, so the
+        # log IS the limit of this ladder rather than a separate metric -- but
+        # only if it shares the ladder's conventions. as_logged and hann do not
+        # (rectangular window for one, HTK and an unnormalised filterbank for
+        # both), and standard adds an 80 dB floor on top. This is Hann + Slaney
+        # + Slaney with eps 1e-12, GammaCepstrum's own eps, because for a log
+        # metric the eps IS the floor and 1e-6 would put it six decades up.
+        ("g0", dict(window="hann", log="nat", eps=1e-12,
+                    mel_norm="slaney", mel_scale="slaney")),
+    ) if gammas else ()) + tuple(
         (f"db{t:g}", dict(std, top_db=float(t), pre_mel=pre_mel))
         for t in top_dbs
     )
