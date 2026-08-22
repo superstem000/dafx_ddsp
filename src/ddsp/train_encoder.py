@@ -63,6 +63,7 @@ from src.gd.graddescent import (
     verify_mapping_matches_cmaes,
 )
 from src.loss.loss_selector import select_loss_function
+from src.loss.losses import metric_mfcc_g03
 from src.mu_optimization.ternary_mu import (
     COMPOSITE_BOUNDS,
     load_target_ir_from_npz,
@@ -579,6 +580,14 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     if refiner is not None:
         refiner.eval()
     losses, preds, preds0, mu_fits = [], [], [], []
+    # An audio metric that is NOT the arm's own objective. val_loss is each
+    # arm's loss on val, so it is circular by construction and cannot be read
+    # across arms; this is one fixed function for every arm, at Stevens'
+    # exponent on intensity. The trajectory is the point: if the spectral phase
+    # improves g03 while val_nmse degrades, that is audio similarity being
+    # bought with parameter accuracy, which is the thesis in one plot and
+    # cannot be recovered from final checkpoints.
+    g03 = []
     for i in range(0, x_val.shape[0], args.batch_size):
         xb = x_val[i : i + args.batch_size]
         if str(xb.device) != str(space.device):
@@ -597,6 +606,7 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
             mu_fits.append(fit_mu_scale(mu_loss_fn, xb, pred, mu_b).cpu().numpy())
         preds.append(zp.detach())
         preds0.append(z0.detach())
+        g03.append(metric_mfcc_g03(xb, pred).detach())
     model.train()
     if refiner is not None:
         refiner.train()
@@ -628,6 +638,7 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     # so it is the statistic these numbers are directly comparable against.
     out = {
         "val_loss": float(torch.cat(losses).mean()),
+        "val_g03": float(torch.cat(g03).mean()),
         "val_nmse_6d_geo": float(np.exp(np.mean(np.log(np.maximum(n6, 1e-30))))),
         "val_nmse_6d": float(np.median(n6)),
         "val_nmse_6d_mean": float(np.mean(n6)),

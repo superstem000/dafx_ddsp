@@ -61,9 +61,24 @@ METRICS = {
     # 4000 steps -- while narrow_ploss, which never switches, did not. That is
     # the phenomenon this ladder exists to reproduce, and it is invisible unless
     # the switch is on the table beside the metric.
+    # One fixed audio metric for every arm, at Stevens' exponent on intensity --
+    # unlike val, which is each arm's own loss and cannot be read across arms.
+    # Watch it against nmse through the crossfade: g03 falling while nmse rises
+    # is audio similarity bought with parameter accuracy.
+    "g03": ("mel cepstral L1 at gamma 0.3 on intensity, same for every arm", "{:.4f}"),
     "spec_w": ("spectral weight, 0 during the hold and 1 after the crossfade", "{:.2f}"),
     "param": ("parameter L1 on z, the objective during the hold", "{:.4f}"),
 }
+
+
+def _rate(h) -> float:
+    """Steps per second over the last ~10 logged rows, resume-safe."""
+    if len(h) < 2:
+        return h[-1]["step"] / max(h[-1].get("elapsed_s", 0.0), 1e-9) if h else 0.0
+    k = max(0, len(h) - 11)
+    ds = h[-1]["step"] - h[k]["step"]
+    dt = h[-1].get("elapsed_s", 0.0) - h[k].get("elapsed_s", 0.0)
+    return ds / dt if dt > 0 else 0.0
 
 
 def load(root, prefix: str = ""):
@@ -110,6 +125,7 @@ def load(root, prefix: str = ""):
                 "zmax_op_x": zc.get("op_x", float("nan")),
                 "hinge": r.get("hinge", float("nan")),
                 "h_abs": r.get("h_absmean", float("nan")),
+                "g03": r.get("val_g03", float("nan")),
                 "spec_w": r.get("spec_w", float("nan")),
                 "param": r.get("param_loss", float("nan")),
             }
@@ -117,7 +133,14 @@ def load(root, prefix: str = ""):
         arms[name] = {
             "rows": rows,
             "last": h[-1]["step"] if h else 0,
-            "rate": h[-1]["step"] / max(h[-1]["elapsed_s"], 1e-9) if h else 0.0,
+            # Over a trailing window, NOT step/elapsed_s. t0 is set when the
+            # process starts, so on a --resume run elapsed_s counts only the
+            # steps since the resume while step stays absolute: an arm resumed
+            # at 5000 and 1000 steps in reported 6x its true rate, and the eta
+            # with it. That read as the ladder running three times faster than
+            # the identical ladder had before, which is a wrong number that
+            # looks like good news.
+            "rate": _rate(h),
             # Lifetime clip% is dominated by warmup transients early on -- three
             # of six logged records reads as 50% and says nothing about whether
             # it is settling. Report the recent window too; that is the one that

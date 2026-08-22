@@ -1294,6 +1294,49 @@ def loss_mfcc(target: torch.Tensor, candidate: torch.Tensor) -> torch.Tensor:
     return torch.mean(torch.abs(t_mfcc - c_mfcc), dim=(1, 2))
 
 
+def metric_mfcc_gamma(target: torch.Tensor, candidate: torch.Tensor,
+                      gamma: float = 0.3) -> torch.Tensor:
+    """loss_mfcc with its dB step replaced by mel^gamma, and nothing else.
+
+    An EVALUATION metric, not a training objective. The plate scores arms by
+    val_nmse against ground-truth parameters, which is the thing actually cared
+    about and needs no compression argument at all. This exists for a different
+    question, and it is one only the plate can answer: WHICH AUDIO METRIC
+    PREDICTS TRUE PARAMETER ERROR. diffsynth has no ground truth, so the choice
+    of gamma there rests on Stevens' law -- an appeal to psychoacoustics. Here
+    the two can be measured against each other, and if g0.3 tracks val_nmse
+    while g0/LSD do not, quoting Stevens stops being an appeal and becomes a
+    result.
+
+    gamma is on INTENSITY: t_pow is magnitude squared, so this is I^gamma and
+    0.3 is Stevens directly, matching diffsynth's GammaCepstrum and the g<gamma>
+    columns of ds_mfcc_check. It is NOT magnitude^0.3, which would be I^0.15 --
+    the same trap L1_STFT_pow falls into.
+
+    Every setting except the compression is loss_mfcc's, so the pair differs in
+    one thing. librosa.filters.mel defaults to the Slaney scale with Slaney
+    normalisation, which is what GammaCepstrum uses too, so the two systems'
+    columns are built the same way.
+    """
+    eps = 1e-10
+    n_fft = min(2048, target.shape[-1])
+    hop = min(n_fft // 4, n_fft - 1)
+    n_mels, n_mfcc = 128, 20
+    mel_fb = _get_mel_fb(n_fft, n_mels)
+    dct = _get_dct(n_mfcc, n_mels)
+    t_mel = torch.matmul(mel_fb.unsqueeze(0), _stft_mag(target, n_fft, hop) ** 2)
+    c_mel = torch.matmul(mel_fb.unsqueeze(0), _stft_mag(candidate, n_fft, hop) ** 2)
+    t_c = (t_mel + eps) ** gamma
+    c_c = (c_mel + eps) ** gamma
+    t_mfcc = torch.matmul(dct.unsqueeze(0), t_c)
+    c_mfcc = torch.matmul(dct.unsqueeze(0), c_c)
+    return torch.mean(torch.abs(t_mfcc - c_mfcc), dim=(1, 2))
+
+
+def metric_mfcc_g03(target: torch.Tensor, candidate: torch.Tensor) -> torch.Tensor:
+    return metric_mfcc_gamma(target, candidate, 0.3)
+
+
 def _make_sot_lp(n_fft: int = 2048, p: int = 2, eps: float = 1e-8):
     """Level-preserving Spectral Optimal Transport -- the controlled contrast
     for SOT. IDENTICAL to _make_sot(lam=0) in every respect (flat-top window,
