@@ -437,6 +437,57 @@ def check_masking(b: Path):
                      "all present in the eval tables")
 
 
+def check_plate_gamma(b: Path):
+    head("plate gamma ladder: shared base, and the arms that resume it")
+    root = b / "plate/13_gamma_ladder/results"
+    if not root.exists():
+        note(LIM, "no plate gamma ladder in the bundle; the cross-system claim "
+                  "rests on diffsynth alone")
+        print("  MISSING"); return
+
+    got, short_ = {}, []
+    for d in sorted(root.rglob("history.json")):
+        try:
+            h = json.load(d.open())
+        except Exception:
+            continue
+        rows = [r for r in h["history"] if "val_nmse_6d" in r]
+        if not rows:
+            continue
+        name = f"{d.parent.parent.name}/{d.parent.name}"
+        got[name] = (rows[-1]["step"], rows[-1]["val_nmse_6d"] / h["const_nmse_6d"])
+        # gamma_pre is the 5000-step base by design; everything else is 40000.
+        if "gamma_pre/" not in name and rows[-1]["step"] < 40000:
+            short_.append(f"{name}@{rows[-1]['step']}")
+    print(f"  {len(got)} arms: " + ", ".join(
+        f"{k.split('/')[-1]}={v[1]:.2f}" for k, v in sorted(got.items())))
+    if not got:
+        note(FUND, "plate gamma arms carry no evaluated rows"); return
+    if short_:
+        note(LIM, "plate gamma arms stopped before 40000, so a cross-arm number "
+                  "must be read at a matched step: " + ", ".join(short_))
+
+    # The base is what makes the comparison single-variable. Without it every
+    # arm ran its own parameter-only phase divided by its own loss_scale, which
+    # differs by ~2000x between L1_STFT and L1_STFT_g1.
+    if not any(k.startswith("gamma_pre/") for k in got):
+        note(FUND, "the shared parameter-only base is absent, so nothing "
+                   "establishes that the arms started the crossfade from one "
+                   "point -- and each arm's hold is divided by its own "
+                   "loss_scale, which spans ~2000x across this ladder")
+    if not any(k.startswith("gamma_raw/") for k in got):
+        note(LIM, "no raw arm, so the retraction that the dead zone does NOT "
+                  "reproduce here rests on the pretrained arms alone")
+    if all(k in got for k in ("gamma_pre/L1_STFT", "gamma_raw/L1_STFT_g1")):
+        note(OK, "plate gamma ladder complete: shared base, pretrained arms and "
+                 "the from-scratch control that ruled the dead zone out")
+
+    if not (b / "plate/13_gamma_ladder/scripts/jobs_plate_gamma.txt").exists():
+        note(FUND, "jobs_plate_gamma.txt is not in the bundle; it carries the "
+                   "exponent-domain correction, the shared-base rationale and "
+                   "the ladder's own result table, none of which is anywhere else")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--bundle", type=Path, default=Path("paper"))
@@ -453,6 +504,7 @@ def main():
     check_ddsp(a.bundle)
     check_diffsynth(a.bundle)
     check_masking(a.bundle)
+    check_plate_gamma(a.bundle)
 
     print("\n" + "=" * 70)
     print(f"FUNDAMENTAL ({len(FUND)}) -- a number cannot be recomputed or a run reproduced")

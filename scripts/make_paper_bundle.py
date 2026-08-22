@@ -241,6 +241,92 @@ MANIFEST = [
         ),
     ),
     dict(
+        section="plate",
+        slug="13_gamma_ladder",
+        title="The compression exponent on the plate, against ground-truth parameters",
+        sources=[
+            "results/ddsp/gamma_pre",
+            "results/ddsp/gamma_ppre",
+            "results/ddsp/gamma_raw",
+        ],
+        scripts=[
+            "scripts/jobs_plate_gamma.txt",
+            "scripts/eps_ladder.sh",
+            "src/ddsp/monitor_sweep.py",
+        ],
+        extra_globs=[],
+        note=(
+            "The same ladder as diffsynth sections 09-11, on a system that has "
+            "TRUE PARAMETERS. Every audio metric there measures in a compressed "
+            "domain that is itself the thing under dispute; here the score is "
+            "val_nmse against the parameters that generated the target, so no "
+            "floor, mask or exponent argument enters the evaluation at all.\n\n"
+            "    THE EXPONENTS ARE ON INTENSITY, which required a fix. "
+            "_stft_mag returns .abs(), so every loss in losses.py had been an "
+            "exponent on MAGNITUDE while diffsynth's loss and every metric in "
+            "the project work on intensity. In intensity terms L1_STFT is "
+            "I^0.5 -- it IS diffsynth's magx, exactly, since (a^2)^0.5 = a -- "
+            "and L1_STFT_pow at gamma 0.3 is I^0.15, half the exponent it reads "
+            "as. Loudness ~ I^0.3 needs magnitude^0.6. The gpow mode takes the "
+            "exponent in the domain the rest of the project quotes; pow is left "
+            "untouched because published runs use it.\n\n"
+            "    ONE SHARED BASE, and it removes a confound rather than merely "
+            "5000 x 6 duplicated steps. spec_w == 0 drops the spectral term "
+            "from the graph, so the parameter-only hold is the same objective "
+            "for every arm -- but it is divided by loss_scale, fixed at step 1 "
+            "from THAT ARM'S own spectral loss, measured at 2.12 for L1_STFT "
+            "against 4483 for L1_STFT_g1. A factor of 2000 on the parameter "
+            "phase, invisible in the logs because train_loss reports the "
+            "undivided spectral value. gamma_pre trains the hold once; --resume "
+            "restores weights, optimizer moments AND loss_scale, so all five "
+            "arms start the crossfade from one point.\n\n"
+            "    THE RESULT IS A CLIFF, NOT A TREND. At 40000 steps, as "
+            "val_nmse_6d over the constant-predictor floor: I^1.0 and I^0.5 "
+            "both 0.01, hybrid 0.75, I^0.3 1.49, log 3.69. Between gamma 0.5 "
+            "and 0.3 the error jumps 100x and the arm ends WORSE THAN "
+            "PREDICTING THE DATASET MEAN. Stevens' exponent is on the far side "
+            "of that cliff: 0.3 is where hearing sits and training there "
+            "fails.\n\n"
+            "    The collapse is located exactly at param_w -> 0 (step 20000, "
+            "the end of the crossfade), and it is not a trade: gamma 0.3's own "
+            "g0.3 metric got worse at the same time, 0.4997 -> 0.7604. An arm "
+            "that holds only while parameter supervision holds it is reporting "
+            "that its spectral optimum is not at the true parameters -- a "
+            "statement diffsynth cannot make about any of its arms.\n\n"
+            "    THE DEAD ZONE DOES NOT REPRODUCE HERE, and that is a "
+            "retraction worth printing. diffsynth's spec_mag and spec_mag_halfw "
+            "froze bit-identically from random init while spec_magx_halfw "
+            "trained, and the reading was that |a^2 - t^2| has derivative 2a -> "
+            "0 at silence. gamma_raw runs I^1.0 from scratch with no "
+            "pretraining and it does NOT freeze -- it reaches ratio 0.03. The "
+            "trap needs the MODEL'S OUTPUT to be near-silent, and the plate "
+            "encoder at init emits mid-range tanh values that render a "
+            "perfectly ordinary IR, where diffsynth's estimator at init "
+            "produces near-silence. So the dead zone is a property of that "
+            "synthesizer's parameterisation, not of the power-domain loss in "
+            "general. Section 09's claim should be read with this beside it.\n\n"
+            "    AND THE METRIC VALIDATES, which is the one measurement only "
+            "this system can make. Rank the arms by the g0.3 cepstral metric "
+            "and by val_nmse and the orderings are IDENTICAL: g1 .273 / linear "
+            ".280 / raw_g1 .323 / hybrid .570 / g03 .577 / log 8.54 against "
+            ".0007 / .0007 / .0016 / .0355 / .0704 / .1744. On diffsynth the "
+            "choice of gamma 0.3 for evaluation rests on Stevens' law, an "
+            "appeal to psychoacoustics with nothing to check it against. Here "
+            "it is checked, and it ranks arms exactly as ground truth does. "
+            "Which pairs with the cliff above into the sharper statement: "
+            "gamma 0.3 is an excellent METRIC and a failed LOSS.\n\n"
+            "    CAVEATS, all in the logs. ppre:g1 clips on 6.3% of steps once "
+            "spec_w reaches 1.0 while linear and raw:g1 clip on none, so its "
+            "tie with linear carries that footnote -- grad-clip 5000 is partly "
+            "setting its step size. log's val_nmse is pinned at exactly 0.1744 "
+            "from step 24000 with param at 1.04, worse than predicting the "
+            "mean, which is a saturated head rather than a converged one. And "
+            "one seed per arm against the ~1% run-to-run spread five "
+            "pretrainings showed: the 100x gaps are far clear of it, the "
+            "g1/linear tie is not something a seed breaks either way."
+        ),
+    ),
+    dict(
         section="diffsynth",
         slug="08_reproduction",
         title="Masuda & Saito reproduced, and the loss swapped inside their schedule",

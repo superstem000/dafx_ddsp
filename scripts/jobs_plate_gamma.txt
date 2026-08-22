@@ -13,12 +13,20 @@
 #
 # THE PLATE HAS NEVER HAD THE g=1 RUNG. _stft_mag returns .abs(), so every loss
 # in losses.py is magnitude-domain: L1_STFT is I^0.5, the eps rungs are I -> 0,
-# and there was no I^1.0 arm at all. That is exactly why the zero-gradient dead
-# zone appeared on diffsynth and not here -- d|a^2 - t^2|/da = 2a vanishes at
-# silence, d|a - t|/da = +-1 does not -- and why "linear" meant two different
-# things across the two systems. L1_STFT_g1 supplies the missing rung, so the
-# dead zone can be reproduced or ruled out on a task with ground-truth
-# parameters rather than inferred from a frozen training curve.
+# and there was no I^1.0 arm at all. L1_STFT_g1 supplies it, so the dead zone
+# can be reproduced or ruled out on a task with ground-truth parameters rather
+# than inferred from a frozen training curve.
+#
+# RESULT, WRITTEN BACK: IT WAS RULED OUT. gamma_raw ran I^1.0 from random init
+# with no pretraining and did not freeze -- it reached ratio 0.03, and the
+# pretrained I^1.0 arm tied the magnitude arm outright at 0.01. So the reading
+# that |a^2 - t^2| is broken because its derivative 2a vanishes at silence does
+# not transfer. The trap needs the MODEL'S OUTPUT to be near-silent, and the
+# plate encoder at init emits mid-range tanh values that render a perfectly
+# ordinary IR, where diffsynth's estimator at init produces near-silence. The
+# dead zone is a property of that synthesizer's parameterisation, not of the
+# power-domain loss. This paragraph originally predicted the opposite and is
+# left corrected rather than deleted.
 #
 # AND L1_STFT_pow WAS NOT STEVENS. It applies gamma to MAGNITUDE, so pow at 0.3
 # is I^0.15 -- half the exponent it reads as. Loudness ~ I^0.3 needs
@@ -126,3 +134,36 @@ NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/dd
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g1" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_raw ARMS="L1_STFT_g1"  scripts/eps_ladder.sh "{gpu}"
+
+# ==========================================================================
+# WHAT THIS LADDER RETURNED, at 40000 steps, as val_nmse_6d over the
+# constant-predictor floor. Recorded here so the queue and its result live
+# together rather than in a monitor's scrollback.
+#
+#   I^1.0   L1_STFT_g1        0.01     tied best
+#   I^0.5   L1_STFT           0.01     tied best
+#           L1_STFT_hyb1e2    0.75
+#   I^0.3   L1_STFT_g03       1.49     worse than predicting the dataset mean
+#   I->0    L1_STFT_eps1e7    3.69
+#
+# A CLIFF, NOT A TREND. Between gamma 0.5 and 0.3 the error jumps 100x, and
+# Stevens' exponent sits on the far side of it: 0.3 is where hearing is and
+# training there fails. The collapse is located exactly at param_w -> 0, step
+# 20000, and it is not a trade -- gamma 0.3's own g0.3 metric worsened at the
+# same moment, 0.4997 -> 0.7604. An arm that holds only while parameter
+# supervision holds it is reporting that its spectral optimum is not at the
+# true parameters.
+#
+# AND THE METRIC VALIDATED. Ranking the arms by the g0.3 cepstral metric and by
+# val_nmse gives the IDENTICAL order -- .273/.280/.323/.570/.577/8.54 against
+# .0007/.0007/.0016/.0355/.0704/.1744. On diffsynth the choice of gamma 0.3 for
+# evaluation rests on Stevens' law with nothing to check it against; here it is
+# checked. Which sharpens into: gamma 0.3 is an excellent METRIC and a failed
+# LOSS.
+#
+# CAVEATS. ppre:g1 clips on 6.3% of steps once spec_w reaches 1.0 while linear
+# and raw:g1 clip on none, so grad-clip 5000 is partly setting its step size and
+# the tie carries that footnote. eps1e7 is pinned at exactly 0.1744 from step
+# 24000 with param at 1.04 -- worse than the mean -- which is a saturated head,
+# not a converged one. One seed per arm against the ~1% run-to-run spread five
+# pretrainings showed.
