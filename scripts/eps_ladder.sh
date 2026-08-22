@@ -107,6 +107,14 @@ GRAD_CKPT=${GRAD_CKPT:---no-grad-checkpoint}
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7"}
+# Which plate parameters are searched and which are pinned. Read by
+# src/cmaes/fit_7param_norm_es.py, and therefore by the encoder, the plate
+# packing and make_dataset alike -- a dataset generated under one value and
+# trained under another is targets and synthesis disagreeing about what the
+# pinned half is, which is exactly the floor diag_gt_floor exists to catch.
+# Exported and recorded for that reason. raw7 is the published task; see
+# PARAM_SPACES for the rest.
+export PLATE_PARAM_SPACE=${PLATE_PARAM_SPACE:-raw7}
 
 # Ctrl-C should stop the sweep, not advance it. Without this the per-arm
 # failure handling below reads an interrupt as "that arm died, start the next
@@ -124,6 +132,7 @@ NG=${#GPU_ARR[@]}
 mkdir -p "$OUT"
 echo "arms: ${ARM_ARR[*]}"
 echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  lr: $LR  out: $OUT"
+echo "param space: $PLATE_PARAM_SPACE  train: $TRAIN  val: $VAL"
 
 for d in "$TRAIN" "$VAL"; do
   if [[ ! -d "$d" ]]; then
@@ -175,6 +184,7 @@ fi
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
   echo "n_fft=$N_FFT hop=$HOP n_blocks=$N_BLOCKS grad_ckpt=$GRAD_CKPT"
   echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_cap=$HEAD_CAP adam_eps=$ADAM_EPS head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP lr_floor=$LR_FLOOR lr_hold_frac=$LR_HOLD deep_sup=$DEEPSUP"
+  echo "param_space=$PLATE_PARAM_SPACE"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"

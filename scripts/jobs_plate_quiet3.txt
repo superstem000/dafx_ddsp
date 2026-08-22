@@ -1,0 +1,117 @@
+# The gamma ladder again, on a plate task whose information lives in the QUIET
+# region. Same exponents, same pretraining, same schedule as
+# scripts/jobs_plate_gamma.txt -- only the parameter family changes.
+#
+#   PLATE_PARAM_SPACE=quiet3 python scripts/gpu_queue.py --jobs scripts/jobs_plate_quiet3.txt
+#
+# GENERATE THE DATA FIRST. docs/DATASETS.md, section "The quiet3 family", has
+# the three commands and the verification. The jobs below refuse to start
+# without data/train-quiet3 and data/val-quiet3, and diag_gt_floor must read
+# 0.0000e+00 on the SHUFFLED row before any of this is attributable.
+#
+# WHY A THIRD FAMILY. Both systems so far answer the question on tasks where a
+# parameter change is mostly a change to where the LOUD partials sit: harmor's
+# oscillator parameters, and the plate's geometry. Compression is a statement
+# about the quiet bins, so the strongest version of "log compression is bad for
+# parameter estimation" is the one made where the parameters are legible mainly
+# in the tail -- where an uncompressed loss has the least to go on and log has
+# the most. If linear still wins there, it wins where compression should have
+# been most useful. If it loses there, the boundary of the claim is located,
+# which is a result and not a failure.
+#
+# WHAT quiet3 IS. Geometry pinned at val IR 0001; T0, T60_DC and T60_ratio
+# searched, with T60_F1 = T60_ratio * T60_DC. Defined in PARAM_SPACES in
+# src/cmaes/fit_7param_norm_es.py and selected by PLATE_PARAM_SPACE, which
+# every consumer reads -- generator, encoder, plate packing, diagnostics -- so
+# they cannot disagree about which half is pinned.
+#
+# HOW THE RANGES WERE CHOSEN, and the honest version of it. The first sweep
+# said damping was unlearnable. It was measured against the wrong denominator:
+# dnorm% there was a fraction of the saturation of the GEOMETRY-VARYING val
+# set, and a damping nudge is small against that BY CONSTRUCTION. What decides
+# learnability is the change relative to the spread the encoder actually has to
+# resolve, which means saturation computed inside the proposed family. That is
+# what --vary added, and it is the measurement these ranges rest on:
+#
+#   python -m src.ddsp.diag_param_sensitivity --data-dir data/val-p99 --n 64 \
+#     --vary T0=10:1000 T60_DC=1:10 --ratio 0.25:0.75 \
+#     --rel 0.05 0.10 0.20 --step range
+#
+#            dnorm% @5/10/20%      log dec @5/10/20%
+#   T0        5.7 / 10.3 / 17.3     3.53 / 3.63 / 3.76
+#   T60_DC   14.8 / 34.1 / 46.7     4.30 / 4.91 / 5.39
+#   T60_F1   18.4 / 35.0 / 72.5     5.15 / 5.53 / 5.95
+#
+# dnorm% is the L1 spectrogram change as a fraction of the distance between two
+# IRs of this same family. log dec is the centroid of that change across ten
+# deciles of target magnitude, where 5.5 is uniform, below is quiet-biased.
+# Every parameter moves a double-digit fraction of saturation -- so this is a
+# task and not a needle -- and every one puts its evidence at or below the
+# neutral line, which is the property the family was built for. T0 is the most
+# quiet-biased at 3.6 and the weakest at 10.3%; T60_F1 is the strongest and the
+# only one that touches neutral.
+#
+# T60_F1 IS CARRIED AS A RATIO, not as its own parameter. beta ~ (1/T60_F1 -
+# 1/T60_DC), so T60_F1 > T60_DC flips beta negative and the high modes grow
+# without bound. r < 1 makes that unreachable by construction rather than by
+# rejection sampling. The non-finite renders the sweep reported at +10% and
+# +20% on T60_F1 are exactly that boundary being crossed by a linear step that
+# ignores the ratio -- a probe artefact this parameterisation cannot produce.
+#
+# T0 IS LOG-SCALED IN z. Its range spans two decades; a uniform draw leaves 90%
+# of the mass in the top decade with the bottom never sampled. The sweep
+# sampled it log-uniform, so z has to match or the dataset is not the family
+# that was measured. This is the first space with a log coordinate, and
+# nmse_7d normalizes it by log-range for the same reason.
+#
+# THE CHEAP PART. Pinned geometry means a constant modal grid: 30x92 = 2,760
+# modes against raw7's 24,252. Steps are roughly 9x cheaper, and n_modes no
+# longer varies with the batch at all, so the batch-composition residual raw7
+# could only bound is absent rather than small.
+#
+# WHAT IS HELD FIXED AGAINST jobs_plate_gamma.txt, deliberately, so the two
+# ladders are comparable: same arms, same 40000 steps, same LR schedule, same
+# NORM=batch, same Masuda & Saito pretraining fractions (parameter loss alone
+# for 12.5%, crossfade to 50%, param_w 10 -> 0), same one shared base every arm
+# resumes from, same --n-train 98304. The head emits three coordinates instead
+# of seven and the data is a different family. That is the whole diff.
+#
+# NOT A PURE LADDER IN OPTIMISATION TERMS -- the same caveat as the raw7 run,
+# for the same reason: the losses use x^gamma rather than Box-Cox
+# (x^gamma - 1)/gamma, so the gradient carries a factor of gamma and g03 trains
+# at ~0.6x g05's spectral step. Adam absorbs a uniform factor once the spectral
+# term is the whole objective; the crossfade is where it does not.
+#
+# ORDERING. Two stages, because stages are hard barriers and the shared base is
+# the only real dependency. Longest job first inside the second stage.
+
+# STAGE the shared parameter-only base. EVERYTHING BELOW RESUMES FROM IT, so if
+# it fails the rest must not start -- which is why it is alone in its stage.
+# --lr-decay-end 40000 on a --steps 5000 run makes the base's learning rate the
+# first 5000 steps of the 40000-step schedule rather than a compressed
+# 5000-step one; --param-hold-frac 1.0 holds param_w at 10 throughout, since the
+# handover reads its boundaries as fractions of --steps.
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=5000 OUT=results/ddsp/quiet3_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 40000" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE everything else. eps1e7 leads because it is the long pole; the linear
+# anchor is second so it lands in the same wave, since every number is quoted as
+# a ratio against it and a queue that dies early is only interpretable if it
+# finished. The raw arm is last: it resumes from nothing and is the one result
+# that still stands alone if the queue never reaches it.
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_eps1e7" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_g03" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_g1" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_raw ARMS="L1_STFT_g1" scripts/eps_ladder.sh "{gpu}"
+
+# Monitor it the same way:
+#
+#   python -m src.ddsp.monitor_sweep --root results/ddsp/quiet3_pre \
+#     --root results/ddsp/quiet3_ppre --root results/ddsp/quiet3_raw \
+#     --metrics spec_w param g03 nmse ratio
+#
+# READ val_nmse_6d AS THE NMSE OVER THE THREE SEARCHED PARAMETERS. quiet3 has no
+# composite reduction because it has no symmetry to quotient out, so the key
+# keeps its name for the monitor's sake and val_nmse_7d beside it is the same
+# number. See docs/DATASETS.md.

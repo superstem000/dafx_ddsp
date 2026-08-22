@@ -7,6 +7,7 @@ Run as:
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from pathlib import Path
 
@@ -29,16 +30,125 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 SAMPLE_RATE = 44100
 NU = 0.25
 
-PARAM_KEYS = ["E", "rho", "h", "Ly", "T0", "op_x", "op_y"]
-PARAM_BOUNDS = {
-    "E": (6.7e10, 2.2e11),
-    "rho": (2430.0, 21230.0),
-    "h": (0.001, 0.005),
-    "Ly": (1.1, 4.0),
-    "T0": (0.01, 1000.0),
-    "op_x": (0.51, 1.0),
-    "op_y": (0.51, 1.0),
-}
+# --------------------------------------------------------------------------
+# Parameter spaces
+#
+# Which plate parameters are searched, and which are pinned, is a property of
+# the *task*, not of any one script -- the fitter, the encoder, the dataset
+# generator and the diagnostics all have to agree on it or targets and
+# synthesis stop meaning the same thing. So it lives here once, selected by
+# PLATE_PARAM_SPACE, and every consumer reads PARAM_KEYS/PARAM_BOUNDS/
+# FIXED_PLATE_PARAMS from this module as it always has.
+#
+#   raw7    the published task: seven geometry/tension parameters, damping
+#           pinned. Unchanged, and selected by default, so nothing that ran
+#           before this existed runs differently now.
+#   quiet3  the third system: geometry pinned, T0 and the two damping times
+#           varied. Built from src/ddsp/diag_param_sensitivity.py --vary, which
+#           measured every candidate against the saturation of its OWN family
+#           rather than against the geometry-varying set -- see PLATE_QUIET3
+#           below for the numbers that chose these ranges.
+# --------------------------------------------------------------------------
+
+PLATE_RAW7 = dict(
+    keys=["E", "rho", "h", "Ly", "T0", "op_x", "op_y"],
+    bounds={
+        "E": (6.7e10, 2.2e11),
+        "rho": (2430.0, 21230.0),
+        "h": (0.001, 0.005),
+        "Ly": (1.1, 4.0),
+        "T0": (0.01, 1000.0),
+        "op_x": (0.51, 1.0),
+        "op_y": (0.51, 1.0),
+    },
+    log_keys=set(),
+    fixed={
+        "Lx": 1.0,
+        "nu": 0.25,
+        "T60_DC": 6.0,
+        "T60_F1": 2.0,
+        "loss_F1": 500.0,
+        "fp_x": 0.335,
+        "fp_y": 0.467,
+    },
+    products={},
+    composite=True,
+)
+
+# The geometry pin is val-1000's IR 0001, which is the row diag_param_sensitivity
+# --vary holds fixed while it samples, so the sensitivity numbers below were
+# measured at exactly this plate.
+#
+# Measured with --vary T0=10:1000 T60_DC=1:10 --ratio 0.25:0.75, n=64, both
+# signs, stepping a fraction of the family's own range. dnorm% is the L1
+# spectrogram change as a fraction of the distance between two IRs drawn from
+# this same family; log dec is the centroid of the disagreement over ten deciles
+# of target magnitude, where 5.5 is uniform, below is quiet-biased:
+#
+#            dnorm% @5/10/20%      log dec @5/10/20%
+#   T0        5.7 / 10.3 / 17.3     3.53 / 3.63 / 3.76
+#   T60_DC   14.8 / 34.1 / 46.7     4.30 / 4.91 / 5.39
+#   T60_F1   18.4 / 35.0 / 72.5     5.15 / 5.53 / 5.95
+#
+# All three sit at or below the neutral 5.5, and every one moves a double-digit
+# fraction of the family's saturation -- which is what makes this a task and not
+# a needle. T60_F1 is carried as a RATIO of T60_DC rather than as its own
+# parameter: beta ~ (1/T60_F1 - 1/T60_DC), so T60_F1 > T60_DC flips beta
+# negative and the high modes grow without bound. r < 1 makes that unreachable
+# by construction rather than by rejection sampling. (The non-finite renders the
+# sweep reported at +10% and +20% on T60_F1 are exactly that boundary being
+# crossed by a step that ignores the ratio -- a probe artefact this
+# parameterisation cannot produce.)
+#
+# T0 is log-scaled in z. Its range spans two decades, and a uniform draw over it
+# leaves 90% of the mass in the top decade with the bottom never sampled; the
+# sweep sampled it log-uniform for that reason, and z has to match or the
+# dataset is not the family that was measured.
+PLATE_QUIET3 = dict(
+    keys=["T0", "T60_DC", "T60_ratio"],
+    bounds={
+        "T0": (10.0, 1000.0),
+        "T60_DC": (1.0, 10.0),
+        "T60_ratio": (0.25, 0.75),
+    },
+    log_keys={"T0"},
+    fixed={
+        "Lx": 1.0,
+        "Ly": 3.049607820029296,
+        "h": 0.0029523135969623,
+        "rho": 3021.192087374405,
+        "E": 190631644394.8217,
+        "nu": 0.25,
+        "loss_F1": 500.0,
+        "fp_x": 0.335,
+        "fp_y": 0.467,
+        "op_x": 0.78715253560916,
+        "op_y": 0.6558350243649326,
+    },
+    products={"T60_F1": ("T60_ratio", "T60_DC")},
+    composite=False,
+)
+
+PARAM_SPACES = {"raw7": PLATE_RAW7, "quiet3": PLATE_QUIET3}
+PARAM_SPACE = os.environ.get("PLATE_PARAM_SPACE", "raw7")
+if PARAM_SPACE not in PARAM_SPACES:
+    raise SystemExit(
+        f"PLATE_PARAM_SPACE={PARAM_SPACE!r} is not one of {sorted(PARAM_SPACES)}"
+    )
+_SPEC = PARAM_SPACES[PARAM_SPACE]
+
+PARAM_KEYS = list(_SPEC["keys"])
+PARAM_BOUNDS = dict(_SPEC["bounds"])
+# Keys whose z is log-spaced between the bounds instead of linear.
+LOG_PARAMS = set(_SPEC["log_keys"])
+# Plate columns that are a product of two searched parameters (T60_F1 = r*T60_DC).
+PRODUCT_PLATE_PARAMS = dict(_SPEC["products"])
+# True when the space has a composite reduction (mu, D/mu, ...) that removes an
+# exact synthesis symmetry. False elsewhere, and then the 6d/5d reports are
+# skipped rather than faked: every parameter is individually identifiable, so
+# the raw NMSE over PARAM_KEYS is the whole story.
+HAS_COMPOSITE = bool(_SPEC["composite"])
+IS_LOG_NP = np.array([k in LOG_PARAMS for k in PARAM_KEYS], dtype=bool)
 
 BOUNDS_LO_NP = np.array([PARAM_BOUNDS[k][0] for k in PARAM_KEYS], dtype=np.float64)
 BOUNDS_HI_NP = np.array([PARAM_BOUNDS[k][1] for k in PARAM_KEYS], dtype=np.float64)
@@ -58,15 +168,7 @@ COMPOSITE_BOUNDS = {
     "op_y": (0.51, 1.0),
 }
 
-FIXED_PLATE_PARAMS = {
-    "Lx": 1.0,
-    "nu": 0.25,
-    "T60_DC": 6.0,
-    "T60_F1": 2.0,
-    "loss_F1": 500.0,
-    "fp_x": 0.335,
-    "fp_y": 0.467,
-}
+FIXED_PLATE_PARAMS = dict(_SPEC["fixed"])
 
 
 def create_robust_storage(db_name: str = "cmaes_lhs.db"):
@@ -135,8 +237,28 @@ def params_np_to_dict(params_row: np.ndarray) -> dict:
 
 
 def norm_to_physical(norm_batch_np: np.ndarray) -> np.ndarray:
-    """Map normalized parameters in [-1, 1] to physical PARAM_BOUNDS."""
-    return BOUNDS_LO_NP + ((norm_batch_np - NORM_LO_NP) / NORM_RANGE_NP) * BOUNDS_RANGE_NP
+    """Map normalized parameters in [-1, 1] to physical PARAM_BOUNDS.
+
+    Linear, except for LOG_PARAMS. With no log keys -- every space that existed
+    before quiet3 -- this is the same expression it always was.
+    """
+    u = (norm_batch_np - NORM_LO_NP) / NORM_RANGE_NP
+    lin = BOUNDS_LO_NP + u * BOUNDS_RANGE_NP
+    if not IS_LOG_NP.any():
+        return lin
+    log = BOUNDS_LO_NP * np.power(BOUNDS_HI_NP / BOUNDS_LO_NP, u)
+    return np.where(IS_LOG_NP, log, lin)
+
+
+def physical_to_norm(phys_batch_np: np.ndarray) -> np.ndarray:
+    """Inverse of norm_to_physical."""
+    lin = (phys_batch_np - BOUNDS_LO_NP) / BOUNDS_RANGE_NP
+    if IS_LOG_NP.any():
+        log = np.log(np.maximum(phys_batch_np, 1e-300) / BOUNDS_LO_NP) / np.log(
+            BOUNDS_HI_NP / BOUNDS_LO_NP
+        )
+        lin = np.where(IS_LOG_NP, log, lin)
+    return NORM_LO_NP + lin * NORM_RANGE_NP
 
 
 def generate_lhs_starts_norm(n_trials: int, seed: int = 42) -> np.ndarray:
@@ -178,32 +300,22 @@ def load_target_ir_from_npz(npz_path: Path, duration_s: float, expected_sr: int)
 
 
 def physical_to_plate14_tensor(phys_batch_np: np.ndarray, device: str | torch.device) -> torch.Tensor:
-    """Map [B,7] {E,rho,h,Ly,T0,op_x,op_y} into SevenParamPlate's [B,14]."""
-    E = phys_batch_np[:, 0]
-    rho = phys_batch_np[:, 1]
-    h = phys_batch_np[:, 2]
-    Ly = phys_batch_np[:, 3]
-    T0 = phys_batch_np[:, 4]
-    op_x = phys_batch_np[:, 5]
-    op_y = phys_batch_np[:, 6]
+    """Map [B,P] searched parameters into SevenParamPlate's [B,14].
 
+    Packed by NAME rather than by position, so a space that searches a different
+    set of parameters needs no second copy of this: every plate column is either
+    searched, derived from searched ones (T60_F1 = ratio * T60_DC), or pinned.
+    For raw7 the resulting columns are identical to the hand-written stack this
+    replaced -- verify_mapping_matches_cmaes still checks the torch copy against
+    it on every run.
+    """
+    named = {k: phys_batch_np[:, i] for i, k in enumerate(PARAM_KEYS)}
+    for out, (a, b) in PRODUCT_PLATE_PARAMS.items():
+        named[out] = named[a] * named[b]
+    ones = np.ones(phys_batch_np.shape[0], dtype=phys_batch_np.dtype)
     cols = np.stack(
-        [
-            np.full_like(E, FIXED_PLATE_PARAMS["Lx"]),
-            Ly,
-            h,
-            T0,
-            rho,
-            E,
-            np.full_like(E, FIXED_PLATE_PARAMS["nu"]),
-            np.full_like(E, FIXED_PLATE_PARAMS["T60_DC"]),
-            np.full_like(E, FIXED_PLATE_PARAMS["T60_F1"]),
-            np.full_like(E, FIXED_PLATE_PARAMS["loss_F1"]),
-            np.full_like(E, FIXED_PLATE_PARAMS["fp_x"]),
-            np.full_like(E, FIXED_PLATE_PARAMS["fp_y"]),
-            op_x,
-            op_y,
-        ],
+        [named[k] if k in named else ones * FIXED_PLATE_PARAMS[k]
+         for k in BatchedModalPlateTorch.PARAM_ORDER],
         axis=1,
     )
     return torch.tensor(cols, dtype=torch.float32, device=device)

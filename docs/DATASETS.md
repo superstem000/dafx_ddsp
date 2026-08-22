@@ -85,3 +85,75 @@ IRs excluded as needing more than 86x282 modes below Nyquist; loss at true
 parameters 0.0000% of saturation for linear and at most 0.074% for log, the
 residual being `torch.compile` selecting different kernels in different
 processes (two runs of the same command gave 0.074% and exactly 0).
+
+## The quiet3 family — a task whose information is in the quiet region
+
+Everything above describes `raw7`, where the seven searched parameters are
+geometry and tension and the damping is pinned. `quiet3` inverts that: geometry
+is pinned at val IR 0001 and the three searched parameters are `T0`, `T60_DC`
+and `T60_ratio`, with `T60_F1 = T60_ratio * T60_DC`. It exists because the
+thesis is about what compression does to *quiet* bins, and in `raw7` a
+parameter change is mostly a change to where the loud modes sit. Here it is
+mostly a change to how the tail decays.
+
+Which parameters, which bounds and which are pinned all live in
+`PARAM_SPACES` in `src/cmaes/fit_7param_norm_es.py`, selected by the
+`PLATE_PARAM_SPACE` environment variable, so the generator, the encoder, the
+plate packing and the diagnostics cannot disagree about them. **Set it for
+generation and for training, to the same value.** The bounds and the evidence
+for them are documented at `PLATE_QUIET3` there; in short, measured with
+`diag_param_sensitivity --vary`, all three parameters move 10-35% of the
+family's own saturation at a 10%-of-range nudge, and all three put the centroid
+of that change at or below the neutral 5.5th magnitude decile.
+
+```bash
+export PLATE_PARAM_SPACE=quiet3
+
+# 0. Confirm the pinned geometry is the plate the sensitivity sweep measured.
+#    --vary pins everything it does not vary at the FIRST parameter set in the
+#    directory it reads, so the ranges in PARAM_SPACES describe that one plate;
+#    this must say MATCH, against whichever directory that sweep was run on.
+python -m src.data.make_dataset --check-pin data/val-p99
+
+# 1. The pin. Geometry is fixed, so every IR in this family needs the same
+#    modal grid and this is a formality -- but run it rather than trusting the
+#    number below, since it is what the whole dataset is rendered under.
+python -m src.data.make_dataset --number 1000 --report-grid
+
+# 2. Generate. Nothing is excluded: with the grid constant, no parameter set
+#    can need a finer one than the pin.
+python -m src.data.make_dataset --number 1000 --seed 2 \
+  --output-dir data/val-quiet3 --duration 0.25 --render-path training \
+  --batched-plate --compile-plate --chunk-elems 1000000000 \
+  --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 30,92
+
+python -m src.data.make_dataset --number 100000 --seed 3 \
+  --output-dir data/train-quiet3 --duration 0.25 --render-path training \
+  --batched-plate --compile-plate --chunk-elems 1000000000 \
+  --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 30,92
+
+# 3. Verify, exactly as above. Same requirement: 0.0000e+00 on the SHUFFLED row.
+python -m src.ddsp.diag_gt_floor --data-dir data/val-quiet3 --n-val 512 \
+  --compile-plate --chunk-elems 1000000000 --fixed-mode-grid 30,92
+```
+
+30x92 is 2,760 modes against `raw7`'s 24,252, so both generation and training
+are roughly 9x cheaper per step here. Sampling is uniform in `z`, which is
+log-uniform in `T0` — that parameter spans two decades and is log-scaled in the
+normalized coordinate, so the bottom decade is neither compressed into the last
+1% of what the encoder emits nor left unsampled. It is the distribution the
+sensitivity sweep measured.
+
+Two differences from `raw7` worth stating before they surprise someone:
+
+- **No composite reduction.** `raw7` reports `val_nmse_6d` because
+  `(E, rho, h) -> (c^3 E, c rho, h/c)` leaves the IR identical and scoring
+  those three individually would measure drift the loss cannot see. `quiet3`
+  has no such symmetry — every parameter is separately identifiable — so
+  `val_nmse_6d` is the plain NMSE over the three searched parameters, reported
+  under the existing key so the monitor and the plots read unchanged, and
+  `val_nmse_7d` beside it is the same number. `--fit-mu` is forced off for the
+  same reason: `mu = rho*h` is pinned, so there is no scale left to fit.
+- **No batch-composition term.** `n_modes` is constant across the whole
+  dataset, not merely pinned per run, so the reduction tree is the same for
+  every batch and the one residual `raw7` could only bound is absent here.

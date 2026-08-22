@@ -47,6 +47,13 @@ import pandas as pd
 import torch
 
 from ModalPlate.ParamRange import params as PLATE_PARAM_RANGES
+from src.cmaes.fit_7param_norm_es import (
+    FIXED_PLATE_PARAMS,
+    PARAM_KEYS,
+    PARAM_SPACE,
+    PRODUCT_PLATE_PARAMS,
+    norm_to_physical,
+)
 from src.plate.SevenParamPlate import BatchedModalPlateTorch as SevenParamPlate
 
 SAMPLE_RATE = 44100
@@ -83,6 +90,35 @@ def sample_parameters(num: int, seed: int) -> List[Dict[str, float]]:
                 p[name] = rng.low
             else:
                 p[name] = float(np.random.uniform(rng.low, rng.high))
+        out.append(p)
+    return out
+
+
+def sample_space_parameters(num: int, seed: int) -> List[Dict[str, float]]:
+    """Draw parameter sets for a non-raw7 space, uniformly in its z.
+
+    Not the DatasetGen stream: that iterates ModalPlate's fourteen ParamRanges,
+    which is the wrong distribution for a space whose searched set is different
+    and whose bounds are its own. Uniform in z is the distribution the encoder's
+    output coordinate is uniform over, and for a log-scaled parameter that is
+    log-uniform in physical units -- which is exactly how the sensitivity sweep
+    that chose these ranges sampled T0.
+
+    Every row carries all fourteen plate parameters (searched, derived and
+    pinned) plus any non-plate coordinate such as T60_ratio, so the CSVs stay
+    readable by everything that reads a dataset today and the pinned half is
+    recorded rather than implied.
+    """
+    rng = np.random.default_rng(seed)
+    z = rng.uniform(-1.0, 1.0, size=(num, len(PARAM_KEYS)))
+    phys = norm_to_physical(z)
+    out = []
+    for row in phys:
+        p = {k: float(v) for k, v in zip(PARAM_KEYS, row)}
+        for name, (a, b) in PRODUCT_PLATE_PARAMS.items():
+            p[name] = p[a] * p[b]
+        for name, v in FIXED_PLATE_PARAMS.items():
+            p.setdefault(name, float(v))
         out.append(p)
     return out
 
@@ -130,8 +166,6 @@ def render_training_path(space, batch: List[Dict[str, float]], duration: float) 
     deterministically, so target and training synthesis agree bit-for-bit up to
     the batch-composition term (measured at 0.027% of saturation).
     """
-    from src.cmaes.fit_7param_norm_es import PARAM_KEYS
-
     z = np.stack([space.gt_z({k: float(p[k]) for k in PARAM_KEYS}) for p in batch])
     z_t = torch.as_tensor(z, dtype=torch.float32, device=space.device)
     with torch.no_grad():
@@ -210,7 +244,41 @@ def verify_against(generated: List[Dict[str, float]], ref_dir: Path) -> None:
     print("  " + ("MATCH" if worst < 1e-9 else "MISMATCH -- sampling has diverged"))
 
 
+def check_pin(ref_dir: Path) -> None:
+    """Check the pinned half against the IR the sensitivity sweep held fixed.
+
+    diag_param_sensitivity --vary builds its family by varying the named
+    parameters around the FIRST parameter set in a directory and pinning
+    everything else, so the ranges it reports describe one particular plate.
+    quiet3's pin is that plate, copied into PARAM_SPACES by hand. If the
+    directory the sweep read is not the one those numbers came from -- or if
+    that IR was among the few the p99 grid excluded, which shifts sorted()[0]
+    to a different plate -- then the family being generated is a legitimate
+    task but not the one that was measured. Cheap to check, so check it.
+    """
+    csvs = sorted(ref_dir.glob("random_IR_params_*.csv"))
+    if not csvs:
+        raise FileNotFoundError(f"No random_IR_params_*.csv in {ref_dir}")
+    ref = pd.read_csv(csvs[0]).iloc[0].to_dict()
+    print(f"pin check: {PARAM_SPACE} pinned parameters against {csvs[0].name}")
+    worst = 0.0
+    for k, v in sorted(FIXED_PLATE_PARAMS.items()):
+        if k not in ref:
+            print(f"  {k:<10} {v:<24.10g} not in the reference CSV")
+            continue
+        rel = abs(v - float(ref[k])) / max(abs(float(ref[k])), 1e-30)
+        worst = max(worst, rel)
+        print(f"  {k:<10} {v:<24.10g} ref {float(ref[k]):<24.10g} rel {rel:.2e}")
+    print("  " + ("MATCH -- this is the plate the sweep measured" if worst < 1e-9
+                  else "MISMATCH -- the ranges in PARAM_SPACES were measured at a "
+                       "different plate"))
+
+
 def run(args) -> None:
+    if args.check_pin is not None:
+        check_pin(args.check_pin)
+        return
+
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     out_dir = args.output_dir or Path(f"data/random-IR-torch-{args.number}-{args.duration:g}s")
     out_dir = Path(out_dir)
@@ -243,6 +311,11 @@ def run(args) -> None:
         indices = [c.stem.split("_")[-1] for c in csvs]
         args.number = len(param_sets)
         print(f"Re-rendering {args.number} parameter sets from {args.rerender_from}")
+    elif PARAM_SPACE != "raw7":
+        print(f"Sampling {args.number} parameter sets in space {PARAM_SPACE} "
+              f"({', '.join(PARAM_KEYS)}, seed {args.seed})")
+        param_sets = sample_space_parameters(args.number, args.seed)
+        indices = [f"{i + 1:04d}" for i in range(args.number)]
     else:
         print(f"Sampling {args.number} parameter sets (seed {args.seed})")
         param_sets = sample_parameters(args.number, args.seed)
@@ -326,7 +399,8 @@ def run(args) -> None:
     (out_dir / "generation_summary.txt").write_text(
         f"generator: src.data.make_dataset\n"
         f"number: {args.number}\nduration_s: {args.duration}\nsample_rate: {args.sample_rate}\n"
-        f"seed: {args.seed}\nrenderer: SevenParamPlate (torch, float32, normalize=False)\n"
+        f"seed: {args.seed}\nparam_space: {PARAM_SPACE} ({', '.join(PARAM_KEYS)})\n"
+        f"renderer: SevenParamPlate (torch, float32, normalize=False)\n"
         f"elapsed_s: {elapsed:.1f}\n"
     )
     print(f"Done: {args.number} IRs in {elapsed:.0f}s -> {out_dir}")
@@ -365,6 +439,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compare sampled parameters to an existing dataset's CSVs",
     )
     p.add_argument("--verify-only", action="store_true", help="Verify and exit without rendering")
+    p.add_argument(
+        "--check-pin", type=Path, default=None, metavar="DIR",
+        help="Compare this space's PINNED parameters against the first parameter CSV "
+             "in DIR, and exit. For a space whose ranges came from a "
+             "diag_param_sensitivity --vary run, DIR is the directory that run read: "
+             "the sweep pins everything it does not vary at that IR, so this says "
+             "whether the family being generated is the one that was measured.",
+    )
     p.add_argument(
         "--report-grid", action="store_true",
         help="Print the largest modal grid these parameters need, and exit. The value "

@@ -54,7 +54,15 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.cmaes.fit_7param_norm_es import BOUNDS_HI_NP, BOUNDS_LO_NP, NU, PARAM_KEYS
+from src.cmaes.fit_7param_norm_es import (
+    BOUNDS_HI_NP,
+    BOUNDS_LO_NP,
+    HAS_COMPOSITE,
+    NU,
+    PARAM_KEYS,
+    PARAM_SPACE,
+    norm_to_physical,
+)
 from src.gd.graddescent import (
     SAMPLE_RATE,
     Raw7Space,
@@ -434,7 +442,7 @@ def two_stage_forward(enc0, refiner, cond, space, x, scale, args, two_stage: boo
 
 
 def z_to_dicts(z: np.ndarray) -> list:
-    phys = BOUNDS_LO_NP + ((z + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
+    phys = norm_to_physical(z)
     return [{k: float(v) for k, v in zip(PARAM_KEYS, row)} for row in phys]
 
 
@@ -613,10 +621,8 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
         z0, x0, z1, x1 = two_stage_forward(model, refiner, cond, space, xb, scale, args, two_stage)
         zp, pred = (z1, x1) if two_stage else (z0, x0)
         losses.append(loss_fn(xb, pred).detach())
-        if mu_loss_fn is not None:
-            phys_b = BOUNDS_LO_NP + ((zp.detach().cpu().numpy() + 1.0) / 2.0) * (
-                BOUNDS_HI_NP - BOUNDS_LO_NP
-            )
+        if mu_loss_fn is not None and HAS_COMPOSITE:
+            phys_b = norm_to_physical(zp.detach().cpu().numpy())
             mu_b = torch.as_tensor(
                 phys_b[:, PARAM_KEYS.index("rho")] * phys_b[:, PARAM_KEYS.index("h")],
                 device=pred.device, dtype=pred.dtype,
@@ -632,11 +638,22 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     zp = torch.cat(preds).cpu().numpy()
     zt = z_val.cpu().numpy()
     est, gt = z_to_dicts(zp), z_to_dicts(zt)
-    est6 = [seven_to_six(e) for e in est]
-    gt6 = [seven_to_six(g) for g in gt]
-    n6 = [nmse_6d(e, g) for e, g in zip(est6, gt6)]
-    n5 = [nmse_shape(e, g) for e, g in zip(est6, gt6)]
     n7 = [nmse_7d(e, g) for e, g in zip(est, gt)]
+    if HAS_COMPOSITE:
+        est6 = [seven_to_six(e) for e in est]
+        gt6 = [seven_to_six(g) for g in gt]
+        n6 = [nmse_6d(e, g) for e, g in zip(est6, gt6)]
+        n5 = [nmse_shape(e, g) for e, g in zip(est6, gt6)]
+    else:
+        # The composite reduction exists to quotient out an exact synthesis
+        # symmetry -- (E, rho, h) -> (c^3 E, c rho, h/c) leaves the IR untouched,
+        # so scoring those three individually measures drift the loss cannot
+        # see. A space with no such symmetry has nothing to quotient: every
+        # parameter is separately identifiable and the NMSE over PARAM_KEYS is
+        # the whole story. It is reported under the existing key so the monitor,
+        # the best-checkpoint rule and the plots read unchanged.
+        est6 = gt6 = None
+        n6 = n5 = n7
 
     # The scale stage, reported separately from the shape fit rather than folded
     # into one number: under a peak-normalized loss the encoder's own mu is
@@ -698,7 +715,7 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     # correlations track drift along a direction the loss cannot see. These are
     # the ones that say whether the mapping is being learned. Compared in log
     # space for mu, D_mu and T0_mu, which span decades.
-    for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y"):
+    for k in (("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y") if HAS_COMPOSITE else ()):
         a = np.array([e[k] for e in est6], dtype=np.float64)
         b = np.array([g[k] for g in gt6], dtype=np.float64)
         if k in ("mu", "D_div_mu", "T0_div_mu"):
@@ -718,9 +735,11 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     # help" is visible rather than inferred from a single combined number.
     if two_stage:
         est0 = z_to_dicts(torch.cat(preds0).cpu().numpy())
-        out["val_nmse_6d_stage0"] = float(
-            np.median([nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est0, gt)])
-        )
+        out["val_nmse_6d_stage0"] = float(np.median(
+            [nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est0, gt)]
+            if HAS_COMPOSITE else
+            [nmse_7d(e, g) for e, g in zip(est0, gt)]
+        ))
     return out
 
 
@@ -732,8 +751,9 @@ def constant_predictor_nmse(z_train: torch.Tensor, z_val: torch.Tensor) -> Tuple
     """
     zc = np.repeat(z_train.mean(0, keepdim=True).cpu().numpy(), z_val.shape[0], axis=0)
     est, gt = z_to_dicts(zc), z_to_dicts(z_val.cpu().numpy())
-    n6 = [nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est, gt)]
     n7 = [nmse_7d(e, g) for e, g in zip(est, gt)]
+    n6 = ([nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est, gt)]
+          if HAS_COMPOSITE else n7)
     return float(np.median(n6)), float(np.median(n7))
 
 
@@ -757,10 +777,16 @@ def run(args) -> None:
     # mu is then not fitted by training at all and the run would report nothing
     # about it, but allow it either way so the two pipelines stay comparable.
     fit_mu = args.fit_mu if args.fit_mu is not None else args.peak_normalize
+    # mu = rho*h is pinned in a space that does not search it, so there is no
+    # scale left to fit and postmu would be the same number under a different
+    # name; forcing it off keeps best_key pointing at a metric that exists.
+    fit_mu = fit_mu and HAS_COMPOSITE
     mu_loss_fn = raw_loss_fn if fit_mu else None
     best_key = "val_nmse_6d_postmu_geo" if fit_mu else "val_nmse_6d_geo"
 
     print(f"Device {device} | loss {args.loss} | duration {args.duration}s")
+    print(f"param space {PARAM_SPACE}: {', '.join(PARAM_KEYS)}"
+          + ("" if HAS_COMPOSITE else "   (val_nmse_6d is the NMSE over these)"))
     t0 = time.time()
     if args.data_dir is not None:
         print(f"Loading train targets from {args.data_dir}")
