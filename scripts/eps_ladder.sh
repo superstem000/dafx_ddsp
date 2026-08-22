@@ -103,7 +103,21 @@ N_FFT=${N_FFT:-4096}
 HOP=${HOP:-1024}
 N_BLOCKS=${N_BLOCKS:-6}
 EVAL_EVERY=${EVAL_EVERY:-2000}
+# The literal flag handed to train_encoder, so the default is checkpointing OFF.
+# GRAD_CKPT=on turns it on -- spelled as a sentinel rather than as the empty
+# string because ${VAR:-default} substitutes on empty as well as unset, so
+# GRAD_CKPT="" would silently mean the opposite of what it reads as.
+#
+# Off is right when the modal sum is compiled: Inductor fuses P*env*osc into the
+# reduction, so the [B, n_modes, chunk] intermediate never materializes and
+# backward recomputes it from the per-mode tensors. Eager materializes all three
+# and keeps every chunk's for backward -- at chunk_elems 1e9 that is 4 GB per
+# tensor and ~15 GB resident, which is how the first quiet3 base died. Any eager
+# run of this plate wants GRAD_CKPT=on and a chunk small enough to bound the
+# transient. It costs one extra forward per step and changes no forward value,
+# so gt_loss is unaffected.
 GRAD_CKPT=${GRAD_CKPT:---no-grad-checkpoint}
+[[ "$GRAD_CKPT" == "on" ]] && GRAD_CKPT=""
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7"}

@@ -97,6 +97,23 @@
 # zero, against 7.66% of saturation for a log arm that would then be
 # unattributable -- but it is a price, and it should be planned for.
 #
+# AND EAGER COSTS MEMORY, WHICH IS THE PART THAT ACTUALLY BIT. chunk_elems
+# splits the modal sum over TIME, not modes: at 1e9 that is 2 chunks of ~5661
+# samples and a [64, 2760, 5661] intermediate of 4 GB, and with checkpointing
+# off every chunk's env, osc and P*env stay resident for backward. ~15 GB
+# allocated, and the first quiet3 base died on it inside 40 seconds. Compiled,
+# Inductor fuses P*env*osc into the reduction so that tensor never exists and
+# backward recomputes it from the per-mode tensors -- which is how raw7 ran
+# 24,252 modes at these very settings. So compile was not only speed; it was
+# what made the memory fit.
+#
+# Hence GRAD_CKPT=on and --chunk-elems 200000000 below: checkpointing stops the
+# retention, the smaller chunk bounds the transient at ~800 MB per intermediate
+# over 10 chunks. Drop to 1e8 if a card still runs out. Neither changes a
+# forward value -- checkpointing recomputes identically, and chunking is over
+# time while the reduction is over modes -- but "should not" is not "does not",
+# so re-run diag_gt_floor at the settings training will use before believing it.
+#
 # WHAT IS HELD FIXED AGAINST jobs_plate_gamma.txt, deliberately, so the two
 # ladders are comparable: same arms, same 40000 steps, same LR schedule, same
 # NORM=batch, same Masuda & Saito pretraining fractions (parameter loss alone
@@ -119,19 +136,19 @@
 # first 5000 steps of the 40000-step schedule rather than a compressed
 # 5000-step one; --param-hold-frac 1.0 holds param_w at 10 throughout, since the
 # handover reads its boundaries as fractions of --steps.
-PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=5000 OUT=results/ddsp/quiet3_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 40000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 200000000 --mode-bucket 1024 --fixed-mode-grid 30,92" GRAD_CKPT=on NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=5000 OUT=results/ddsp/quiet3_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 40000" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE everything else. eps1e7 leads because it is the long pole; the linear
 # anchor is second so it lands in the same wave, since every number is quoted as
 # a ratio against it and a queue that dies early is only interpretable if it
 # finished. The raw arm is last: it resumes from nothing and is the one result
 # that still stands alone if the queue never reaches it.
-PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_eps1e7" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_g03" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_g1" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 30,92" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_raw ARMS="L1_STFT_g1" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 200000000 --mode-bucket 1024 --fixed-mode-grid 30,92" GRAD_CKPT=on NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_eps1e7" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 200000000 --mode-bucket 1024 --fixed-mode-grid 30,92" GRAD_CKPT=on NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 200000000 --mode-bucket 1024 --fixed-mode-grid 30,92" GRAD_CKPT=on NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_g03" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 200000000 --mode-bucket 1024 --fixed-mode-grid 30,92" GRAD_CKPT=on NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_g1" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 200000000 --mode-bucket 1024 --fixed-mode-grid 30,92" GRAD_CKPT=on NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/quiet3_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=98304 N_VAL=1000 NUMERICS="--batched-plate --chunk-elems 200000000 --mode-bucket 1024 --fixed-mode-grid 30,92" GRAD_CKPT=on NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet3_raw ARMS="L1_STFT_g1" scripts/eps_ladder.sh "{gpu}"
 
 # Monitor it the same way:
 #
