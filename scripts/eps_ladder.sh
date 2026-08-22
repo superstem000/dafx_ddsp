@@ -193,6 +193,11 @@ fi
 } > "$OUT/sweep_command.txt"
 cat "$OUT/sweep_command.txt"
 
+# A stale failures.txt from an earlier attempt would make the exit-status check
+# below condemn a ladder that actually succeeded, so it is cleared here rather
+# than trusted to be absent.
+rm -f "$OUT/failures.txt"
+
 # Arms are handed to GPUs round-robin and run sequentially within a GPU, so a
 # ladder longer than the GPU count still completes without oversubscribing.
 for ((g = 0; g < NG; g++)); do
@@ -239,4 +244,22 @@ for ((g = 0; g < NG; g++)); do
   echo "  gpu ${GPU_ARR[$g]} -> $(for ((i = g; i < ${#ARM_ARR[@]}; i += NG)); do printf '%s ' "${ARM_ARR[$i]}"; done)"
 done
 wait
+
+# EXIT NONZERO IF ANY ARM FAILED. Arms run in background subshells so their
+# status cannot be collected directly, and without this the script returns 0
+# whenever it merely *reached* the end -- which is how a ladder whose shared
+# base crashed in 40 seconds reported rc=0 to gpu_queue, let the stage barrier
+# go, and launched five arms that then died on a checkpoint nothing had
+# written. A stage barrier that cannot see a failure is not a barrier.
+#
+# Not `set -e` on the python call: arms queued behind a crashed one on the same
+# GPU should still run, which is the behaviour the per-arm rc handling above
+# exists to provide. Both properties are wanted -- finish the other arms, and
+# still tell the caller something broke.
+if [[ -s "$OUT/failures.txt" ]]; then
+  echo
+  echo "ladder INCOMPLETE: $OUT"
+  cat "$OUT/failures.txt"
+  exit 1
+fi
 echo "ladder complete: $OUT"
