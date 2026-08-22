@@ -26,11 +26,22 @@
 # arm that actually sits where hearing does. This is the same trap diffsynth's
 # spectrogram_loss asserts against with its `power == 2` check.
 #
-# THE WIRING CHECK IS NOT OPTIONAL. g05 is I^0.5, which is L1_STFT up to the eps
-# knee, and it is run first. If it does not track L1_STFT closely then the
-# squaring or the eps placement in _compress_mag's "gpow" branch is wrong, and
-# every other arm here is measuring something other than its exponent. Two arms
-# that should agree are worth more than an assertion that they do.
+# THE WIRING CHECK IS NOT A TRAINING ARM. g05 is I^0.5, and (m^2 + e^2)^0.5 = m
+# for m >> e, so it IS L1_STFT except for a soft floor below magnitude 1e-7.
+# Two functions that agree to six figures do not need 7 GPU-hours to prove it --
+# run the numeric check instead, and do it before queueing anything:
+#
+#   python - <<'EOF'
+#   import torch
+#   from src.loss.losses import LOSS_COMPONENTS as L
+#   x = torch.randn(2, 44100); y = x + 0.01*torch.randn_like(x)
+#   for n in ("L1_STFT","L1_STFT_g05","L1_STFT_g03","L1_STFT_g1","L1_STFT_eps1e7"):
+#       print(f"{n:<18}{float(L[n](x,y).mean()):.6f}")
+#   EOF
+#
+# L1_STFT_g05 must land on L1_STFT. If it does not, the squaring or the eps
+# placement in _compress_mag's "gpow" branch is wrong and every arm below is
+# measuring something other than its exponent.
 #
 # EPS. 1e-7 on magnitude throughout, squared to 1e-14 on intensity inside gpow,
 # which is the family default and matches the c1 rungs. So g03 against
@@ -59,8 +70,7 @@
 # lets this table be read against the existing spectral-only ladder. A queue
 # that stops halfway is still interpretable as long as g05 and L1_STFT got in.
 
-# STAGE the wiring check -- g05 must track L1_STFT, or nothing below means anything
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g05" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+# STAGE the anchor, first, so a queue that stops early is still interpretable
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT"     EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE the two exponents the plate has never had
@@ -71,10 +81,17 @@ NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/dd
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_eps1e7" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 
-# STAGE g1 and g03 WITHOUT pretraining, the control for whether pretraining is
-# what rescues the dead zone. diffsynth's spec_mag froze bit-identically from
-# random init and spec_magx_halfw did not; if g1 freezes here and the pretrained
-# g1 above does not, that is the handover doing the rescuing, measured rather
-# than assumed.
+# STAGE g1 WITHOUT pretraining -- the one raw arm worth its 7 hours.
+#
+# The dead zone is the mechanism the whole power-vs-magnitude section rests on,
+# and right now it is a diffsynth-only observation inferred from a frozen
+# training curve: spec_mag and spec_mag_halfw sat bit-identical for 16 epochs
+# while spec_magx_halfw trained. The plate has ground-truth parameters, so it
+# can say whether an I^1.0 loss freezes from random init on a task where
+# "frozen" can be checked against the constant-predictor floor rather than
+# against itself. If this freezes and the pretrained g1 above does not, the
+# handover is what rescues it -- measured, not assumed.
+#
+# g03-raw is deliberately absent: eps_ladder_adam1e8 already covers that region
+# spectral-only, and nothing about it is new.
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_raw ARMS="L1_STFT_g1"  scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_raw ARMS="L1_STFT_g03" scripts/eps_ladder.sh "{gpu}"
