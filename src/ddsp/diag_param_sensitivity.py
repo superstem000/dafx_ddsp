@@ -205,6 +205,27 @@ def main() -> None:
     p.add_argument("--detail", action="store_true",
                    help="Per-parameter decile and dB-band tables, not just the "
                         "summary row")
+    p.add_argument(
+        "--vary", nargs="+", default=None, metavar="NAME=LO:HI",
+        help="Build the reference family by SAMPLING these ranges with every "
+             "other parameter pinned, instead of reading val-p99. This is the "
+             "measurement that decides whether a proposed task is learnable, "
+             "and it is the one a val-p99 sweep cannot make: dnorm%% there is a "
+             "fraction of the distance between IRs differing across five "
+             "decades of T0 and the whole geometry space, so a damping nudge is "
+             "small against it BY CONSTRUCTION. What matters is the change "
+             "relative to the spread the encoder actually has to resolve, which "
+             "means saturation computed WITHIN the proposed family. Ranges "
+             "spanning more than 20x are sampled log-uniform.")
+    p.add_argument(
+        "--ratio", default=None, metavar="LO:HI",
+        help="Sample T60_F1 = r * T60_DC with r in [LO, HI], rather than "
+             "sampling it independently. beta ~ (1/T60_F1 - 1/T60_DC), so "
+             "T60_F1 > T60_DC flips beta negative and the high modes grow "
+             "without bound -- r < 1 makes that unreachable by construction "
+             "instead of by rejection sampling. Perturbing T60_F1 at fixed "
+             "T60_DC IS perturbing r, so the ladder needs no special case.")
+    p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda")
     p.add_argument("--mode-bucket", type=int, default=1024)
     p.add_argument("--chunk-elems", type=int, default=1_000_000_000)
@@ -220,6 +241,41 @@ def main() -> None:
     if not csvs:
         raise SystemExit(f"no random_IR_params_*.csv under {args.data_dir}")
     dicts = [pd.read_csv(c).iloc[0].to_dict() for c in csvs]
+
+    vary_bounds = {}
+    if args.vary or args.ratio:
+        spec = {}
+        for item in args.vary or []:
+            k, rng = item.split("=")
+            lo, hi = (float(v) for v in rng.split(":"))
+            spec[k] = (lo, hi)
+        rlo, rhi = ((float(v) for v in args.ratio.split(":")) if args.ratio
+                    else (None, None))
+        base = dict(dicts[0])
+        g = torch.Generator().manual_seed(args.seed)
+        fam = []
+        for _ in range(args.n):
+            d = dict(base)
+            for k, (lo, hi) in spec.items():
+                u = float(torch.rand(1, generator=g))
+                # Log-uniform past 20x: a uniform draw over five decades puts
+                # 90% of the mass in the top decade and the low end is never
+                # sampled, which is how T0's range behaves in the existing set.
+                d[k] = lo * (hi / lo) ** u if hi / lo > 20 else lo + u * (hi - lo)
+            if rlo is not None:
+                # After T60_DC, since it multiplies it.
+                r = rlo + float(torch.rand(1, generator=g)) * (rhi - rlo)
+                d["T60_F1"] = r * d["T60_DC"]
+            fam.append(d)
+        dicts = fam
+        # Range-stepping uses what the family actually spans, which also gives
+        # T60_F1 a range implied by the ratio without special-casing it.
+        for k in list(spec) + (["T60_F1"] if rlo is not None else []):
+            vals = [d[k] for d in dicts]
+            vary_bounds[k] = (min(vals), max(vals))
+        print("varying: " + ", ".join(
+            f"{k} [{lo:.4g}, {hi:.4g}]" for k, (lo, hi) in vary_bounds.items())
+            + "   everything else pinned")
     how = "of range (fitted only, * = of value)" if args.step == "range" else "of value"
     print(f"{args.data_dir}   {len(dicts)} IRs   perturbations "
           + ", ".join(f"{100*r:g}%" for r in args.rel) + f" {how}, both signs")
@@ -239,8 +295,17 @@ def main() -> None:
         sat_n = float((A_n - A_n[perm]).abs().sum())
         sat_r = float((A_r - A_r[perm]).abs().sum())
 
+    BOUNDS = dict(FITTED_BOUNDS)
+    BOUNDS.update(vary_bounds)
+    # The denominator, printed because it is the whole point of --vary. A
+    # damping nudge is small against a geometry-varying dataset by construction;
+    # what decides learnability is its size against the spread the encoder has
+    # to resolve, which is this.
+    print(f"saturation within this family: {sat_n:.5g} normalized, "
+          f"{sat_r:.5g} raw -- every dnorm% below is a fraction of it\n")
     names = [k for k in BatchedModalPlateTorch.PARAM_ORDER
-             if not args.only or k in args.only]
+             if (args.only and k in args.only)
+             or (not args.only and (k in vary_bounds if vary_bounds else True))]
     res, rows, clamped, nonfinite = {}, [], {}, {}
     onesided = set()
     for name in names:
@@ -255,8 +320,8 @@ def main() -> None:
                 if args.step == "mul":
                     f = (1.0 + rel)
                     p14[:, i] = p14[:, i] * (f if sign > 0 else 1.0 / f)
-                elif args.step == "range" and name in FITTED_BOUNDS:
-                    lo, hi = FITTED_BOUNDS[name]
+                elif args.step == "range" and name in BOUNDS:
+                    lo, hi = BOUNDS[name]
                     v = p14[:, i] + sign * rel * (hi - lo)
                     # A large step walks off the range the dataset was drawn
                     # from, which would render plates no target ever contained.
@@ -310,8 +375,9 @@ def main() -> None:
         print(f"{'param':<10}{'fit':>5}" +
               "".join(f"{100*r:>10.3g}%" for r in args.rel))
         for name in names:
-            fit = "y" if name in FITTED_BOUNDS else "-"
-            mark = "*" if args.step == "range" and name not in FITTED_BOUNDS else ""
+            fit = ("v" if name in vary_bounds
+                   else "y" if name in FITTED_BOUNDS else "-")
+            mark = "*" if args.step == "range" and name not in BOUNDS else ""
             print(f"{name + mark:<10}{fit:>5}" +
                   "".join(fmt.format(res[(name, r)][key])
                           + ("!" if (name, r) in onesided else " ")
