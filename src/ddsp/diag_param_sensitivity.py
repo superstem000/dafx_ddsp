@@ -228,6 +228,7 @@ def main() -> None:
     names = [k for k in BatchedModalPlateTorch.PARAM_ORDER
              if not args.only or k in args.only]
     res, rows, clamped, nonfinite = {}, [], {}, {}
+    onesided = set()
     for name in names:
       i = BatchedModalPlateTorch.PARAM_ORDER.index(name)
       for rel in args.rel:
@@ -256,12 +257,19 @@ def main() -> None:
                 # decay time that grows without bound. Counted and excluded
                 # rather than averaged in, where one inf would take the whole
                 # cell to nan and read as "this parameter does nothing".
-                bad = int((~torch.isfinite(x_p)).any(dim=-1).sum())
+                ok = torch.isfinite(x_p).all(dim=-1)
+                bad = int((~ok).sum())
                 if bad:
                     nonfinite[(name, rel)] = nonfinite.get((name, rel), 0) + bad
-                    x_p = torch.nan_to_num(x_p, nan=0.0, posinf=0.0, neginf=0.0)
-                norm_runs.append(decompose(A_n, stft_mag(x_p, args.n_fft, args.hop, True)))
-                raw_runs.append(decompose(A_r, stft_mag(x_p, args.n_fft, args.hop, False)))
+                if bad == x_p.shape[0]:
+                    # Every IR in this branch left the physical range. Dropping
+                    # the branch is the only honest option: zeroing and
+                    # averaging turned "unphysical" into a LARGE change --
+                    # T60_DC at x5 read 80% of the unrelated-IR distance, which
+                    # was the zeroed render, not sensitivity.
+                    continue
+                norm_runs.append(decompose(A_n[ok], stft_mag(x_p[ok], args.n_fft, args.hop, True)))
+                raw_runs.append(decompose(A_r[ok], stft_mag(x_p[ok], args.n_fft, args.hop, False)))
 
         def mean_of(runs, k):
             v = [r[k] for r in runs]
@@ -269,6 +277,11 @@ def main() -> None:
                 return [sum(c) / len(c) for c in zip(*v)]
             return sum(v) / len(v)
 
+        if not norm_runs:
+            res[(name, rel)] = (float("nan"), float("nan"))
+            continue
+        if len(norm_runs) == 1:
+            onesided.add((name, rel))
         cg = mean_of(norm_runs, 1)
         lb, gb = mean_of(norm_runs, 2), mean_of(norm_runs, 3)
         dn = 100.0 * mean_of(norm_runs, 4) / max(sat_n, 1e-30)
@@ -286,15 +299,21 @@ def main() -> None:
             fit = "y" if name in FITTED_BOUNDS else "-"
             mark = "*" if args.step == "range" and name not in FITTED_BOUNDS else ""
             print(f"{name + mark:<10}{fit:>5}" +
-                  "".join(fmt.format(res[(name, r)][key]) for r in args.rel))
+                  "".join(fmt.format(res[(name, r)][key])
+                          + ("!" if (name, r) in onesided else " ")
+                          for r in args.rel))
 
     table("dnorm% -- total change as a percentage of the unrelated-IR distance",
-          0, "{:>11.3f}")
+          0, "{:>10.3f}")
     table("log dec -- mean decile of |log(a+e)-log(b+e)|, 1 quietest to 10 loudest",
-          1, "{:>11.2f}")
+          1, "{:>10.2f}")
     if nonfinite:
-        print("\nNON-FINITE renders, zeroed and counted (a perturbation left the "
-              "physical\nrange -- T60 <= 0 is a decay time that grows): "
+        print("\n! = one sign branch dropped entirely, so that cell is a "
+              "ONE-SIDED step and\n    does not compare with the rest of its "
+              "row.\nNON-FINITE renders, excluded (not zeroed): a perturbation "
+              "left the physical\nrange. beta ~ (1/T60_F1 - 1/T60_DC), so "
+              "T60_F1 > T60_DC flips its sign and\ndamping DECREASES with "
+              "frequency -- the high modes then grow without bound.\n"
               + ", ".join(f"{n}@{100*r:g}%={c}" for (n, r), c in sorted(nonfinite.items())))
     if clamped:
         print("\nclamped to the dataset's bounds (IRs, of "
