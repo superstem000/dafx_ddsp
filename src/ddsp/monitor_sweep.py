@@ -14,10 +14,13 @@ works mid-run. Arms are whatever directories exist under the root.
     python -m src.ddsp.monitor_sweep --root results/ddsp/lr_probe
     python -m src.ddsp.monitor_sweep --metrics ratio spread train_sat
 
-    # the gamma ladder: pretrained and raw side by side, with the handover
+    # the gamma ladder, all three directories at once: the shared base, the
+    # arms that resume it, and the one that does not. The base's rows stop where
+    # the resumed arms' begin, so its column ending at 5000 and theirs starting
+    # at 6000 is the handover boundary drawn by the table itself.
     python -m src.ddsp.monitor_sweep \
-        --root results/ddsp/gamma_ppre results/ddsp/gamma_raw \
-        --metrics spec_w param ratio nmse
+        --root results/ddsp/gamma_pre results/ddsp/gamma_ppre results/ddsp/gamma_raw \
+        --metrics spec_w param g03 nmse ratio
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ import argparse
 import glob
 import json
 import os
+import re
 from pathlib import Path
 
 METRICS = {
@@ -97,6 +101,16 @@ def load(root, prefix: str = ""):
         for r in roots:
             out.update(load(r, f"{Path(r).name}/" if multi else ""))
         return out
+    # eps_ladder.sh records the invocation in sweep_command.txt. Reading --steps
+    # from it makes the eta column right per root, which matters here because
+    # the shared base runs 5000 and the arms resuming from it run 40000: one
+    # --steps on the command line is necessarily wrong for one of them.
+    target = 0
+    try:
+        m = re.search(r"steps=(\d+)", (Path(root) / "sweep_command.txt").read_text())
+        target = int(m.group(1)) if m else 0
+    except Exception:
+        pass
     arms = {}
     for hp in sorted(glob.glob(os.path.join(root, "*", "history.json"))):
         name = prefix + Path(hp).parent.name
@@ -148,6 +162,7 @@ def load(root, prefix: str = ""):
             "clip": 100.0 * sum(bool(q.get("clipped")) for q in h) / max(len(h), 1),
             "clip_recent": 100.0 * sum(bool(q.get("clipped")) for q in h[-20:])
                            / max(len(h[-20:]), 1),
+            "target": target,
             "gt": d.get("gt_loss", float("nan")),
             "sat": d.get("saturation", float("nan")),
             "floor": d.get("const_nmse_6d", float("nan")),
@@ -192,7 +207,8 @@ def main() -> None:
           f"{'gt_loss':>11}{'sat':>11}{'floor':>9}")
     for n in names:
         a = arms[n]
-        eta = (args.steps - a["last"]) / a["rate"] / 3600 if a["rate"] > 0 else float("nan")
+        tgt = a.get("target") or args.steps
+        eta = (tgt - a["last"]) / a["rate"] / 3600 if a["rate"] > 0 else float("nan")
         print(f"{short(n):<18}{a['last']:>8}{a['rate']:>7.2f}{a['clip']:>7.1f}"
               f"{a['clip_recent']:>8.1f}{eta:>7.1f}"
               f"{a['gt']:>11.3e}{a['sat']:>11.3e}{a['floor']:>9.4f}")
