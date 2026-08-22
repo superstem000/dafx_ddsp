@@ -84,8 +84,18 @@
 # also what makes it unforgiving. In the eager table the deliberately mismatched
 # paths (batch=1, unbatched, no-float32-z) still cost log 3.3-9.1%, so EVERY
 # numeric flag below has to match what the data was rendered with, exactly.
-# Eager also generated faster here (119 IR/s against 74), so the only real cost
-# is training step time, and there is 9x of headroom to pay it from.
+#
+# WHAT EAGER COSTS, measured from the generation rates rather than guessed at:
+# ~890 IR/s compiled against ~122 eager, i.e. 7.3x on the modal sum. Read the
+# INCREMENTAL rate, not the cumulative one a short run prints -- the compiled
+# val run's headline 74 IR/s is 1000 IRs averaged over a 7.7s compile warmup,
+# and reading it as steady state says eager is faster, which it is not.
+#
+# So the 9x this family saves on mode count is spent on eager, near enough:
+# 0.114 x 7.3 = 0.83. Expect this ladder to cost about what the raw7 ladder
+# cost, not a ninth of it. That is the correct price for a floor of exactly
+# zero, against 7.66% of saturation for a log arm that would then be
+# unattributable -- but it is a price, and it should be planned for.
 #
 # WHAT IS HELD FIXED AGAINST jobs_plate_gamma.txt, deliberately, so the two
 # ladders are comparable: same arms, same 40000 steps, same LR schedule, same

@@ -152,8 +152,16 @@ cancellation floor of the modal sum, which is both the point of the family and
 what makes it unforgiving. In the eager table the deliberately mismatched paths
 (`batch=1`, unbatched modal sum, no-float32-z) still cost log 3.3–9.1% of
 saturation, so every numeric flag has to match what the data was rendered with,
-exactly. Eager also generated *faster* here (119 IR/s against 74), so the only
-real cost is training step time.
+exactly.
+
+Eager is not free, and the cost is easy to misread. Steady-state generation runs
+at **~890 IR/s compiled against ~122 eager** — 7.3× on the modal sum. Take that
+from the *incremental* rate: a short compiled run's headline figure (74 IR/s for
+1000 val IRs) is averaged over a 7.7 s compile warmup, and reading it as steady
+state suggests eager is faster, which it is not. Since `quiet3` needs 0.114× the
+modes of `raw7`, eager here lands at 0.114 × 7.3 ≈ 0.83 — the ladder costs about
+what the `raw7` ladder cost, not a ninth of it. That is the price of a floor of
+exactly zero instead of a log arm sitting 7.66% above one.
 
 30x92 is 2,760 modes against `raw7`'s 24,252, so both generation and training
 are roughly 9x cheaper per step here. Sampling is uniform in `z`, which is
