@@ -97,39 +97,32 @@
 # Left alone because changing it would depart from the published recipe; noted
 # because a reviewer comparing the crossfade across arms is comparing this too.
 #
-# ORDERING. The base alone in stage 1, because every arm below depends on it and
-# gpu_queue runs stages in order. Then the anchor, the two new exponents, the
-# log and hybrid ends, and the raw arm last. Every number here is reported as a
-# ratio against L1_STFT and the constant-predictor floor, so a queue that stops
-# halfway is still interpretable -- provided the base and the anchor got in.
+# ORDERING. Two stages only. The base alone in the first, because every arm
+# below resumes from it and a stage is a hard barrier. Everything else in the
+# second, longest job first. Every number here is quoted as a ratio against
+# L1_STFT and the constant-predictor floor, so a queue that stops partway is
+# still interpretable provided the base and the anchor finished.
 
 # STAGE the shared parameter-only base. ~1 hour. EVERYTHING BELOW RESUMES FROM
 # IT, so if this fails the rest must not start -- which is why it is alone in
 # its stage.
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=5000 OUT=results/ddsp/gamma_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 40000" scripts/eps_ladder.sh "{gpu}"
 
-# STAGE the anchor, first of the resumed arms
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT"     EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-
-# STAGE the two exponents the plate has never had
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g03" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g1"  EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-
-# STAGE the log end and the hybrid, so the whole ladder sits in one directory
+# STAGE everything else. ONE stage, because stages are hard barriers and only
+# the base is a real dependency. Split across five stages this ladder costs ~44h
+# on four cards -- three idle behind the 1h base, three behind the 7h anchor,
+# two behind the 22h log arm -- against ~22h merged, because gpu_queue starts
+# the next job as soon as a card frees rather than waiting for a stage to drain.
+#
+# eps1e7 leads: it is the long pole at ~22h against ~7h for the rest, so it has
+# to be in the first wave or it extends the whole campaign by its own length.
+# The anchor is second so it lands in that wave too, since every number here is
+# quoted as a ratio against it and a queue that dies early is only interpretable
+# if it finished. The raw arm is last: it depends on nothing and is the one
+# result that still stands alone if the queue never reaches it.
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_eps1e7" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g03" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g1" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-
-# STAGE g1 WITHOUT pretraining -- the one raw arm worth its 7 hours.
-#
-# The dead zone is the mechanism the whole power-vs-magnitude section rests on,
-# and right now it is a diffsynth-only observation inferred from a frozen
-# training curve: spec_mag and spec_mag_halfw sat bit-identical for 16 epochs
-# while spec_magx_halfw trained. The plate has ground-truth parameters, so it
-# can say whether an I^1.0 loss freezes from random init on a task where
-# "frozen" can be checked against the constant-predictor floor rather than
-# against itself. If this freezes and the pretrained g1 above does not, the
-# handover is what rescues it -- measured, not assumed.
-#
-# g03-raw is deliberately absent: eps_ladder_adam1e8 already covers that region
-# spectral-only, and nothing about it is new.
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_raw ARMS="L1_STFT_g1"  scripts/eps_ladder.sh "{gpu}"
