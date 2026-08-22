@@ -678,13 +678,37 @@ def _compress_mag(x: torch.Tensor, comp: str, eps: float = 1e-7, gamma: float = 
 
     "linear" : x                 (C0) no compression        -- our winner
     "pow"    : x ** gamma        (power-law, gamma=0.3)     -- speech-enhancement standard
+    "gpow"   : (x^2 + eps^2)^g   gamma on INTENSITY         -- diffsynth's ladder
     "c2"     : log(1 + x)        (Schwar & Muller's fix)    -- ~linear near 0, log for large x
     "c1"     : log(x + eps)      (the standard MSS log)     -- unbounded below, floor at log(eps)
+
+    MIND THE DOMAIN. x here is MAGNITUDE (_stft_mag returns .abs()), so every
+    mode above is an exponent on magnitude, while diffsynth's spectral loss and
+    every metric in the evaluation (GammaCepstrum, compute_lsd, MelSpec) work on
+    INTENSITY. In intensity exponents the modes above are:
+
+        "linear"          I^0.5      == diffsynth's magx
+        "pow" gamma=0.3   I^0.15     NOT Stevens -- half of it
+        "c1"              I -> 0
+
+    That is worth stating because "pow at 0.3" reads as Stevens' law and is not:
+    loudness ~ I^0.3 needs magnitude^0.6. "pow" is left exactly as it was, since
+    published runs use it, and "gpow" is the mode that takes the exponent in the
+    domain the rest of the project quotes.
     """
     if comp == "linear":
         return x
     if comp == "pow":
         return torch.pow(x + 1e-12, gamma)
+    if comp == "gpow":
+        # (I + eps_I)^gamma with I = magnitude^2, which is diffsynth's
+        # (x_spec + log_eps_v)^gamma verbatim. eps arrives on magnitude -- the
+        # plate's convention everywhere else -- so it is squared to put the knee
+        # at the same signal level as the c1 rung using the same eps, and the
+        # gamma arm then differs from the log arm in the exponent and nothing
+        # else. Without a knee this diverges: d/dx (x^2)^g = 2g x^(2g-1) -> inf
+        # at the origin for g < 0.5, the mirror image of the g=1 dead zone.
+        return torch.pow(x * x + eps * eps, gamma)
     if comp == "c2":
         return torch.log1p(x)
     if comp == "c1":
@@ -851,6 +875,26 @@ for _alias in ("smoothmss_resmatch", "smooth_mss_resmatch", "smoothmss_match"):
 # ===========================================================================
 _DECOMP_LOSSES["L1_STFT_c2"] = _make_stft_l1([4096], comp="c2")
 _DECOMP_LOSSES["L1_STFT_pow"] = _make_stft_l1([4096], comp="pow", gamma=0.3)
+
+# The gamma ladder in INTENSITY exponents, so the plate and diffsynth tables can
+# sit beside each other without the reader converting. eps 1e-7 on magnitude is
+# the family default and matches the c1 rungs, so moving along this ladder moves
+# the exponent and nothing else.
+#
+#   g1    I^1.0   the published diffsynth loss -- and the DEAD ZONE arm.
+#                 d|a^2 - t^2|/da = 2a -> 0 at silence. The plate has never had
+#                 this: every loss here is magnitude-domain, which is exactly
+#                 why the trap showed up on diffsynth and not here, and why
+#                 "linear" meant two different things across the two systems.
+#   g05   I^0.5   == "linear" up to the eps knee. A WIRING CHECK: it should
+#                 track L1_STFT closely, and if it does not the eps placement
+#                 or the squaring is wrong.
+#   g03   I^0.3   Stevens' law, loudness ~ I^0.3 -- i.e. magnitude^0.6, twice
+#                 the exponent "pow" applies.
+_GAMMA_I = {"g1": 1.0, "g05": 0.5, "g03": 0.3}
+for _tag, _g in _GAMMA_I.items():
+    _DECOMP_LOSSES[f"L1_STFT_{_tag}"] = _make_stft_l1(
+        [4096], comp="gpow", gamma=_g, eps=1e-7)
 
 
 # ---------------------------------------------------------------------------
@@ -1048,6 +1092,7 @@ for _name, _fn in (
     ("SOT_lin_paper", _DECOMP_LOSSES["SOT_lin_paper"]),
     *((f"L1_STFT_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_eps{_t}"]) for _t in _EPS_LADDER),
     *((f"L1_STFT_hyb{_t}", _DECOMP_LOSSES[f"L1_STFT_hyb{_t}"]) for _t in _HYBRID_EPS),
+    *((f"L1_STFT_{_t}", _DECOMP_LOSSES[f"L1_STFT_{_t}"]) for _t in _GAMMA_I),
 ):
     LOSS_COMPONENTS[_name] = _fn
     LOSS_NAME_ALIASES[_normalize_name(_name)] = _name

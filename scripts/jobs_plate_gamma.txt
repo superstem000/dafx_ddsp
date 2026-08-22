@@ -1,0 +1,80 @@
+# The diffsynth gamma ladder, on the plate. Same exponents, same pretraining.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_plate_gamma.txt
+#
+# WHY. The diffsynth arms are a ladder in one variable -- the exponent gamma on
+# INTENSITY -- with mag at 1.0, magx at 0.5, gam03 at 0.3 and log at the limit.
+# On real held-out audio the ordering reverses along it: magnitude-linear wins
+# every compressed rung and loses every log-domain one, with the crossover
+# between g0.15 and g0, and Stevens' 0.3 sitting well inside the region where it
+# wins. That is one synthesizer, one dataset, one architecture. The plate is a
+# second system with TRUE parameters, so it can say whether the ordering is a
+# property of compression or a property of harmor.
+#
+# THE PLATE HAS NEVER HAD THE g=1 RUNG. _stft_mag returns .abs(), so every loss
+# in losses.py is magnitude-domain: L1_STFT is I^0.5, the eps rungs are I -> 0,
+# and there was no I^1.0 arm at all. That is exactly why the zero-gradient dead
+# zone appeared on diffsynth and not here -- d|a^2 - t^2|/da = 2a vanishes at
+# silence, d|a - t|/da = +-1 does not -- and why "linear" meant two different
+# things across the two systems. L1_STFT_g1 supplies the missing rung, so the
+# dead zone can be reproduced or ruled out on a task with ground-truth
+# parameters rather than inferred from a frozen training curve.
+#
+# AND L1_STFT_pow WAS NOT STEVENS. It applies gamma to MAGNITUDE, so pow at 0.3
+# is I^0.15 -- half the exponent it reads as. Loudness ~ I^0.3 needs
+# magnitude^0.6. pow is left untouched because published runs use it; g03 is the
+# arm that actually sits where hearing does. This is the same trap diffsynth's
+# spectrogram_loss asserts against with its `power == 2` check.
+#
+# THE WIRING CHECK IS NOT OPTIONAL. g05 is I^0.5, which is L1_STFT up to the eps
+# knee, and it is run first. If it does not track L1_STFT closely then the
+# squaring or the eps placement in _compress_mag's "gpow" branch is wrong, and
+# every other arm here is measuring something other than its exponent. Two arms
+# that should agree are worth more than an assertion that they do.
+#
+# EPS. 1e-7 on magnitude throughout, squared to 1e-14 on intensity inside gpow,
+# which is the family default and matches the c1 rungs. So g03 against
+# L1_STFT_eps1e7 differs in the exponent and in nothing else -- same knee, same
+# signal level, the same one-variable discipline diffsynth's gam03 has against
+# its log arm.
+#
+# NOT A PURE LADDER IN OPTIMISATION TERMS, and this should be said rather than
+# discovered. The losses use x^gamma, not Box-Cox (x^gamma - 1)/gamma, so the
+# gradient carries a factor of gamma: d/dx (x^2 + e)^g = 2g x (x^2 + e)^(g-1),
+# which at unit amplitude is 2g. So g03 trains with roughly 0.6x g05's step on
+# the spectral term, from the missing normalisation rather than from the
+# compression under test. Adam absorbs most of a uniform factor once the
+# spectral term is the whole objective; where it does not is the crossfade,
+# while the parameter loss is still being traded against.
+#
+# PRETRAINING AND NORM. Masuda & Saito's schedule as fractions -- parameter loss
+# alone for 12.5%, crossfade to 50%, param_w 10 -> 0 -- identical to
+# jobs_ppre_hybrid.txt, so these arms drop straight into that table. NORM=batch
+# for the same reason every line there uses it: GroupNorm normalises within one
+# example and permits an encoder that maps every input to the same output, which
+# is this encoder's documented failure mode, while BatchNorm makes that solution
+# unreachable.
+#
+# ORDERING. Wiring check, then the two new exponents, then the anchor pair that
+# lets this table be read against the existing spectral-only ladder. A queue
+# that stops halfway is still interpretable as long as g05 and L1_STFT got in.
+
+# STAGE the wiring check -- g05 must track L1_STFT, or nothing below means anything
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g05" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT"     EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE the two exponents the plate has never had
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g03" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g1"  EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE the log end and the hybrid, so the whole ladder sits in one directory
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_eps1e7" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE g1 and g03 WITHOUT pretraining, the control for whether pretraining is
+# what rescues the dead zone. diffsynth's spec_mag froze bit-identically from
+# random init and spec_magx_halfw did not; if g1 freezes here and the pretrained
+# g1 above does not, that is the handover doing the rescuing, measured rather
+# than assumed.
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_raw ARMS="L1_STFT_g1"  scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_raw ARMS="L1_STFT_g03" scripts/eps_ladder.sh "{gpu}"
