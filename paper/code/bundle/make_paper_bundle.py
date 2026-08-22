@@ -241,6 +241,92 @@ MANIFEST = [
         ),
     ),
     dict(
+        section="plate",
+        slug="13_gamma_ladder",
+        title="The compression exponent on the plate, against ground-truth parameters",
+        sources=[
+            "results/ddsp/gamma_pre",
+            "results/ddsp/gamma_ppre",
+            "results/ddsp/gamma_raw",
+        ],
+        scripts=[
+            "scripts/jobs_plate_gamma.txt",
+            "scripts/eps_ladder.sh",
+            "src/ddsp/monitor_sweep.py",
+        ],
+        extra_globs=[],
+        note=(
+            "The same ladder as diffsynth sections 09-11, on a system that has "
+            "TRUE PARAMETERS. Every audio metric there measures in a compressed "
+            "domain that is itself the thing under dispute; here the score is "
+            "val_nmse against the parameters that generated the target, so no "
+            "floor, mask or exponent argument enters the evaluation at all.\n\n"
+            "    THE EXPONENTS ARE ON INTENSITY, which required a fix. "
+            "_stft_mag returns .abs(), so every loss in losses.py had been an "
+            "exponent on MAGNITUDE while diffsynth's loss and every metric in "
+            "the project work on intensity. In intensity terms L1_STFT is "
+            "I^0.5 -- it IS diffsynth's magx, exactly, since (a^2)^0.5 = a -- "
+            "and L1_STFT_pow at gamma 0.3 is I^0.15, half the exponent it reads "
+            "as. Loudness ~ I^0.3 needs magnitude^0.6. The gpow mode takes the "
+            "exponent in the domain the rest of the project quotes; pow is left "
+            "untouched because published runs use it.\n\n"
+            "    ONE SHARED BASE, and it removes a confound rather than merely "
+            "5000 x 6 duplicated steps. spec_w == 0 drops the spectral term "
+            "from the graph, so the parameter-only hold is the same objective "
+            "for every arm -- but it is divided by loss_scale, fixed at step 1 "
+            "from THAT ARM'S own spectral loss, measured at 2.12 for L1_STFT "
+            "against 4483 for L1_STFT_g1. A factor of 2000 on the parameter "
+            "phase, invisible in the logs because train_loss reports the "
+            "undivided spectral value. gamma_pre trains the hold once; --resume "
+            "restores weights, optimizer moments AND loss_scale, so all five "
+            "arms start the crossfade from one point.\n\n"
+            "    THE RESULT IS A CLIFF, NOT A TREND. At 40000 steps, as "
+            "val_nmse_6d over the constant-predictor floor: I^1.0 and I^0.5 "
+            "both 0.01, hybrid 0.75, I^0.3 1.49, log 3.69. Between gamma 0.5 "
+            "and 0.3 the error jumps 100x and the arm ends WORSE THAN "
+            "PREDICTING THE DATASET MEAN. Stevens' exponent is on the far side "
+            "of that cliff: 0.3 is where hearing sits and training there "
+            "fails.\n\n"
+            "    The collapse is located exactly at param_w -> 0 (step 20000, "
+            "the end of the crossfade), and it is not a trade: gamma 0.3's own "
+            "g0.3 metric got worse at the same time, 0.4997 -> 0.7604. An arm "
+            "that holds only while parameter supervision holds it is reporting "
+            "that its spectral optimum is not at the true parameters -- a "
+            "statement diffsynth cannot make about any of its arms.\n\n"
+            "    THE DEAD ZONE DOES NOT REPRODUCE HERE, and that is a "
+            "retraction worth printing. diffsynth's spec_mag and spec_mag_halfw "
+            "froze bit-identically from random init while spec_magx_halfw "
+            "trained, and the reading was that |a^2 - t^2| has derivative 2a -> "
+            "0 at silence. gamma_raw runs I^1.0 from scratch with no "
+            "pretraining and it does NOT freeze -- it reaches ratio 0.03. The "
+            "trap needs the MODEL'S OUTPUT to be near-silent, and the plate "
+            "encoder at init emits mid-range tanh values that render a "
+            "perfectly ordinary IR, where diffsynth's estimator at init "
+            "produces near-silence. So the dead zone is a property of that "
+            "synthesizer's parameterisation, not of the power-domain loss in "
+            "general. Section 09's claim should be read with this beside it.\n\n"
+            "    AND THE METRIC VALIDATES, which is the one measurement only "
+            "this system can make. Rank the arms by the g0.3 cepstral metric "
+            "and by val_nmse and the orderings are IDENTICAL: g1 .273 / linear "
+            ".280 / raw_g1 .323 / hybrid .570 / g03 .577 / log 8.54 against "
+            ".0007 / .0007 / .0016 / .0355 / .0704 / .1744. On diffsynth the "
+            "choice of gamma 0.3 for evaluation rests on Stevens' law, an "
+            "appeal to psychoacoustics with nothing to check it against. Here "
+            "it is checked, and it ranks arms exactly as ground truth does. "
+            "Which pairs with the cliff above into the sharper statement: "
+            "gamma 0.3 is an excellent METRIC and a failed LOSS.\n\n"
+            "    CAVEATS, all in the logs. ppre:g1 clips on 6.3% of steps once "
+            "spec_w reaches 1.0 while linear and raw:g1 clip on none, so its "
+            "tie with linear carries that footnote -- grad-clip 5000 is partly "
+            "setting its step size. log's val_nmse is pinned at exactly 0.1744 "
+            "from step 24000 with param at 1.04, worse than predicting the "
+            "mean, which is a saturated head rather than a converged one. And "
+            "one seed per arm against the ~1% run-to-run spread five "
+            "pretrainings showed: the 100x gaps are far clear of it, the "
+            "g1/linear tie is not something a seed breaks either way."
+        ),
+    ),
+    dict(
         section="diffsynth",
         slug="08_reproduction",
         title="Masuda & Saito reproduced, and the loss swapped inside their schedule",
@@ -461,6 +547,155 @@ MANIFEST = [
             "under test."
         ),
     ),
+    dict(
+        section="diffsynth",
+        slug="12_masking_metric",
+        title="A dB floor that is not a free parameter: masking as the evaluation threshold",
+        sources=["masking", "results/eval"],
+        scripts=[
+            "scripts/ds_masking.py",
+            "scripts/ds_mfcc_check.py",
+            "scripts/ds_floor_audio.py",
+            "scripts/ds_compare_audio.py",
+        ],
+        extra_globs=[],
+        note=(
+            "THE PROBLEM. MFCC logs mel-band totals, so it keeps scoring bins "
+            "far below anything audible, and how far down it counts decides "
+            "which loss wins. Clamping everything more than N dB below a "
+            "clip's peak makes that explicit -- and on the real branch the "
+            "arm ordering FLIPS across the ladder. So N is doing the arguing, "
+            "and 'why N' has no answer from inside the metric.\n\n"
+            "    THE REPLACEMENT. ds_masking.py computes, per bin and per "
+            "frame, the level below which the target signal renders content "
+            "inaudible: MPEG-1 psychoacoustic model 1, following Painter & "
+            "Spanias (2000) section V. Tonal maskers at local maxima 7 dB "
+            "above their neighbourhood, one noise masker per critical band "
+            "from what is left, decimation against the absolute threshold and "
+            "within 0.5 Bark, two-slope spreading (Schroeder et al. 1979) with "
+            "the level-dependent upward slope, masking index 14.5 + z_m for "
+            "tonal and 5.5 for noise, power-summed with the Terhardt ATH. That "
+            "floor has NO free parameter to argue about.\n\n"
+            "    ONE ISO PARAMETER HAD TO BE RESCALED, and it is the only "
+            "judgement call in the model. The tonal neighbourhood is +/-2 bins "
+            "at ISO's 86.13 Hz per bin (512-point at 44.1 kHz); ours are "
+            "15.625 Hz, so the same 172.3 Hz is +/-11 of our bins. "
+            "--tonal-window switches between the frequency-scaled reading "
+            "(default) and the literal bin count, so the choice is a flag "
+            "rather than an assumption.\n\n"
+            "    FOUR SELF-TESTS, and what each rules out. A 1 kHz sine at "
+            "80 dB SPL gives one tonal masker at 8.51 Bark and SMR 21.2 dB -- "
+            "printed APART from the canonical ~24 dB tone-masks-noise figure, "
+            "because reaching it via 14.5 + z_m at 1 kHz is arithmetic and "
+            "would otherwise read as agreement. White noise gives zero tonal "
+            "maskers. A 20-partial tone gives a composite threshold at most "
+            "3.53 dB above the best single masker against the superposition "
+            "bound 10*log10(21) = 13.22 dB -- this check was WRONG on first "
+            "writing, reporting 80.44 dB, because it subtracted a global "
+            "threshold carrying the ATH from a spread masker decayed to "
+            "-200 dB. The ATH minimum is -4.98 dB SPL at 3325 Hz, which is "
+            "Terhardt's fit rather than the idealised '0 dB at 4 kHz'.\n\n"
+            "    That bug mattered beyond the test. At PN = 90.302 a bin 70 dB "
+            "below peak sits near 20 dB SPL, under the ATH outright below a "
+            "few hundred Hz where Terhardt is +30 dB, so a threshold carrying "
+            "the ATH would let 'too quiet to hear' masquerade as 'masked by "
+            "the signal'. Every floor is therefore reported twice: "
+            "frac_energy_masked against the full threshold, and "
+            "frac_energy_smasked against the maskers alone.\n\n"
+            "    AND THEN THE CRITERION ITSELF WAS FALSIFIED, BY LISTENING. "
+            "ds_floor_audio --mask gates a clip on the threshold and "
+            "resynthesises it; the result was immediately audible on the first "
+            "two clips tried, on a claim that it would be inaudible. The cause "
+            "is not the model but the use made of it. A noise masker is the "
+            "power sum of a whole critical band at an offset of 5.5 dB, while "
+            "one bin of a flat band sits 10*log10(N) below that sum -- +13.7 dB "
+            "in the widest band here, which holds 83 bins. So the model "
+            "correctly says any ONE bin of broadband content is masked by the "
+            "rest of its band, and says nothing at all about removing them "
+            "together. A dB floor removes them together. Every noise floor "
+            "vanished while the harmonics survived.\n\n"
+            "    Leave-one-out would not have fixed it: the other N-1 bins "
+            "really are there. The question had to change. removal_safe "
+            "computes the threshold from what SURVIVES the floor and compares "
+            "it against the total energy REMOVED, summed per critical band, so "
+            "nothing under test contributes to the maskers judging it and the "
+            "quantity tested is the hole rather than one brick of it. "
+            "frac_energy_safe / frac_bins_safe lead the table; the falsified "
+            "frac_energy_masked stays beside them so the correction is visible "
+            "rather than a silent restatement, and --naive-mask reproduces the "
+            "broken gate so the before-and-after is audible.\n\n"
+            "    THE NUMBERS QUOTED HERE ARE THE CORRECTED ONES, AND THEY ARE "
+            "n=50. Under frac_energy_safe the floors run 1.0000 / 0.9263 / "
+            "0.8044 / 0.6541 / 0.2838 at 80 / 70 / 60 / 40 / 20 dB -- sharply "
+            "monotone, where the falsified criterion was nearly flat at the "
+            "top. The 0.8701 and 0.7722 previously quoted at n=2000 were "
+            "produced by the falsified criterion and are WITHDRAWN. The "
+            "2000-clip run has not been repeated under the corrected one, "
+            "which is what check_paper_bundle's clip-count limitation is "
+            "reporting.\n\n"
+            "    AS A METRIC. --dump-thresholds writes the thresholds once and "
+            "ds_mfcc_check --mask uses them as the MFCC floor, giving a `mask` "
+            "column and a mask+N cross against each dB rung (both clamp the "
+            "same dB quantity, so the cross takes the higher of the two). The "
+            "physics is NOT reimplemented for the metric: the 0.5 Bark "
+            "decimation is a sequential sweep that does not vectorise cleanly, "
+            "and a second batched implementation would be a second thing that "
+            "can be subtly wrong. The numpy path the self-tests validate "
+            "writes the thresholds; the metric loads them. The cache is keyed "
+            "by a content hash of the target audio, so a split that moved "
+            "raises rather than pairing a clip with the wrong threshold, and "
+            "it carries the SPL offset so the consumer never re-derives the "
+            "window normalisation.\n\n"
+            "    The 484 MB cache is NOT copied here -- regenerate it with "
+            "scripts/ds_masking.py --dump-thresholds masking/T_ood.npz, which "
+            "also reproduces masking.csv.\n\n"
+            "    THE CLAMP MOVED PRE-MEL, and this restates an earlier number. "
+            "A masking threshold is defined per FFT bin and a 6 kHz mel band "
+            "spans several critical bands, so the mask has no choice; the dB "
+            "columns moved with it or the table would be two conventions side "
+            "by side. It is not cosmetic. Post-mel a mel band holding one "
+            "strong partial sits above the floor and shelters every quiet bin "
+            "in it, so the clamp barely bites; pre-mel those bins are raised "
+            "individually. At 70 dB post-mel put hybridx marginally ahead "
+            "(8.0404 vs magx 8.0631, a dead tie against 2*se 0.4274); pre-mel "
+            "magx leads by 0.49 (7.0168 vs 7.5084, 2*se 0.4264). At 80 dB both "
+            "conventions agree, and every rung below 70 agrees. So the "
+            "crossover is real but its LOCATION is convention-dependent -- it "
+            "must not be quoted as sitting at 70 dB. db70post is retained as "
+            "the old convention so nothing here is a silent restatement.\n\n"
+            "    THE RESULT. Under the mask, magx_halfw beats hybridx by "
+            "0.4082, which is 3.9 se and 4.1% of the metric's range against "
+            "the unrelated-pairs saturation of 9.9442. Statistically clear, "
+            "perceptually modest: the claim it supports is not that the linear "
+            "loss is much better, but that the log term's advantage lives in "
+            "the 70-80 dB shell and does not survive at the threshold of "
+            "audibility. gam03, trained on the gamma=0.3 compression the "
+            "metric ladder calls perceptually calibrated, does not beat magx "
+            "(0.1149 against 2*se 0.2078) -- which is the answer to 'why not "
+            "just train on the metric'.\n\n"
+            "    THE SATURATION ROW IS WHAT MAKES THOSE READABLE, and it "
+            "disqualifies two columns. Scoring each target against an "
+            "unrelated real clip gives each column's range. `mask` has the "
+            "LOWEST best-arm fraction of any column at 30.4% -- a trained "
+            "model is 3.3x closer to the target than unrelated audio, where "
+            "under the conventional log and dB columns it is only ~2.1x -- "
+            "while separating arms better than the gamma ladder (17.0% vs "
+            "10.9%). Meanwhile db20 and mask+20 sit at 78.7% and 84.7%: a "
+            "trained model is barely distinguishable from randomly paired "
+            "audio there, so whatever those columns rank is not synthesis "
+            "quality, and a large-looking gap in them means nothing. Only "
+            "floors at 60 dB and above, and the mask itself, carry usable "
+            "signal.\n\n"
+            "    ds_floor_audio.py and ds_compare_audio.py are the listening "
+            "checks behind all of this: the first gates a clip into keep<N> "
+            "and drop<N> so what a floor discards can be played at its own "
+            "level (they sum back to the original sample-for-sample), the "
+            "second resynthesises the SAME clips through several arms via "
+            "load_arm's reproduced split. An argument about audibility settled "
+            "by listening rather than by asserting that librosa's default is "
+            "reasonable."
+        ),
+    ),
 ]
 
 
@@ -571,6 +806,12 @@ DATASET_GLOBS = [
 
 
 SKIP = ["*.pt", "*.ckpt", "*.db", "__pycache__", "events.out.tfevents.*",
+        # The masking threshold cache, 484 MB for the 2000-clip ood split.
+        # Regenerable, and gitignored for the same reason -- ds_masking.py
+        # --dump-thresholds rebuilds it alongside masking.csv. Named rather
+        # than "*.npz", which would also drop the rendered plate IRs under
+        # results/postprocessing.
+        "T_*.npz",
         # monitor_diffsynth's accelerator, keyed on file size and mtime and
         # carrying only the tags it happens to plot. scalars.csv from
         # ds_export_scalars.py is the record; this is not.

@@ -77,6 +77,63 @@ class Mfcc(nn.Module):
         mfcc = torch.matmul(mel_spec.transpose(1, 2), self.dct_mat).transpose(1, 2)
         return mfcc
 
+class GammaCepstrum(nn.Module):
+    """A mel cepstrum at compression exponent gamma, on library conventions.
+
+    Deliberately NOT built on MelSpec/Mfcc. Those run a RECTANGULAR window --
+    MelSpec.forward calls spectrogram() with five positional arguments so
+    `window` keeps its None default -- and an unnormalised HTK filterbank. The
+    leakage that causes is a defect rather than a convention, and this is the
+    number meant for the paper's table, so it uses Hann plus the Slaney mel
+    scale and Slaney filterbank normalisation instead.
+
+    It must stay identical to scripts/ds_mfcc_check.py's g<gamma> columns,
+    which compute the same thing offline from checkpoints: same n_fft 1024 /
+    hop 256, 40 mels over 40-7600 Hz, 20 DCT coefficients, eps 1e-12, and the
+    same Hann + Slaney frontend. That script is how every run predating this
+    metric gets the column at all, so the two have to agree or the table mixes
+    two quantities. Cross-check by running it on one checkpoint and comparing
+    against the logged value at that epoch.
+
+    gamma=0.3 is Stevens' law -- loudness ~ I^0.3, and the mel spectrogram here
+    is power, so the exponent applies directly. The log that mfcc and lsd both
+    take is the gamma -> 0 limit, roughly 60x more aggressive than hearing.
+
+    EVERY buffer is persistent=False, so this module contributes nothing to
+    state_dict. A persistent one would make every checkpoint written before
+    this existed fail to load under strict=True on the missing keys, which is
+    exactly what a first attempt at this did.
+    """
+
+    def __init__(self, gamma=0.3, n_fft=1024, hop_length=256, n_mels=40,
+                 n_mfcc=20, sample_rate=16000, f_min=40.0, f_max=7600.0,
+                 eps=1e-12):
+        super().__init__()
+        from torchaudio.functional import melscale_fbanks
+        self.gamma = gamma
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.eps = eps
+        fb = melscale_fbanks(n_fft // 2 + 1, f_min, f_max, n_mels, sample_rate,
+                             norm="slaney", mel_scale="slaney")
+        self.register_buffer("fb", fb, persistent=False)
+        self.register_buffer("win", torch.hann_window(n_fft), persistent=False)
+        self.register_buffer("dct_mat", create_dct(n_mfcc, n_mels, "ortho"),
+                             persistent=False)
+
+    def forward(self, audio):
+        # MelSpec.pad_end: zero-pad up to a whole number of hops.
+        rem = (audio.shape[-1] - self.n_fft) % self.hop_length
+        if rem:
+            audio = F.pad(audio, (0, self.hop_length - rem), "constant")
+        st = torch.stft(audio, self.n_fft, hop_length=self.hop_length,
+                        window=self.win, center=False, return_complex=True)
+        power = st.real ** 2 + st.imag ** 2
+        mel = torch.matmul(power.transpose(-1, -2), self.fb).transpose(-1, -2)
+        c = (mel + self.eps) ** self.gamma
+        return torch.matmul(c.transpose(1, 2), self.dct_mat).transpose(1, 2)
+
+
 def spectrogram(audio, size=2048, hop_length=1024, power=2, center=False, window=None):
     power_spec = amp(torch.view_as_real(torch.stft(audio, size, window=window, hop_length=hop_length, center=center, return_complex=True)))
     if power == 2:

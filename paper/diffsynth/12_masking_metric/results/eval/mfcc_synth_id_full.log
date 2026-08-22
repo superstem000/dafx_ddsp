@@ -1,0 +1,111 @@
+/home/bhpark3/dsenv/lib/python3.12/site-packages/nnAudio/Spectrogram.py:4: Warning: importing Spectrogram subpackage will be deprecated soon. You should import the feature extractor from the feature subpackage. See actual documentation.
+  warnings.warn(
+dB floors clamped PRE-mel; db70post carries the post-mel convention sections 08-11 used, as a bridge
+dB floors take their peak from the TARGET for both signals; a gain offset no longer moves an arm's own floor
+Seed set to 0
+STFT kernels created, time used = 0.0229 seconds
+STFT filter created, time used = 0.0012 seconds
+Mel filter created, time used = 0.0012 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+/home/bhpark3/dsenv/lib/python3.12/site-packages/torch/functional.py:680: UserWarning: A window was not provided. A rectangular window will be applied,which is known to cause spectral leakage. Other windows such as torch.hann_window or torch.hamming_window are recommended to reduce spectral leakage.To suppress this warning and use a rectangular window, explicitly set `window=torch.ones(n_fft, device=<device>)`. (Triggered internally at /__w/pytorch/pytorch/aten/src/ATen/native/SpectralOps.cpp:835.)
+  return _VF.stft(  # type: ignore[attr-defined]
+synth_gam03          epoch 399    125 batches -- split read from manifest
+Seed set to 0
+STFT kernels created, time used = 0.0208 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+synth_hybrid         epoch 399    125 batches -- split reproduced, hash matches manifest
+Seed set to 0
+STFT kernels created, time used = 0.0211 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+synth_hybridx        epoch 399    125 batches -- split read from manifest
+Seed set to 0
+STFT kernels created, time used = 0.0212 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+synth_log            epoch 399    125 batches -- split reproduced, hash matches manifest
+Seed set to 0
+STFT kernels created, time used = 0.0211 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+synth_logx_halfw     epoch 399    125 batches -- split read from manifest
+Seed set to 0
+STFT kernels created, time used = 0.0195 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+synth_mag            epoch 399    125 batches -- split reproduced, hash matches manifest
+Seed set to 0
+STFT kernels created, time used = 0.0205 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+synth_mag_halfw      epoch 399    125 batches -- split reproduced, hash matches manifest
+Seed set to 0
+STFT kernels created, time used = 0.0213 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+synth_magx           epoch 399    125 batches -- split read from manifest
+Seed set to 0
+STFT kernels created, time used = 0.0191 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+synth_magx2hybx      epoch 399    125 batches -- split read from manifest
+Seed set to 0
+STFT kernels created, time used = 0.0212 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+synth_magx_halfw     epoch 399    125 batches -- split read from manifest
+
+=== MFCC on the id validation split, up to 2000 clips
+Every column has its own scale -- dB is ~4.34x natural log by base alone, and each
+gamma is a different power of the same numbers. Read each column DOWN, never across.
+What carries information is the ORDER of the arms within a column, and how that order
+changes as the metric's compression moves from g1 (linear) toward as_logged (log).
+g0.3 is Stevens' law and is the rung to quote.
+
+run                   epoch   as_logged        hann    standard          g1        g0.6        g0.3       g0.15        db80        db70        db60        db40        db20    db70post         lsd
+synth_gam03             399      1.1465      1.1369      3.9364      2.4301      0.3042      0.0832      0.0547      3.3064      2.6449      2.0226      0.9724      0.2653      3.1656     11.8226
+synth_hybrid            399      1.2657      1.3652      4.9660      2.5949      0.3607      0.1097      0.0723      4.2254      3.4636      2.7081      1.3200      0.3199      4.0584     11.2959
+synth_hybridx           399      1.1687      1.1473      4.0248      2.6226      0.3368      0.0923      0.0584      3.4032      2.7647      2.1525      1.0793      0.2935      3.2629     11.5823
+synth_log               399      1.4506      1.9110      6.6651      3.9023      0.5371      0.1565      0.1003      5.6362      4.5855      3.5738      1.7822      0.4555      5.3564     12.2455
+synth_logx_halfw        399      1.2398      1.3476      4.7824      3.3493      0.4306      0.1161      0.0716      4.0813      3.3362      2.6098      1.3224      0.3689      3.9119     11.8423
+synth_mag               399      1.3810      1.6608      6.2158      2.6941      0.3941      0.1289      0.0887      5.3175      4.3480      3.3704      1.5792      0.3549      5.0845     11.7039
+synth_mag_halfw         399      1.3017      1.4518      5.2962      2.6504      0.3743      0.1169      0.0773      4.5304      3.7457      2.9587      1.4445      0.3364      4.3695     11.6583
+synth_magx              399      1.1551      1.1475      3.9847      2.3616      0.3011      0.0838      0.0552      3.3494      2.6986      2.0789      0.9983      0.2640      3.2171     11.6544
+synth_magx2hybx         399      1.1688      1.1293      3.9326      2.4962      0.3190      0.0877      0.0564      3.3211      2.6930      2.0900      1.0322      0.2793      3.1886     11.5714
+synth_magx_halfw        399      1.1461      1.1176      3.8595      2.4179      0.3024      0.0828      0.0541      3.2472      2.6178      2.0229      0.9771      0.2611      3.1172     11.7203
+
+2*se (median over arms)             0.0224      0.0345      0.1519      0.2027      0.0238      0.0056      0.0028      0.1338      0.1163      0.0960      0.0530      0.0153      0.1298      0.2743
+spread (max-min)                 0.3045      0.7935      2.8056      1.5408      0.2360      0.0737      0.0462      2.3890      1.9677      1.5512      0.8099      0.1944      2.2392      0.9496
+SATURATION (unrelated)             3.6809      6.3491     24.5843     14.8815      2.2627      0.6804      0.4110     21.8471     18.4609     14.8070      7.6671      2.2687     20.9023     25.3043
+best as % of saturation              31.1%       17.6%       15.7%       15.9%       13.3%       12.2%       13.2%       14.9%       14.2%       13.7%       12.7%       11.5%       14.9%       44.6%
+spread as % of saturation               8.3%       12.5%       11.4%       10.4%       10.4%       10.8%       11.3%       10.9%       10.7%       10.5%       10.6%        8.6%       10.7%        3.8%

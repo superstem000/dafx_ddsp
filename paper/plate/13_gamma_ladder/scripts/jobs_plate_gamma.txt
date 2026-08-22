@@ -1,0 +1,169 @@
+# The diffsynth gamma ladder, on the plate. Same exponents, same pretraining.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_plate_gamma.txt
+#
+# WHY. The diffsynth arms are a ladder in one variable -- the exponent gamma on
+# INTENSITY -- with mag at 1.0, magx at 0.5, gam03 at 0.3 and log at the limit.
+# On real held-out audio the ordering reverses along it: magnitude-linear wins
+# every compressed rung and loses every log-domain one, with the crossover
+# between g0.15 and g0, and Stevens' 0.3 sitting well inside the region where it
+# wins. That is one synthesizer, one dataset, one architecture. The plate is a
+# second system with TRUE parameters, so it can say whether the ordering is a
+# property of compression or a property of harmor.
+#
+# THE PLATE HAS NEVER HAD THE g=1 RUNG. _stft_mag returns .abs(), so every loss
+# in losses.py is magnitude-domain: L1_STFT is I^0.5, the eps rungs are I -> 0,
+# and there was no I^1.0 arm at all. L1_STFT_g1 supplies it, so the dead zone
+# can be reproduced or ruled out on a task with ground-truth parameters rather
+# than inferred from a frozen training curve.
+#
+# RESULT, WRITTEN BACK: IT WAS RULED OUT. gamma_raw ran I^1.0 from random init
+# with no pretraining and did not freeze -- it reached ratio 0.03, and the
+# pretrained I^1.0 arm tied the magnitude arm outright at 0.01. So the reading
+# that |a^2 - t^2| is broken because its derivative 2a vanishes at silence does
+# not transfer. The trap needs the MODEL'S OUTPUT to be near-silent, and the
+# plate encoder at init emits mid-range tanh values that render a perfectly
+# ordinary IR, where diffsynth's estimator at init produces near-silence. The
+# dead zone is a property of that synthesizer's parameterisation, not of the
+# power-domain loss. This paragraph originally predicted the opposite and is
+# left corrected rather than deleted.
+#
+# AND L1_STFT_pow WAS NOT STEVENS. It applies gamma to MAGNITUDE, so pow at 0.3
+# is I^0.15 -- half the exponent it reads as. Loudness ~ I^0.3 needs
+# magnitude^0.6. pow is left untouched because published runs use it; g03 is the
+# arm that actually sits where hearing does. This is the same trap diffsynth's
+# spectrogram_loss asserts against with its `power == 2` check.
+#
+# THE WIRING CHECK IS NOT A TRAINING ARM. g05 is I^0.5, and (m^2 + e^2)^0.5 = m
+# for m >> e, so it IS L1_STFT except for a soft floor below magnitude 1e-7.
+# Two functions that agree to six figures do not need 7 GPU-hours to prove it --
+# run the numeric check instead, and do it before queueing anything:
+#
+#   python - <<'EOF'
+#   import torch
+#   from src.loss.losses import LOSS_COMPONENTS as L
+#   x = torch.randn(2, 44100); y = x + 0.01*torch.randn_like(x)
+#   for n in ("L1_STFT","L1_STFT_g05","L1_STFT_g03","L1_STFT_g1","L1_STFT_eps1e7"):
+#       print(f"{n:<18}{float(L[n](x,y).mean()):.6f}")
+#   EOF
+#
+# L1_STFT_g05 must land on L1_STFT. If it does not, the squaring or the eps
+# placement in _compress_mag's "gpow" branch is wrong and every arm below is
+# measuring something other than its exponent.
+#
+# EPS. 1e-7 on magnitude throughout, squared to 1e-14 on intensity inside gpow,
+# which is the family default and matches the c1 rungs. So g03 against
+# L1_STFT_eps1e7 differs in the exponent and in nothing else -- same knee, same
+# signal level, the same one-variable discipline diffsynth's gam03 has against
+# its log arm.
+#
+# NOT A PURE LADDER IN OPTIMISATION TERMS, and this should be said rather than
+# discovered. The losses use x^gamma, not Box-Cox (x^gamma - 1)/gamma, so the
+# gradient carries a factor of gamma: d/dx (x^2 + e)^g = 2g x (x^2 + e)^(g-1),
+# which at unit amplitude is 2g. So g03 trains with roughly 0.6x g05's step on
+# the spectral term, from the missing normalisation rather than from the
+# compression under test. Adam absorbs most of a uniform factor once the
+# spectral term is the whole objective; where it does not is the crossfade,
+# while the parameter loss is still being traded against.
+#
+# PRETRAINING AND NORM. Masuda & Saito's schedule as fractions -- parameter loss
+# alone for 12.5%, crossfade to 50%, param_w 10 -> 0. NORM=batch for the same
+# reason jobs_ppre_hybrid.txt uses it on every line: GroupNorm normalises within
+# one example and permits an encoder that maps every input to the same output,
+# which is this encoder's documented failure mode, while BatchNorm makes that
+# solution unreachable.
+#
+# ONE SHARED BASE, AND IT IS NOT MERELY AN EFFICIENCY WIN. diffsynth trains
+# epochs 0-50 once as pre_base and resumes every variant from it. Doing the same
+# here removes a confound rather than just 5000 x 6 duplicated steps.
+#
+# The confound: spec_w == 0 does drop the spectral term from the graph, so the
+# objective during the hold is param_w*param_term + hinge for every arm. But it
+# is then divided by loss_scale, which is fixed at step 1 from THAT ARM'S OWN
+# spectral loss -- measured at 2.12 for L1_STFT and 4483 for L1_STFT_g1, a
+# factor of 2000. So "the parameter-only phase is identical for every arm" is
+# false as the ladder currently stands, in a way that is invisible in the logs
+# because train_loss reports the undivided spectral value.
+#
+# Training the hold once and resuming fixes it exactly: --resume restores
+# loss_scale from the checkpoint (deliberately -- recomputing it would rescale
+# every gradient and silently change the effective learning rate mid-run), so
+# every arm inherits ONE divisor and starts the crossfade from bit-identical
+# weights and optimizer moments.
+#
+# --lr-decay-end 40000 on a --steps 5000 run is what makes the base's learning
+# rate the first 5000 steps of the 40000-step schedule rather than a compressed
+# 5000-step one: s0_end = stage0_end_step or lr_decay_end or steps.
+# --param-hold-frac 1.0 holds param_w at 10 for the whole base, since the
+# handover reads its boundaries as fractions of --steps.
+#
+# WHAT THIS DOES NOT FIX, and it should be stated. param_w = 10 is weighed
+# against each arm's own spectral magnitude during the crossfade, and those span
+# five decades here (g1 ~200, eps1e7 ~0.01). loss_scale cancels in that ratio,
+# so it is param_w itself that means different things across arms. diffsynth has
+# the same property but its losses sit within about one decade of each other.
+# Left alone because changing it would depart from the published recipe; noted
+# because a reviewer comparing the crossfade across arms is comparing this too.
+#
+# ORDERING. Two stages only. The base alone in the first, because every arm
+# below resumes from it and a stage is a hard barrier. Everything else in the
+# second, longest job first. Every number here is quoted as a ratio against
+# L1_STFT and the constant-predictor floor, so a queue that stops partway is
+# still interpretable provided the base and the anchor finished.
+
+# STAGE the shared parameter-only base. ~1 hour. EVERYTHING BELOW RESUMES FROM
+# IT, so if this fails the rest must not start -- which is why it is alone in
+# its stage.
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=5000 OUT=results/ddsp/gamma_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 40000" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE everything else. ONE stage, because stages are hard barriers and only
+# the base is a real dependency. Split across five stages this ladder costs ~44h
+# on four cards -- three idle behind the 1h base, three behind the 7h anchor,
+# two behind the 22h log arm -- against ~22h merged, because gpu_queue starts
+# the next job as soon as a card frees rather than waiting for a stage to drain.
+#
+# eps1e7 leads: it is the long pole at ~22h against ~7h for the rest, so it has
+# to be in the first wave or it extends the whole campaign by its own length.
+# The anchor is second so it lands in that wave too, since every number here is
+# quoted as a ratio against it and a queue that dies early is only interpretable
+# if it finished. The raw arm is last: it depends on nothing and is the one
+# result that still stands alone if the queue never reaches it.
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_eps1e7" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g03" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g1" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_raw ARMS="L1_STFT_g1"  scripts/eps_ladder.sh "{gpu}"
+
+# ==========================================================================
+# WHAT THIS LADDER RETURNED, at 40000 steps, as val_nmse_6d over the
+# constant-predictor floor. Recorded here so the queue and its result live
+# together rather than in a monitor's scrollback.
+#
+#   I^1.0   L1_STFT_g1        0.01     tied best
+#   I^0.5   L1_STFT           0.01     tied best
+#           L1_STFT_hyb1e2    0.75
+#   I^0.3   L1_STFT_g03       1.49     worse than predicting the dataset mean
+#   I->0    L1_STFT_eps1e7    3.69
+#
+# A CLIFF, NOT A TREND. Between gamma 0.5 and 0.3 the error jumps 100x, and
+# Stevens' exponent sits on the far side of it: 0.3 is where hearing is and
+# training there fails. The collapse is located exactly at param_w -> 0, step
+# 20000, and it is not a trade -- gamma 0.3's own g0.3 metric worsened at the
+# same moment, 0.4997 -> 0.7604. An arm that holds only while parameter
+# supervision holds it is reporting that its spectral optimum is not at the
+# true parameters.
+#
+# AND THE METRIC VALIDATED. Ranking the arms by the g0.3 cepstral metric and by
+# val_nmse gives the IDENTICAL order -- .273/.280/.323/.570/.577/8.54 against
+# .0007/.0007/.0016/.0355/.0704/.1744. On diffsynth the choice of gamma 0.3 for
+# evaluation rests on Stevens' law with nothing to check it against; here it is
+# checked. Which sharpens into: gamma 0.3 is an excellent METRIC and a failed
+# LOSS.
+#
+# CAVEATS. ppre:g1 clips on 6.3% of steps once spec_w reaches 1.0 while linear
+# and raw:g1 clip on none, so grad-clip 5000 is partly setting its step size and
+# the tie carries that footnote. eps1e7 is pinned at exactly 0.1744 from step
+# 24000 with param at 1.04 -- worse than the mean -- which is a saturated head,
+# not a converged one. One seed per arm against the ~1% run-to-run spread five
+# pretrainings showed.

@@ -63,6 +63,7 @@ from src.gd.graddescent import (
     verify_mapping_matches_cmaes,
 )
 from src.loss.loss_selector import select_loss_function
+from src.loss.losses import metric_mfcc_g03
 from src.mu_optimization.ternary_mu import (
     COMPOSITE_BOUNDS,
     load_target_ir_from_npz,
@@ -566,6 +567,24 @@ def fit_mu_scale(loss_fn, target, pred, mu_pred, iters: int = 30):
     return mu_pred / torch.exp(0.5 * (lo + hi))
 
 
+# The g03 metric, on peak-normalized signals. Not a detail -- without this it
+# reads 0.0000 for every arm at every step, which it did.
+#
+# The dataset's IR peaks span 4.3e-12 to 1.1e-06. Through a 2048-point window
+# that puts mel-band sums near 1e-11, BELOW metric_mfcc_gamma's eps of 1e-10, so
+# (mel + eps)^0.3 returns (1e-10)^0.3 for target and candidate alike and the DCT
+# of a near-constant is zero. eps 1e-10 comes from loss_mfcc, which was written
+# for normalized audio.
+#
+# The wrapper is reused rather than the eps retuned, for the reason
+# peak_normalized() already gives about the training loss: any fixed eps against
+# raw plate amplitudes is a different floor for a loud IR than for a quiet one --
+# measured at percentile 96.2 unnormalized against 0.0 normalized -- and a
+# metric read across the val set has to mean one thing. Normalized, the peak is
+# 1.0 and mel sums land near 1e6, six decades clear of eps.
+_G03 = peak_normalized(metric_mfcc_g03, "target")
+
+
 @torch.no_grad()
 def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
              refiner=None, cond=None, two_stage=False, mu_loss_fn=None) -> Dict[str, float]:
@@ -579,6 +598,14 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     if refiner is not None:
         refiner.eval()
     losses, preds, preds0, mu_fits = [], [], [], []
+    # An audio metric that is NOT the arm's own objective. val_loss is each
+    # arm's loss on val, so it is circular by construction and cannot be read
+    # across arms; this is one fixed function for every arm, at Stevens'
+    # exponent on intensity. The trajectory is the point: if the spectral phase
+    # improves g03 while val_nmse degrades, that is audio similarity being
+    # bought with parameter accuracy, which is the thesis in one plot and
+    # cannot be recovered from final checkpoints.
+    g03 = []
     for i in range(0, x_val.shape[0], args.batch_size):
         xb = x_val[i : i + args.batch_size]
         if str(xb.device) != str(space.device):
@@ -597,6 +624,7 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
             mu_fits.append(fit_mu_scale(mu_loss_fn, xb, pred, mu_b).cpu().numpy())
         preds.append(zp.detach())
         preds0.append(z0.detach())
+        g03.append(_G03(xb, pred).detach())
     model.train()
     if refiner is not None:
         refiner.train()
@@ -628,6 +656,7 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     # so it is the statistic these numbers are directly comparable against.
     out = {
         "val_loss": float(torch.cat(losses).mean()),
+        "val_g03": float(torch.cat(g03).mean()),
         "val_nmse_6d_geo": float(np.exp(np.mean(np.log(np.maximum(n6, 1e-30))))),
         "val_nmse_6d": float(np.median(n6)),
         "val_nmse_6d_mean": float(np.mean(n6)),
@@ -800,6 +829,34 @@ def run(args) -> None:
     if refiner is not None:
         groups.append({"params": list(refiner.parameters()), "lr": args.lr})
     opt = torch.optim.Adam(groups, lr=args.lr, eps=args.adam_eps)
+
+    def handover(step: int) -> Tuple[float, float]:
+        """Masuda & Saito's parameter-to-spectral crossfade, as (spec_w, param_w).
+
+        Their schedule is stated in epochs -- parameter loss alone for 50, a
+        linear crossfade to spectral over 50-200, spectral alone to 400 -- which
+        at 250 steps/epoch is param-only to step 12500, crossfade ending at
+        50000, spectral alone to 100000. The shape is what transfers, not the
+        step counts: as fractions of the run that is 12.5% held, then a
+        crossfade ending at 50%. Expressed as fractions here so a 40k ladder arm
+        gets the same schedule as a 100k diffsynth arm rather than the same
+        absolute boundaries, which would put the entire crossfade inside the
+        first third and leave nothing to compare.
+
+        param_w starts at 10.0, also theirs. It is not a tuning knob so much as
+        a unit conversion: the parameter loss is an L1 on z in [-1, 1] and the
+        spectral loss is an L1 on peak-normalized STFT magnitudes, and the two
+        are not the same size.
+
+        With --param-loss none this is (1.0, 0.0) at every step, which is the
+        objective every existing run used.
+        """
+        if args.param_loss == "none":
+            return 1.0, 0.0
+        hold = args.param_hold_frac * args.steps
+        ramp = max(1.0, args.param_ramp_frac * args.steps)
+        f = min(1.0, max(0.0, (step - hold) / ramp))
+        return f, args.param_w * (1.0 - f)
     def cosine(step: int, start: int, end: int) -> float:
         """Warmup, cosine decay to a floor, then hold that floor.
 
@@ -967,6 +1024,22 @@ def run(args) -> None:
         finite = torch.isfinite(loss)
         obj = torch.where(finite, loss, torch.zeros_like(loss)).mean()
 
+        # The parameter term, and the crossfade that hands the objective over to
+        # the spectral one. Structured to mirror the spectral loss exactly --
+        # scored on the final prediction, with the same deep supervision weight
+        # on stage 0 -- so the two halves differ in what they measure and in
+        # nothing else.
+        spec_w, param_w = handover(step)
+        param_term = torch.zeros((), device=obj.device)
+        if args.param_loss != "none":
+            zb = _batch(z_tr, idx, device)
+            def _pl(zp):
+                d = zp - zb
+                return d.abs().mean() if args.param_loss == "l1" else (d * d).mean()
+            param_term = _pl(z1 if two_stage else z0)
+            if two_stage:
+                param_term = param_term + args.deep_supervision * _pl(z0)
+
         # Kept out of `obj` until after loss_scale is fixed, and reported
         # separately below: train_loss has to stay comparable to `saturation`
         # and `gt_loss`, which are audio-only quantities. At step 1 the head is
@@ -983,7 +1056,20 @@ def run(args) -> None:
             print(f"loss scale (fixed): {loss_scale:.4e}")
 
         opt.zero_grad(set_to_none=True)
-        ((obj + hinge) / loss_scale).backward()
+        # loss_scale stays calibrated on the SPECTRAL objective even while
+        # spec_w is 0, so a pretrained arm and its control divide by the same
+        # thing and their train_loss curves are on one axis.
+        #
+        # spec_w == 0 drops the spectral term from the graph rather than
+        # multiplying it by zero: the forward has already rendered x0, but the
+        # backward through the modal sum is the expensive half and there is no
+        # gradient in it to collect. The forward is kept because the spectral
+        # loss during the parameter-only phase is exactly the trajectory that
+        # made DiffMoog's handover collapse visible.
+        total = param_w * param_term + hinge
+        if spec_w > 0:
+            total = total + spec_w * obj
+        (total / loss_scale).backward()
         # Clip each network separately: one shared norm would let stage 0's much
         # larger gradient decide how much the refiner's gets scaled.
         gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip))
@@ -1005,6 +1091,12 @@ def run(args) -> None:
                 # meaningful under leakytanh; zero elsewhere.
                 "floor_frac": float(getattr(model, "last_floor_frac", 0.0)),
                 "hinge": float(hinge.detach()),
+                # train_loss above stays the spectral value alone, so it remains
+                # comparable to gt_loss and saturation. These are what the
+                # optimizer actually saw.
+                "param_loss": float(param_term.detach()),
+                "spec_w": spec_w,
+                "param_w": param_w,
                 "h_absmean": float(getattr(model, "last_h_absmean", 0.0)),
                 **{f"zmax_{k}": float(v) for k, v in
                    zip(PARAM_KEYS, getattr(model, "last_z_absmax", torch.zeros(len(PARAM_KEYS))))},
@@ -1236,6 +1328,31 @@ def build_parser() -> argparse.ArgumentParser:
              "of compression in the loss; state it separately in writeups.",
     )
     p.add_argument("--log-input", action="store_true", help="Deprecated alias for --input-mode log")
+    p.add_argument(
+        "--param-loss", type=str, default="none", choices=("none", "l1", "mse"),
+        help="Supervise on the true parameters for the first part of the run, "
+             "then hand the objective over to the spectral loss -- the schedule "
+             "Masuda & Saito and DiffMoog both use, and which no encoder run "
+             "here has used. 'none' reproduces the spectral-only objective "
+             "exactly. The parameter loss is on z in [-1, 1], i.e. the "
+             "normalized space the head emits, not on physical units.",
+    )
+    p.add_argument(
+        "--param-w", type=float, default=10.0,
+        help="Weight on the parameter loss during its own phase, decaying to 0 "
+             "across the crossfade. 10.0 is theirs; it converts between an L1 "
+             "on z and an L1 on peak-normalized STFT magnitudes.",
+    )
+    p.add_argument(
+        "--param-hold-frac", type=float, default=0.125,
+        help="Fraction of --steps trained on the parameter loss alone before "
+             "the crossfade starts. 0.125 is their 50 epochs of 400.",
+    )
+    p.add_argument(
+        "--param-ramp-frac", type=float, default=0.375,
+        help="Fraction of --steps the crossfade spans. 0.375 puts its end at "
+             "50%% of the run, which is their epoch 200 of 400.",
+    )
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--data-device", type=str, default="cpu", choices=["cpu", "cuda"],

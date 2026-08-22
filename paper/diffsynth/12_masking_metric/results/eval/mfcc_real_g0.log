@@ -1,0 +1,109 @@
+/home/bhpark3/dsenv/lib/python3.12/site-packages/nnAudio/Spectrogram.py:4: Warning: importing Spectrogram subpackage will be deprecated soon. You should import the feature extractor from the feature subpackage. See actual documentation.
+  warnings.warn(
+Seed set to 0
+STFT kernels created, time used = 0.0234 seconds
+STFT filter created, time used = 0.0012 seconds
+Mel filter created, time used = 0.0012 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+/home/bhpark3/dsenv/lib/python3.12/site-packages/torch/functional.py:680: UserWarning: A window was not provided. A rectangular window will be applied,which is known to cause spectral leakage. Other windows such as torch.hann_window or torch.hamming_window are recommended to reduce spectral leakage.To suppress this warning and use a rectangular window, explicitly set `window=torch.ones(n_fft, device=<device>)`. (Triggered internally at /__w/pytorch/pytorch/aten/src/ATen/native/SpectralOps.cpp:835.)
+  return _VF.stft(  # type: ignore[attr-defined]
+real_gam03           epoch 399    125 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0210 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_hybrid          epoch 399    125 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0179 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_hybridx         epoch 399    125 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0163 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_log             epoch 399    125 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0186 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_logx_halfw      epoch 399    125 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0166 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_mag             epoch 399    125 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0189 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_mag_halfw       epoch 399    125 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0163 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_magx            epoch 399    125 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0189 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0010 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_magx2hybx       epoch 399    125 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0165 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_magx_halfw      epoch 399    125 batches -- ood split reproduced
+
+=== MFCC on the ood validation split, up to 2000 clips
+Every column has its own scale -- dB is ~4.34x natural log by base alone, and each
+gamma is a different power of the same numbers. Read each column DOWN, never across.
+What carries information is the ORDER of the arms within a column, and how that order
+changes as the metric's compression moves from g1 (linear) toward as_logged (log).
+g0.3 is Stevens' law and is the rung to quote.
+
+run                   epoch   as_logged        hann    standard          g1        g0.6        g0.3       g0.15          g0         lsd
+real_gam03              399      1.7571      2.6842      8.8149      5.4259      0.6939      0.1821      0.1227      4.1873     13.3961
+real_hybrid             399      1.9138      2.7905      9.5317      4.8168      0.6693      0.1949      0.1341      4.2329     13.9582
+real_hybridx            399      1.7037      2.2861      8.7657      6.8325      0.9044      0.2406      0.1402      3.4705     13.3686
+real_log                399      1.8021      2.3849      8.3753      7.7698      0.9536      0.2372      0.1362      3.7183     12.9915
+real_logx_halfw         399      1.8144      2.4143      9.3750      8.9099      1.1295      0.2919      0.1614      3.5477     13.6891
+real_mag                399      2.6237      3.7398     13.1253      4.5537      0.6536      0.2163      0.1676      5.3627     16.3577
+real_mag_halfw          399      2.6796      3.8151     13.4044      4.6955      0.6735      0.2221      0.1715      5.4435     16.4963
+real_magx               399      1.8512      2.8992      9.6784      4.6899      0.6212      0.1762      0.1281      4.4503     14.3138
+real_magx2hybx          399      1.7204      2.3812      8.7135      6.7007      0.8830      0.2347      0.1375      3.6177     12.9811
+real_magx_halfw         399      1.8748      2.8697      9.6165      4.7688      0.6270      0.1771      0.1283      4.3825     14.3302
+
+2*se (median over arms)             0.0375      0.0476      0.2375      0.4127      0.0425      0.0093      0.0041      0.0500      0.3996
+spread (max-min)                 0.9759      1.5290      5.0291      4.3561      0.5083      0.1157      0.0488      1.9730      3.5152
+SATURATION (unrelated)             3.7730      5.3708     19.1026     15.9361      2.1711      0.6062      0.3557      6.1044     24.4209
+best as % of saturation              45.2%       42.6%       43.8%       28.6%       28.6%       29.1%       34.5%       56.9%       53.2%
+spread as % of saturation              25.9%       28.5%       26.3%       27.3%       23.4%       19.1%       13.7%       32.3%       14.4%

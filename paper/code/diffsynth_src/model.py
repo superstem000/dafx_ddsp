@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import diffsynth.util as util
-from diffsynth.spectral import compute_lsd, loudness_loss, Mfcc
+from diffsynth.spectral import compute_lsd, loudness_loss, Mfcc, GammaCepstrum
 import pytorch_lightning as pl
 from diffsynth.modelutils import construct_synth_from_conf
 from diffsynth.schedules import ParamSchedule
@@ -59,6 +59,12 @@ class EstimatorSynth(pl.LightningModule):
         # None keeps the published ExponentialLR exactly. See configure_optimizers.
         self.lr_schedule = model_cfg.get('lr_schedule', None)
         self.mfcc = Mfcc(n_fft=1024, hop_length=256, n_mels=40, n_mfcc=20, sample_rate=16000)
+        # The paper's table metric at Stevens' exponent, on Hann + Slaney
+        # conventions rather than Mfcc's rectangular window and HTK filterbank.
+        # Identical by construction to ds_mfcc_check's g0.3 column, which is
+        # how every earlier run gets it. All its buffers are persistent=False,
+        # so it adds nothing to state_dict and earlier checkpoints still load.
+        self.mfcc03 = GammaCepstrum(gamma=0.3)
         self.save_hyperparameters()
 
     def param_group_losses(self, synth_output, param_dict):
@@ -167,7 +173,18 @@ class EstimatorSynth(pl.LightningModule):
         resyn_audio = output['output']
         if loss_w['sw_w'] > 0.0 and sw_loss is not None:
             # Reconstruction loss
-            spec_loss, wave_loss = sw_loss(target_audio, resyn_audio)
+            # log_mag_w is forwarded only when the schedule carries it.
+            # ParamSchedule returns every key in sched_cfg, so a schedule
+            # without it yields None here and SpecWaveLoss keeps its
+            # constructed weight -- every existing config is unaffected.
+            #
+            # Validation calls this with loss_w=None, so the reported val
+            # spec/wave always use the CONSTRUCTED weight rather than the
+            # scheduled one. That is deliberate: it keeps val/spec comparable
+            # across epochs while the balance is still moving. The metrics the
+            # paper reads -- param, mfcc, lsd -- do not depend on it at all.
+            spec_loss, wave_loss = sw_loss(target_audio, resyn_audio,
+                                           log_mag_w=loss_w.get('log_mag_w'))
             loss_dict['spec'], loss_dict['wave'] = loss_w['sw_w'] * spec_loss, loss_w['sw_w'] * wave_loss
         else:
             loss_dict['spec'], loss_dict['wave'] = (0, 0)
@@ -186,6 +203,7 @@ class EstimatorSynth(pl.LightningModule):
         mon_losses['lsd'] = compute_lsd(target_audio, resyn_audio)
         mon_losses['loud'] = loudness_loss(resyn_audio, target_audio)
         mon_losses['mfcc'] = F.l1_loss(self.mfcc(target_audio), self.mfcc(resyn_audio))
+        mon_losses['mfcc03'] = F.l1_loss(self.mfcc03(target_audio), self.mfcc03(resyn_audio))
         return mon_losses
 
     def training_step(self, batch_dict, batch_idx):

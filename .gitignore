@@ -32,3 +32,9 @@ masking/*.npz
 # evidence behind section 06.
 dm_*.log
 archive_extract.log
+
+# Listening demos from ds_floor_audio.py / ds_compare_audio.py. Regenerable,
+# and tens of MB of wavs -- the scripts and their flags are the record.
+db_listen/
+mask_listen*/
+*.tar.gz

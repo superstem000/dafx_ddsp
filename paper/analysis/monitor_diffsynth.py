@@ -73,6 +73,13 @@ TAGS = {
     # penalises much.
     "id_mfcc": "val_id/mfcc",
     "ood_mfcc": "val_ood/mfcc",
+    # The same cepstral distance at Stevens' exponent, mel^0.3 in place of the
+    # log. mfcc and lsd both measure at gamma -> 0, which is where a log-trained
+    # arm is optimised and far past where hearing sits, so the pair mfcc/mfcc03
+    # is the one that says whether an ordering is a fact about the models or
+    # about the metric's compression. Absent from runs predating it.
+    "id_mfcc03": "val_id/mfcc03",
+    "ood_mfcc03": "val_ood/mfcc03",
     "id_loud": "val_id/loud",
     "ood_loud": "val_ood/loud",
 }
@@ -81,7 +88,7 @@ SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 # Bumped whenever load() extracts a different set of series. The cache is
 # keyed on TAGS, and val_id/param_group/* is not in TAGS -- without this a
 # cache written before those were read would silently keep hiding them.
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 def load(run_dir: str) -> dict | None:
@@ -223,7 +230,13 @@ def trend(pts):
         verdict = "WORSENING"
     best_e, best_v = min(pts, key=lambda p: p[1])
     return {"n": n, "last": lm, "prev": pm, "delta": delta, "noise": noise,
-            "se": se, "verdict": verdict, "best_v": best_v, "best_e": best_e}
+            "se": se, "verdict": verdict, "best_v": best_v, "best_e": best_e,
+            # The epoch `last` actually reaches. It is a block mean over the
+            # final tenth of the run, so for a run still training it sits
+            # behind the epoch just logged -- and with several arms at
+            # different epochs there was nothing on screen saying how far
+            # behind, or how far apart two arms' "last" columns were.
+            "last_e": pts[-1][0], "last_from": pts[-n][0]}
 
 
 def at(d: dict, step: int, key: str) -> float:
@@ -344,6 +357,15 @@ def main() -> None:
                        ("ood_mfcc", "val_ood/mfcc  (log of mel BAND energies -- "
                                     "perceptual, but not bin-wise log like LSD)"),
                        ("id_mfcc", "val_id/mfcc"),
+                       # The same distance at Stevens' exponent. Read it against
+                       # ood_mfcc directly above: if the arms order the same way
+                       # in both, the ordering is a fact about the models; if it
+                       # inverts, it is a fact about the metric's compression,
+                       # and MFCC's gamma -> 0 is 60x more aggressive than
+                       # hearing.
+                       ("ood_mfcc03", "val_ood/mfcc03  (same, at Stevens' "
+                                      "gamma=0.3 instead of the log)"),
+                       ("id_mfcc03", "val_id/mfcc03"),
                        # train/total is the OPTIMISED objective, so read it only
                        # down a column, never across. Across arms it is a
                        # different quantity per arm -- log(x+1e-4) and |x| live
@@ -358,37 +380,55 @@ def main() -> None:
         if not names:
             continue
         P = {n: pairs(runs[n], key, args.steps_per_epoch) for n in names}
+        # Each run's own latest epoch. The milestone grid is global -- built
+        # from whichever arm is furthest along -- so an arm still training
+        # shows "-" for every mark past it, and the last number in its column
+        # can be a hundred epochs back.
+        own = {n: max(e for e, _ in P[n]) for n in names}
         w = max(11, max(len(n) for n in names) + 2)
 
         # Milestones rather than the last N epochs. Adjacent epochs differ by
         # noise; what carries information is the shape across the whole run, and
         # the two phase boundaries -- 50, where the spectral loss starts being
         # introduced, and 200, where the ramp completes and the resume begins.
-        top = max(e for n in names for e, _ in P[n])
+        top = max(own.values())
         marks = {1, 50, 200, top}
         marks |= {round(top * i / args.rows) for i in range(1, args.rows)}
+        # Plus a row AT each still-training arm's current epoch, so it can be
+        # read against the finished arms at that epoch rather than against
+        # their endpoints. One row per position, every arm evaluated on it --
+        # a row where each column used its own epoch would put arms hundreds of
+        # epochs apart on one line, which is the comparison to avoid.
+        live = {e for e in own.values() if e != top}
+        marks |= live
         marks = sorted(e for e in marks if 0 < e <= top)
 
-        print(f"\n=== {label}   (mean over +-2 epochs; * marks a phase boundary)")
+        print(f"\n=== {label}   (mean over +-2 epochs; * phase boundary, "
+              f"< where a still-running arm is now)")
         print(f"{'epoch':>7} " + "".join(f"{n:>{w}}" for n in names))
         for e in marks:
             cells = []
             for n in names:
                 v = around(P[n], e)
                 cells.append(f"{v:>{w}.4f}" if v == v else f"{'-':>{w}}")
-            flag = "*" if e in (50, 200) else " "
+            flag = "<" if e in live else ("*" if e in (50, 200) else " ")
             print(f"{e:>7}{flag}" + "".join(cells))
 
-        print(f"\n{'':7} {'best (epoch)':>18}{'last':>10}{'prev':>10}"
+        print(f"\n{'':7} {'best (epoch)':>18}{'last (epochs)':>22}{'prev':>10}"
               f"{'change':>10}{'2*se':>9}  verdict")
         for n in names:
             t = trend(P[n])
             if t is None:
                 print(f"{n:<18} too few points yet")
                 continue
-            print(f"{n:<18}{t['best_v']:>9.4f} ({t['best_e']:>3}){t['last']:>10.4f}"
-                  f"{t['prev']:>10.4f}{t['delta']:>+10.4f}{2 * t['se']:>9.4f}"
-                  f"  {t['verdict']}")
+            # `last` is a block mean over the final tenth of the run, so name
+            # the epochs it spans. Without them two arms' "last" columns look
+            # comparable when one is a mean over 390-399 and the other over
+            # 151-155.
+            span = f"({t['last_from']}-{t['last_e']})"
+            print(f"{n:<18}{t['best_v']:>9.4f} ({t['best_e']:>3}){t['last']:>11.4f} "
+                  f"{span:<10}{t['prev']:>10.4f}{t['delta']:>+10.4f}"
+                  f"{2 * t['se']:>9.4f}  {t['verdict']}")
 
     param_groups(runs, args)
 

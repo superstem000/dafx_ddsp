@@ -1,0 +1,84 @@
+/home/bhpark3/dsenv/lib/python3.12/site-packages/nnAudio/Spectrogram.py:4: Warning: importing Spectrogram subpackage will be deprecated soon. You should import the feature extractor from the feature subpackage. See actual documentation.
+  warnings.warn(
+dB floors clamped PRE-mel; db70post carries the post-mel convention sections 08-11 used, as a bridge
+dB floors take their peak from the TARGET for both signals; a gain offset no longer moves an arm's own floor
+Seed set to 0
+STFT kernels created, time used = 0.0216 seconds
+STFT filter created, time used = 0.0012 seconds
+Mel filter created, time used = 0.0012 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+/home/bhpark3/dsenv/lib/python3.12/site-packages/torch/functional.py:680: UserWarning: A window was not provided. A rectangular window will be applied,which is known to cause spectral leakage. Other windows such as torch.hann_window or torch.hamming_window are recommended to reduce spectral leakage.To suppress this warning and use a rectangular window, explicitly set `window=torch.ones(n_fft, device=<device>)`. (Triggered internally at /__w/pytorch/pytorch/aten/src/ATen/native/SpectralOps.cpp:835.)
+  return _VF.stft(  # type: ignore[attr-defined]
+real_gam03           epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0214 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_hybrid          epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0167 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_hybridx         epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0165 seconds
+STFT filter created, time used = 0.0011 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_log             epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0166 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0010 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_logx_halfw      epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0165 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0011 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_mag_halfw       epoch 399    32 batches -- ood split reproduced
+Seed set to 0
+STFT kernels created, time used = 0.0175 seconds
+STFT filter created, time used = 0.0010 seconds
+Mel filter created, time used = 0.0010 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_magx_halfw      epoch 399    32 batches -- ood split reproduced
+
+=== MFCC on the ood validation split, up to 512 clips
+Every column has its own scale -- dB is ~4.34x natural log by base alone, and each
+gamma is a different power of the same numbers. Read each column DOWN, never across.
+What carries information is the ORDER of the arms within a column, and how that order
+changes as the metric's compression moves from g1 (linear) toward as_logged (log).
+g0.3 is Stevens' law and is the rung to quote.
+
+run                   epoch   as_logged        hann    standard          g1        g0.6        g0.3       g0.15        db80        db70        db60        db40        db20    db70post         lsd
+real_gam03              399      1.7934      2.7005      9.0981      5.8895      0.7557      0.1956      0.1271      6.4585      4.9066      3.6349      1.8289      0.5849      5.9775     13.9861
+real_hybrid             399      1.9451      2.7894      9.7727      5.7897      0.7728      0.2122      0.1383      7.0018      5.4336      4.1119      2.0900      0.6086      6.5251     14.3887
+real_hybridx            399      1.7451      2.3064      9.0207      7.3600      0.9692      0.2556      0.1459      6.7274      5.6386      4.5647      2.4726      0.7213      6.4387     13.8535
+real_log                399      1.8241      2.3867      8.4786      7.8440      0.9732      0.2433      0.1386      6.2608      5.1398      4.1363      2.3102      0.7073      5.9407     13.4350
+real_logx_halfw         399      1.8923      2.4879      9.8303      8.9988      1.1673      0.3084      0.1704      7.5612      6.5039      5.3687      2.9674      0.8339      7.2855     14.2958
+real_mag_halfw          399      2.7167      3.8055     13.5759      5.8598      0.7957      0.2410      0.1755      9.9443      7.6771      5.5754      2.4019      0.6198      9.3269     16.9618
+real_magx_halfw         399      1.8960      2.8716      9.8087      5.3814      0.6991      0.1904      0.1315      6.9905      5.2902      3.8779      1.8373      0.5493      6.4599     14.8347
+
+2*se (median over arms)             0.0710      0.0901      0.4476      0.8953      0.0863      0.0177      0.0081      0.3642      0.3344      0.2980      0.1811      0.0614      0.3620      0.6236
+spread (max-min)                 0.9716      1.4991      5.0974      3.6173      0.4682      0.1181      0.0485      3.6835      2.7705      1.9405      1.1385      0.2846      3.3862      3.5267
+SATURATION (unrelated)             3.7013      5.2285     18.8540     16.0867      2.1539      0.6009      0.3509     16.5658     13.9331     11.1236      5.6744      1.6081     15.8527     24.5636
+best as % of saturation              47.1%       44.1%       45.0%       33.5%       32.5%       31.7%       36.2%       37.8%       35.2%       32.7%       32.2%       34.2%       37.5%       54.7%
+spread as % of saturation              26.3%       28.7%       27.0%       22.5%       21.7%       19.6%       13.8%       22.2%       19.9%       17.4%       20.1%       17.7%       21.4%       14.4%

@@ -678,13 +678,37 @@ def _compress_mag(x: torch.Tensor, comp: str, eps: float = 1e-7, gamma: float = 
 
     "linear" : x                 (C0) no compression        -- our winner
     "pow"    : x ** gamma        (power-law, gamma=0.3)     -- speech-enhancement standard
+    "gpow"   : (x^2 + eps^2)^g   gamma on INTENSITY         -- diffsynth's ladder
     "c2"     : log(1 + x)        (Schwar & Muller's fix)    -- ~linear near 0, log for large x
     "c1"     : log(x + eps)      (the standard MSS log)     -- unbounded below, floor at log(eps)
+
+    MIND THE DOMAIN. x here is MAGNITUDE (_stft_mag returns .abs()), so every
+    mode above is an exponent on magnitude, while diffsynth's spectral loss and
+    every metric in the evaluation (GammaCepstrum, compute_lsd, MelSpec) work on
+    INTENSITY. In intensity exponents the modes above are:
+
+        "linear"          I^0.5      == diffsynth's magx
+        "pow" gamma=0.3   I^0.15     NOT Stevens -- half of it
+        "c1"              I -> 0
+
+    That is worth stating because "pow at 0.3" reads as Stevens' law and is not:
+    loudness ~ I^0.3 needs magnitude^0.6. "pow" is left exactly as it was, since
+    published runs use it, and "gpow" is the mode that takes the exponent in the
+    domain the rest of the project quotes.
     """
     if comp == "linear":
         return x
     if comp == "pow":
         return torch.pow(x + 1e-12, gamma)
+    if comp == "gpow":
+        # (I + eps_I)^gamma with I = magnitude^2, which is diffsynth's
+        # (x_spec + log_eps_v)^gamma verbatim. eps arrives on magnitude -- the
+        # plate's convention everywhere else -- so it is squared to put the knee
+        # at the same signal level as the c1 rung using the same eps, and the
+        # gamma arm then differs from the log arm in the exponent and nothing
+        # else. Without a knee this diverges: d/dx (x^2)^g = 2g x^(2g-1) -> inf
+        # at the origin for g < 0.5, the mirror image of the g=1 dead zone.
+        return torch.pow(x * x + eps * eps, gamma)
     if comp == "c2":
         return torch.log1p(x)
     if comp == "c1":
@@ -852,6 +876,26 @@ for _alias in ("smoothmss_resmatch", "smooth_mss_resmatch", "smoothmss_match"):
 _DECOMP_LOSSES["L1_STFT_c2"] = _make_stft_l1([4096], comp="c2")
 _DECOMP_LOSSES["L1_STFT_pow"] = _make_stft_l1([4096], comp="pow", gamma=0.3)
 
+# The gamma ladder in INTENSITY exponents, so the plate and diffsynth tables can
+# sit beside each other without the reader converting. eps 1e-7 on magnitude is
+# the family default and matches the c1 rungs, so moving along this ladder moves
+# the exponent and nothing else.
+#
+#   g1    I^1.0   the published diffsynth loss -- and the DEAD ZONE arm.
+#                 d|a^2 - t^2|/da = 2a -> 0 at silence. The plate has never had
+#                 this: every loss here is magnitude-domain, which is exactly
+#                 why the trap showed up on diffsynth and not here, and why
+#                 "linear" meant two different things across the two systems.
+#   g05   I^0.5   == "linear" up to the eps knee. A WIRING CHECK: it should
+#                 track L1_STFT closely, and if it does not the eps placement
+#                 or the squaring is wrong.
+#   g03   I^0.3   Stevens' law, loudness ~ I^0.3 -- i.e. magnitude^0.6, twice
+#                 the exponent "pow" applies.
+_GAMMA_I = {"g1": 1.0, "g05": 0.5, "g03": 0.3}
+for _tag, _g in _GAMMA_I.items():
+    _DECOMP_LOSSES[f"L1_STFT_{_tag}"] = _make_stft_l1(
+        [4096], comp="gpow", gamma=_g, eps=1e-7)
+
 
 # ---------------------------------------------------------------------------
 # The ladder above is four named losses; this is the same axis as one number.
@@ -876,6 +920,51 @@ _DECOMP_LOSSES["L1_STFT_pow"] = _make_stft_l1([4096], comp="pow", gamma=0.3)
 _EPS_LADDER = {"1": 1.0, "1e1": 1e-1, "1e3": 1e-3, "1e4": 1e-4, "1e5": 1e-5, "1e7": 1e-7}
 for _tag, _eps in _EPS_LADDER.items():
     _DECOMP_LOSSES[f"L1_STFT_eps{_tag}"] = _make_stft_l1([4096], comp="c1", eps=_eps)
+
+
+# ---------------------------------------------------------------------------
+# The hybrid: linear and log summed, which is what a standard implementation
+# actually runs. Masuda & Saito's SpecWaveLoss is mag_w * L1(|S|) + log_mag_w *
+# L1(log(|S| + eps)) with both weights 1, and DiffMoog's presets are the same
+# shape. Every arm of the eps ladder is log-ONLY, so the ladder answers "what
+# does compression do to the terrain" and does not answer "does keeping a linear
+# term alongside it rescue the compressed one" -- which is the configuration the
+# field deploys and therefore the one a reviewer will ask about.
+#
+# One STFT per size, not two: composing L1_STFT with L1_STFT_eps* would compute
+# the same magnitudes twice, and at 4096 with a 1024 hop that is the dominant
+# cost of the loss.
+#
+# On eps. These are on MAGNITUDE (_stft_mag is torch.abs), where diffsynth's is
+# on power, and log(m) = 0.5*log(p) makes the equivalent eps sqrt(eps_pow) --
+# their 1e-4 on power is 1e-2 on magnitude. Both are provided because they are
+# different questions: 1e-4 is an existing ladder rung, so hyb1e4 differs from
+# eps1e4 in exactly one thing (the added linear term) and the pair isolates it;
+# 1e-2 is where diffsynth's knee actually sits once translated, so hyb1e2 is the
+# parity arm. Neither is "the" right answer -- the knee's percentile against our
+# own bin distribution is what decides that, and the ladder's table has it.
+def _make_stft_hybrid(n_ffts, eps: float, mag_w: float = 1.0, log_w: float = 1.0):
+    """L1 on linear magnitude plus L1 on log magnitude, summed per FFT size."""
+
+    def _loss(target: torch.Tensor, candidate: torch.Tensor) -> torch.Tensor:
+        total = None
+        for nf in n_ffts:
+            nf_ = min(nf, target.shape[-1])
+            hop = nf_ // 4
+            t = _stft_mag(target, nf_, hop)
+            c = _stft_mag(candidate, nf_, hop)
+            term = mag_w * torch.mean(torch.abs(t - c), dim=(1, 2)) + log_w * torch.mean(
+                torch.abs(torch.log(t + eps) - torch.log(c + eps)), dim=(1, 2)
+            )
+            total = term if total is None else total + term
+        return total / len(n_ffts)
+
+    return _loss
+
+
+_HYBRID_EPS = {"1e2": 1e-2, "1e4": 1e-4}
+for _tag, _eps in _HYBRID_EPS.items():
+    _DECOMP_LOSSES[f"L1_STFT_hyb{_tag}"] = _make_stft_hybrid([4096], eps=_eps)
 
 
 # ===========================================================================
@@ -1002,6 +1091,8 @@ for _name, _fn in (
     ("SOT_lin", _DECOMP_LOSSES["SOT_lin"]),
     ("SOT_lin_paper", _DECOMP_LOSSES["SOT_lin_paper"]),
     *((f"L1_STFT_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_eps{_t}"]) for _t in _EPS_LADDER),
+    *((f"L1_STFT_hyb{_t}", _DECOMP_LOSSES[f"L1_STFT_hyb{_t}"]) for _t in _HYBRID_EPS),
+    *((f"L1_STFT_{_t}", _DECOMP_LOSSES[f"L1_STFT_{_t}"]) for _t in _GAMMA_I),
 ):
     LOSS_COMPONENTS[_name] = _fn
     LOSS_NAME_ALIASES[_normalize_name(_name)] = _name
@@ -1201,6 +1292,49 @@ def loss_mfcc(target: torch.Tensor, candidate: torch.Tensor) -> torch.Tensor:
     t_mfcc = torch.matmul(dct.unsqueeze(0), t_db)       # [B, n_mfcc, T]
     c_mfcc = torch.matmul(dct.unsqueeze(0), c_db)
     return torch.mean(torch.abs(t_mfcc - c_mfcc), dim=(1, 2))
+
+
+def metric_mfcc_gamma(target: torch.Tensor, candidate: torch.Tensor,
+                      gamma: float = 0.3) -> torch.Tensor:
+    """loss_mfcc with its dB step replaced by mel^gamma, and nothing else.
+
+    An EVALUATION metric, not a training objective. The plate scores arms by
+    val_nmse against ground-truth parameters, which is the thing actually cared
+    about and needs no compression argument at all. This exists for a different
+    question, and it is one only the plate can answer: WHICH AUDIO METRIC
+    PREDICTS TRUE PARAMETER ERROR. diffsynth has no ground truth, so the choice
+    of gamma there rests on Stevens' law -- an appeal to psychoacoustics. Here
+    the two can be measured against each other, and if g0.3 tracks val_nmse
+    while g0/LSD do not, quoting Stevens stops being an appeal and becomes a
+    result.
+
+    gamma is on INTENSITY: t_pow is magnitude squared, so this is I^gamma and
+    0.3 is Stevens directly, matching diffsynth's GammaCepstrum and the g<gamma>
+    columns of ds_mfcc_check. It is NOT magnitude^0.3, which would be I^0.15 --
+    the same trap L1_STFT_pow falls into.
+
+    Every setting except the compression is loss_mfcc's, so the pair differs in
+    one thing. librosa.filters.mel defaults to the Slaney scale with Slaney
+    normalisation, which is what GammaCepstrum uses too, so the two systems'
+    columns are built the same way.
+    """
+    eps = 1e-10
+    n_fft = min(2048, target.shape[-1])
+    hop = min(n_fft // 4, n_fft - 1)
+    n_mels, n_mfcc = 128, 20
+    mel_fb = _get_mel_fb(n_fft, n_mels)
+    dct = _get_dct(n_mfcc, n_mels)
+    t_mel = torch.matmul(mel_fb.unsqueeze(0), _stft_mag(target, n_fft, hop) ** 2)
+    c_mel = torch.matmul(mel_fb.unsqueeze(0), _stft_mag(candidate, n_fft, hop) ** 2)
+    t_c = (t_mel + eps) ** gamma
+    c_c = (c_mel + eps) ** gamma
+    t_mfcc = torch.matmul(dct.unsqueeze(0), t_c)
+    c_mfcc = torch.matmul(dct.unsqueeze(0), c_c)
+    return torch.mean(torch.abs(t_mfcc - c_mfcc), dim=(1, 2))
+
+
+def metric_mfcc_g03(target: torch.Tensor, candidate: torch.Tensor) -> torch.Tensor:
+    return metric_mfcc_gamma(target, candidate, 0.3)
 
 
 def _make_sot_lp(n_fft: int = 2048, p: int = 2, eps: float = 1e-8):

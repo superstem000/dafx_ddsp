@@ -1,0 +1,680 @@
+"""How much of what an evaluation dB floor discards is masked anyway.
+
+    python scripts/ds_masking.py --selftest
+    python scripts/ds_masking.py --limit 50            # quick look
+    python scripts/ds_masking.py --out ~/masking       # the whole 2000
+
+WHY. LSD and MFCC are computed on a log whose dynamic-range floor is an
+undocumented parameter, and the ranking of two training losses reverses across
+it: on the real branch hybridx wins unfloored and at 80 dB below peak, and magx
+wins at the rungs below. Where exactly it turns over is not even stable -- it
+sits at 70 dB with the clamp applied after the mel filterbank and between 70
+and 80 with it applied before -- so the floor is doing the arguing and it has
+to come from psychoacoustics instead. The claim this supports:
+
+    content more than N dB below peak lies beneath the simultaneous-masking
+    threshold of the signal itself, and should therefore not be credited by an
+    evaluation metric.
+
+MPEG-1 psychoacoustic model 1, implemented from Painter & Spanias, "Perceptual
+Coding of Digital Audio", Proc. IEEE 88(4):451-513, 2000, section V -- not from
+a third-party library, so every step is one we can describe in the paper.
+Spreading slopes follow Schroeder, Atal & Hall, JASA 66(6):1647-1652, 1979.
+
+Computed on the TARGET. The question is what the metric should credit in the
+reference, not what a reconstruction produced.
+
+THREE APPROXIMATIONS, WITH THEIR SIGNS
+
+  Cells are FFT bins, not mel bands. Exact for LSD, which is bin-wise. For MFCC
+  the floor is applied to the 40 mel-band energies AFTER pooling, and pooling
+  sums, so a band can sit above the floor while its constituent bins sit below
+  -- bin-wise S therefore contains cells MFCC keeps. Those cells are by
+  construction low-energy and mostly masked, so on the energy-weighted headline
+  the effect is second order and errs slightly OPTIMISTIC. On frac_bins_masked
+  it is larger. Mel-pooling a masking threshold would be exact and is not a
+  standard operation, so it is not done here.
+
+  16 kHz audio puts Nyquist at 8 kHz, which removes the top ~6 Bark bands and
+  means the ATH's high-frequency rise never enters -- the estimate excludes the
+  region where the absolute threshold does most of its work. CONSERVATIVE:
+  understates masking.
+
+  Tonal/noise classification has no fixed sign, which is why --tonal-window
+  exists and why both settings should be reported. Misclassifying partials as
+  noise moves the offset by 9-24 dB.
+
+THE ANALYSIS MATCHES THE METRIC. n_fft 1024, hop 256, Hann, center=False --
+compute_lsd's configuration exactly, asserted at startup, so the cells scored
+by the metric and the cells scored here are the same cells. A one-frame
+mismatch would silently misalign S against the floor.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import os
+import statistics as st
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DS = os.path.join(HERE, "..", "external", "diffsynth")
+sys.path.insert(0, DS)
+sys.path.insert(0, HERE)
+
+import numpy as np                                       # noqa: E402
+import torch                                             # noqa: E402
+from torch.utils.data import DataLoader                  # noqa: E402
+
+N_FFT, HOP, SR = 1024, 256, 16000
+PN = 90.302          # full scale -> ~90 dB SPL, the +/- 1 bit convention
+ISO_BIN_HZ = 44100.0 / 512.0     # the resolution ISO model 1's windows assume
+
+# Zwicker critical bands. Truncated at Nyquist in build_bands().
+BARK_EDGES = np.array([
+    0, 100, 200, 300, 400, 510, 630, 770, 920, 1080, 1270, 1480, 1720, 2000,
+    2320, 2700, 3150, 3700, 4400, 5300, 6400, 7700, 9500, 12000, 15500],
+    dtype=float)
+
+
+def bark(f):
+    f = np.asarray(f, dtype=float)
+    return 13.0 * np.arctan(7.6e-4 * f) + 3.5 * np.arctan((f / 7500.0) ** 2)
+
+
+def ath(f):
+    """Terhardt's absolute threshold of hearing, dB SPL.
+
+    f is clamped to 20 Hz: the (f/1000)^-0.8 term diverges at DC and bin 0
+    would otherwise carry an infinite threshold.
+    """
+    k = np.maximum(np.asarray(f, dtype=float), 20.0) / 1000.0
+    return (3.64 * k ** -0.8
+            - 6.5 * np.exp(-0.6 * (k - 3.3) ** 2)
+            + 1e-3 * k ** 4)
+
+
+def tonal_offsets(f_hz, mode, bin_hz):
+    """Bin offsets the 7 dB neighbourhood test is applied over.
+
+    ISO/IEC 11172-3 model 1 specifies j in {2} below 5.5 kHz, {2,3} to 11 kHz
+    and {2..6} above -- at a 512-point FFT on 44.1 kHz, i.e. 86.13 Hz bins. Our
+    analysis has 15.625 Hz bins, 5.5x finer, so those offsets have to be
+    converted before they mean the same thing.
+
+    mode="hz" (default) converts them to frequency and back: the ISO inner edge
+    of 2 bins is 172.3 Hz, which is 11 of our bins. The test then runs over the
+    CONTIGUOUS span from 2 bins out to that edge rather than at the one
+    converted offset, because "exceeds its neighbourhood" reads as a span and a
+    single isolated bin is fragile against a neighbouring partial landing
+    exactly on it. With a Hann window the main lobe is 4 bins wide, so j >= 2
+    is already outside it and a resolved sinusoid clears 7 dB across the whole
+    span.
+
+    mode="bins" keeps ISO's literal offsets. At our resolution +/-2 bins is
+    +/-31 Hz, inside the main lobe, so the test passes on broadband noise too
+    and tonal maskers are massively over-detected. It exists to report the
+    sensitivity, not because it is defensible.
+    """
+    if f_hz < 5500:
+        iso = [2]
+    elif f_hz < 11000:
+        iso = [2, 3]
+    else:
+        iso = [2, 3, 4, 5, 6]
+    if mode == "bins":
+        return np.array(sorted(set(iso)), dtype=int)
+    outer = int(round(max(iso) * ISO_BIN_HZ / bin_hz))
+    return np.arange(2, max(outer, 2) + 1, dtype=int)
+
+
+def build_bands(freqs):
+    """(lo_bin, hi_bin) per critical band, truncated at Nyquist."""
+    out = []
+    for lo, hi in zip(BARK_EDGES[:-1], BARK_EDGES[1:]):
+        idx = np.nonzero((freqs >= lo) & (freqs < hi))[0]
+        if idx.size:
+            out.append((int(idx[0]), int(idx[-1])))
+    return out
+
+
+def frame_maskers(P, freqs, zb, ath_b, bands, tonal_mode, decimate, bin_hz):
+    """Tonal and noise maskers for one frame, after decimation.
+
+    Returns (levels, barks, is_tonal, n_tonal_raw).
+    """
+    n = P.size
+    # --- tonal: local maxima that dominate their neighbourhood by 7 dB
+    peaks = np.nonzero((P[1:-1] > P[:-2]) & (P[1:-1] >= P[2:]))[0] + 1
+    tonal_k, tonal_P = [], []
+    for k in peaks:
+        js = tonal_offsets(freqs[k], tonal_mode, bin_hz)
+        nb = np.concatenate([k - js, k + js])
+        nb = nb[(nb >= 0) & (nb < n)]
+        if nb.size and np.all(P[k] - P[nb] >= 7.0):
+            lo, hi = max(k - 1, 0), min(k + 2, n)
+            tonal_P.append(10.0 * np.log10(np.sum(10.0 ** (0.1 * P[lo:hi]))))
+            tonal_k.append(k)
+    tonal_k = np.array(tonal_k, dtype=int)
+    n_tonal_raw = tonal_k.size
+
+    # --- noise: per band, everything not absorbed into a tonal masker
+    claimed = np.zeros(n, dtype=bool)
+    for k in tonal_k:
+        claimed[max(k - 1, 0):min(k + 2, n)] = True
+    noise_k, noise_P = [], []
+    for lo, hi in bands:
+        ks = np.arange(lo, hi + 1)
+        ks = ks[~claimed[ks]]
+        ks = ks[ks > 0]                       # DC has no geometric mean
+        if ks.size == 0:
+            continue
+        e = np.sum(10.0 ** (0.1 * P[ks]))
+        if e <= 0:
+            continue
+        kbar = int(round(np.exp(np.mean(np.log(ks.astype(float))))))
+        noise_k.append(min(max(kbar, 1), n - 1))
+        noise_P.append(10.0 * np.log10(e))
+
+    lev = np.array(list(tonal_P) + list(noise_P), dtype=float)
+    kk = np.array(list(tonal_k) + list(noise_k), dtype=int)
+    ton = np.array([True] * len(tonal_P) + [False] * len(noise_P), dtype=bool)
+    if lev.size == 0:
+        return lev, np.array([]), ton, n_tonal_raw
+
+    # --- decimate: below the absolute threshold, then within 0.5 Bark
+    keep = lev >= ath_b[kk]
+    lev, kk, ton = lev[keep], kk[keep], ton[keep]
+    if lev.size == 0:
+        return lev, np.array([]), ton, n_tonal_raw
+    z = zb[kk]
+    order = np.argsort(-lev)
+    kept = []
+    for i in order:
+        # decimate="all" is ISO's own rule and the default; "tonal" restricts
+        # it to tonal pairs, which is a deviation and needs saying if used.
+        pool = kept if decimate == "all" else [j for j in kept if ton[j]]
+        if ton[i] or decimate == "all":
+            if any(abs(z[i] - z[j]) < 0.5 for j in pool):
+                continue
+        kept.append(i)
+    kept = np.array(sorted(kept), dtype=int)
+    return lev[kept], z[kept], ton[kept], n_tonal_raw
+
+
+def global_threshold(lev, zm, ton, zb, ath_b):
+    """(T_global, T_maskers): with the ATH, and from the maskers alone.
+
+    Both are needed. T_global is the model's answer and is what a cell has to
+    fall under to be inaudible. But the claim being supported is about
+    SIMULTANEOUS MASKING BY THE SIGNAL, and at 90.302 dB full scale a cell 70 dB
+    below peak sits near 20 dB SPL -- which is under the ATH outright at low
+    frequency, where Terhardt is +30 dB at 100 Hz. Reporting only T_global would
+    let the absolute threshold carry a claim about masking.
+    """
+    tot = 10.0 ** (0.1 * ath_b)
+    if lev.size == 0:
+        return 10.0 * np.log10(tot), np.full_like(ath_b, -np.inf)
+    dz = zb[None, :] - zm[:, None]
+    # Schroeder et al.: -27 dB/Bark below the masker, and an upper slope that
+    # shallows with level -- the upward spread of masking.
+    sf = np.where(dz < 0, 27.0 * dz,
+                  (-27.0 + 0.37 * np.maximum(lev[:, None] - 40.0, 0.0)) * dz)
+    off = np.where(ton, 14.5 + zm, 5.5)
+    T = lev[:, None] - off[:, None] + sf
+    m = np.sum(10.0 ** (0.1 * T), axis=0)
+    with np.errstate(divide="ignore"):
+        return 10.0 * np.log10(tot + m), 10.0 * np.log10(m)
+
+
+def audio_key(x):
+    """Content hash of one clip's samples, for the threshold cache.
+
+    Keyed on the AUDIO rather than on a file index or name, because
+    ds_mfcc_check reaches the same clips through a different code path
+    (--domain, --family, its own DataLoader) and matching by position would
+    silently pair a threshold with the wrong clip if either split ever moved.
+    A hash cannot do that quietly: it either hits or it raises.
+    """
+    a = np.ascontiguousarray(x.detach().cpu().numpy(), dtype=np.float32)
+    return hashlib.blake2b(a.tobytes(), digest_size=8).hexdigest()
+
+
+def spl_offset(win):
+    """dB to add to 10*log10(|stft|**2) to land on this file's SPL scale.
+
+    P here is PN + 20*log10(2*|stft|/win.sum()), while ds_mfcc_check works in
+    plain 10*log10(power). The cache carries this constant so the consumer
+    never has to re-derive the window normalisation -- getting it wrong would
+    shift every threshold by tens of dB while still looking perfectly sane.
+    """
+    return PN + 20.0 * float(np.log10(2.0 / float(win.sum())))
+
+
+GONE = -300.0        # dB SPL stand-in for a bin that has been removed
+
+
+def threshold_from(Pk, freqs, zb, ath_b, bands, tonal_mode, decimate, bin_hz):
+    """Per-frame (T_global, T_maskers) for a spectrum, as a [bins, frames] pair."""
+    T = np.empty_like(Pk)
+    TM = np.empty_like(Pk)
+    n_ton = []
+    for t in range(Pk.shape[1]):
+        lev, zm, ton, raw = frame_maskers(Pk[:, t], freqs, zb, ath_b, bands,
+                                          tonal_mode, decimate, bin_hz)
+        T[:, t], TM[:, t] = global_threshold(lev, zm, ton, zb, ath_b)
+        n_ton.append(raw)
+    return T, TM, float(np.mean(n_ton))
+
+
+def removal_safe(P, S, bands, freqs, zb, ath_b, tonal_mode, decimate, bin_hz):
+    """Is removing the set S from P inaudible? Per critical band, per frame.
+
+    This replaces the first version of the question, which asked whether each
+    bin of S was individually below the threshold of the FULL signal. Two things
+    were wrong with that and they compound.
+
+    CIRCULARITY. The maskers were computed from content the gate then deletes,
+    so the signal was asked whether it masks itself.
+
+    SIMULTANEITY, which is the worse one. A noise masker is the power sum of a
+    whole critical band at an offset of 5.5 dB, while a single bin of a flat
+    band sits 10*log10(N) below that sum -- +13.7 dB at the widest band here.
+    So the model correctly says ANY ONE bin of broadband content is masked by
+    the rest of its band. It never said you may remove all of them at once, and
+    a dB floor removes all of them at once. Listening confirmed it: gating on
+    the old criterion wiped out every noise floor and was plainly audible.
+
+    So: compute the threshold from what REMAINS, and compare it against the
+    total energy REMOVED, summed over each critical band. The threshold is now
+    generated by content the test does not touch, and the quantity tested is
+    the hole rather than one brick of it.
+
+    Returns (frac_energy_safe, frac_bins_safe, T_kept).
+    """
+    Pk = np.where(S, GONE, P)
+    T, _TM, _n = threshold_from(Pk, freqs, zb, ath_b, bands, tonal_mode,
+                                decimate, bin_hz)
+    e = 10.0 ** (0.1 * P)
+    e_rem = np.where(S, e, 0.0)
+    e_thr = 10.0 ** (0.1 * T)
+    safe_e, tot_e = 0.0, e_rem.sum()
+    safe_b, tot_b = 0, int(S.sum())
+    for lo, hi in bands:
+        # Summed over the band because that is the audible quantity: many
+        # individually-inaudible removals inside one critical band add up.
+        rem = e_rem[lo:hi + 1].sum(axis=0)
+        thr = e_thr[lo:hi + 1].sum(axis=0)
+        ok = rem <= thr                              # per frame
+        safe_e += float(rem[ok].sum())
+        safe_b += int(S[lo:hi + 1, ok].sum())
+    return ((safe_e / tot_e if tot_e > 0 else float("nan")),
+            (safe_b / tot_b if tot_b > 0 else float("nan")), T)
+
+
+def safe_removal_mask(P, freqs, zb, ath_b, bands, tonal_mode, decimate, bin_hz,
+                      iters=8):
+    """The largest set of bins that can be removed TOGETHER and stay inaudible.
+
+    Used to gate audio, where the removed set is what is being solved for rather
+    than fixed by a dB floor. Iterated to a fixed point: start from the naive
+    gate, recompute the threshold from what survives, re-gate. Removing content
+    lowers the threshold, so the set shrinks monotonically and settles -- which
+    is the circularity draining out of it. Then the per-band energy budget is
+    enforced, restoring the loudest removals in any band that overspends until
+    it does not, which is the simultaneity fix.
+    """
+    S = np.zeros_like(P, dtype=bool)
+    for _ in range(iters):
+        T, _TM, _n = threshold_from(np.where(S, GONE, P), freqs, zb, ath_b,
+                                    bands, tonal_mode, decimate, bin_hz)
+        nxt = P < T
+        if np.array_equal(nxt, S):
+            break
+        S = nxt
+    e, e_thr = 10.0 ** (0.1 * P), 10.0 ** (0.1 * T)
+    for lo, hi in bands:
+        sl = slice(lo, hi + 1)
+        thr = e_thr[sl].sum(axis=0)
+        for t in np.nonzero(np.where(S[sl], e[sl], 0.0).sum(axis=0) > thr)[0]:
+            # Give back the loudest removals first: they buy the most budget
+            # per bin restored, so the set stays as large as it can be.
+            ks = np.nonzero(S[sl, t])[0]
+            for k in ks[np.argsort(-P[sl, t][ks])]:
+                S[lo + k, t] = False
+                if np.where(S[sl, t], e[sl, t], 0.0).sum() <= thr[t]:
+                    break
+    return S
+
+
+def analyse(x, floors, tonal_mode, decimate, want_T=False, criterion="removed"):
+    """One clip -> per-floor fractions, plus masker counts."""
+    win = torch.hann_window(N_FFT)
+    rem = (x.shape[-1] - N_FFT) % HOP
+    if rem:
+        x = torch.nn.functional.pad(x, (0, HOP - rem))
+    stft = torch.stft(x, N_FFT, hop_length=HOP, window=win, center=False,
+                      return_complex=True)
+    mag = (2.0 * stft.abs() / win.sum()).numpy()
+    P = PN + 20.0 * np.log10(np.maximum(mag, 1e-30))     # [bins, frames]
+
+    freqs = np.fft.rfftfreq(N_FFT, 1.0 / SR)
+    bin_hz = SR / N_FFT
+    zb, ath_b = bark(freqs), ath(freqs)
+    bands = build_bands(freqs)
+
+    T, TM, n_ton = threshold_from(P, freqs, zb, ath_b, bands, tonal_mode,
+                                  decimate, bin_hz)
+
+    e = 10.0 ** (0.1 * P)
+    peak, tot_e = P.max(), e.sum()
+    below = P < T                 # inaudible: masking OR the absolute threshold
+    below_m = P < TM              # inaudible from the signal's maskers alone
+    out = {"frames": P.shape[1], "n_tonal_mean": n_ton}
+    for F in floors:
+        S = P < peak - F
+        eS = e[S].sum()
+        # The falsified pair, kept so the correction is visible rather than a
+        # silent restatement: each bin against the threshold of the FULL
+        # signal, which double-counts the removed content as its own masker.
+        if eS > 0:
+            out[f"frac_energy_masked_{F:g}"] = float(e[S & below].sum() / eS)
+            out[f"frac_energy_smasked_{F:g}"] = float(e[S & below_m].sum() / eS)
+        else:
+            out[f"frac_energy_masked_{F:g}"] = float("nan")
+            out[f"frac_energy_smasked_{F:g}"] = float("nan")
+        out[f"frac_bins_masked_{F:g}"] = float(below[S].mean()) if S.any() else float("nan")
+        out[f"frac_total_energy_{F:g}"] = float(eS / tot_e)
+        # The honest one: threshold from what survives, energy summed per
+        # critical band. Costs one extra masker pass per floor.
+        if criterion == "removed":
+            fe, fb, _Tk = removal_safe(P, S, bands, freqs, zb, ath_b,
+                                       tonal_mode, decimate, bin_hz)
+            out[f"frac_energy_safe_{F:g}"] = fe
+            out[f"frac_bins_safe_{F:g}"] = fb
+    return (out, T) if want_T else out
+
+
+# --------------------------------------------------------------------------
+def selftest(out="."):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    freqs = np.fft.rfftfreq(N_FFT, 1.0 / SR)
+    zb, ath_b = bark(freqs), ath(freqs)
+    bands = build_bands(freqs)
+    bin_hz = SR / N_FFT
+    n = np.arange(N_FFT)
+
+    def frame_of(sig):
+        w = torch.hann_window(N_FFT).numpy()
+        X = np.fft.rfft(w * sig)
+        return PN + 20.0 * np.log10(np.maximum(2.0 * np.abs(X) / w.sum(), 1e-30))
+
+    print("=== 1. 1 kHz sine at 80 dB SPL")
+    amp = 10.0 ** ((80.0 - PN) / 20.0)
+    P = frame_of(amp * np.sin(2 * np.pi * 1000 * n / SR))
+    lev, zm, ton, raw = frame_maskers(P, freqs, zb, ath_b, bands, "hz", "all", bin_hz)
+    T, _tm = global_threshold(lev, zm, ton, zb, ath_b)
+    k = int(np.argmin(np.abs(freqs - 1000)))
+    tk = np.nonzero(ton)[0]
+    print(f"   tonal maskers: {int(ton.sum())} (raw peaks passing 7 dB: {raw})")
+    if tk.size:
+        i = tk[np.argmax(lev[tk])]
+        print(f"   strongest tonal at {zm[i]:.2f} Bark, level {lev[i]:.1f} dB")
+        print(f"   offset (14.5 + z_m)      = {14.5 + zm[i]:.1f} dB")
+        print(f"   SMR = P(peak) - T(peak)  = {P[k] - T[k]:.1f} dB")
+        print("   the two are printed apart on purpose: the canonical ~24 dB is a"
+              "\n   tone-masks-noise figure, and this model reaching it via"
+              "\n   14.5 + z_m ~ 23 at 1 kHz would otherwise look like agreement"
+              "\n   when it is arithmetic.")
+
+    print("\n=== 2. white noise")
+    rng = np.random.default_rng(0)
+    P = frame_of(0.05 * rng.standard_normal(N_FFT))
+    lev, zm, ton, raw = frame_maskers(P, freqs, zb, ath_b, bands, "hz", "all", bin_hz)
+    print(f"   tonal maskers: {int(ton.sum())} (expect ~0), noise: {int((~ton).sum())}")
+
+    print("\n=== 3. dense harmonic tone (f0 200 Hz, 20 partials)")
+    sig = sum(np.sin(2 * np.pi * 200 * h * n / SR) / h for h in range(1, 21))
+    P = frame_of(0.2 * sig / np.max(np.abs(sig)))
+    lev, zm, ton, raw = frame_maskers(P, freqs, zb, ath_b, bands, "hz", "all", bin_hz)
+    TT, _tm = global_threshold(lev, zm, ton, zb, ath_b)
+    if lev.size:
+        dz = zb[None, :] - zm[:, None]
+        sf = np.where(dz < 0, 27.0 * dz,
+                      (-27.0 + 0.37 * np.maximum(lev[:, None] - 40.0, 0.0)) * dz)
+        off = np.where(ton, 14.5 + zm, 5.5)
+        Tm = lev[:, None] - off[:, None] + sf
+        single = Tm.max(axis=0)
+        comp = 10.0 * np.log10(np.sum(10.0 ** (0.1 * Tm), axis=0))
+        lo, hi = 0, int(np.argmin(np.abs(freqs - 4000)))
+        bound = 10.0 * np.log10(lev.size)
+        print(f"   maskers: {lev.size} ({int(ton.sum())} tonal)")
+        print(f"   max(composite - best single masker) below 4 kHz = "
+              f"{np.max(comp[lo:hi] - single[lo:hi]):.2f} dB "
+              f"(bound 10log10({lev.size}) = {bound:.2f})")
+        print("   MASKERS ONLY, deliberately. Comparing T_global instead would"
+              "\n   put the ATH on one side of the subtraction and a spread"
+              "\n   masker decayed to -200 dB on the other, giving tens of dB"
+              "\n   that say nothing about superposition.")
+        atd = float(np.mean(TT[lo:hi] > comp[lo:hi] + 0.5))
+        print(f"   bins below 4 kHz where the ATH dominates the composite: "
+              f"{100 * atd:.1f}%")
+
+    print("\n=== 4. ATH")
+    ff = np.linspace(20, 8000, 4000)
+    a = ath(ff)
+    print(f"   minimum {a.min():.2f} dB SPL at {ff[np.argmin(a)]:.0f} Hz")
+    print("   expect about -5 dB near 3.3 kHz. The canonical statement of the"
+          "\n   ATH is '0 dB SPL at 4 kHz', but that is the idealised curve;"
+          "\n   Terhardt's fit dips slightly below zero and peaks a little"
+          "\n   lower. Not a failure -- the check is that the minimum is in"
+          "\n   the 3-4 kHz region and within a few dB of zero.")
+    plt.figure(figsize=(6, 3.2))
+    plt.plot(ff, a)
+    plt.xscale("log"); plt.ylim(-10, 60); plt.grid(alpha=.3)
+    plt.xlabel("Hz"); plt.ylabel("dB SPL"); plt.title("Terhardt ATH")
+    os.makedirs(out, exist_ok=True)
+    fig = os.path.join(out, "ath.png")
+    plt.tight_layout(); plt.savefig(fig, dpi=110)
+    print(f"   curve written to {fig}")
+
+
+def main():
+    sys.stdout.reconfigure(line_buffering=True)
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("--root", default="results/diffsynth")
+    p.add_argument("--run", default="real_hybridx",
+                   help="Any arm -- every run shares one ood_valid membership "
+                        "hash, so the split is the same whichever is used. The "
+                        "model is built only because the split depends on RNG "
+                        "draw order.")
+    p.add_argument("--ckpt", default="latest.ckpt")
+    p.add_argument("--floors", type=float, nargs="+",
+                   default=[80.0, 70.0, 60.0, 40.0, 20.0])
+    p.add_argument("--tonal-window", default="hz", choices=("hz", "bins"))
+    p.add_argument("--decimate", default="all", choices=("all", "tonal"),
+                   help="ISO applies the 0.5 Bark rule to every masker; 'tonal' "
+                        "restricts it and is a deviation worth declaring.")
+    p.add_argument("--limit", type=int, default=None,
+                   help="Stop after N files, for a quick look")
+    p.add_argument("--batch-size", type=int, default=16)
+    p.add_argument("--out", default="masking")
+    p.add_argument("--hist", type=float, default=70.0,
+                   help="Floor to histogram the criterion's fraction at")
+    p.add_argument(
+        "--dump-thresholds", default=None, metavar="PATH",
+        help="Also write T_global per clip to an .npz, for ds_mfcc_check "
+             "--mask to use as a per-bin floor. Falls out of this run for "
+             "free: the same self-tested numpy that produces the analysis "
+             "produces the metric's thresholds, so the physics in the table "
+             "and the physics in the justification cannot drift apart. About "
+             "250 kB per clip (float16, [bins, frames]), so ~500 MB for the "
+             "full 2000-file split.")
+    p.add_argument(
+        "--criterion", default="removed", choices=("removed", "signal"),
+        help="'removed' (default) computes the threshold from what SURVIVES "
+             "the floor and compares it against the total energy REMOVED, "
+             "summed per critical band -- the honest question, and one extra "
+             "masker pass per floor. 'signal' is the original criterion, each "
+             "bin against the threshold of the full signal; it is falsified "
+             "(gating audio on it is plainly audible) and remains only so the "
+             "correction can be shown rather than asserted.")
+    p.add_argument("--selftest", action="store_true")
+    args = p.parse_args()
+
+    if args.selftest:
+        selftest(args.out)
+        return
+
+    import ds_param_breakdown as pb
+
+    d = os.path.join(args.root, args.run)
+    model, cfg, dm, note = pb.load_arm(d, args.ckpt, "cpu", args.batch_size)
+    if model is None:
+        raise SystemExit(f"{args.run}: {note}")
+    del model
+    vset = dm.ood_datasets["valid"]
+
+    # Filenames, by unwrapping the nested Subset the way split_manifest does.
+    idx, base = list(range(len(vset))), vset
+    while hasattr(base, "indices"):
+        idx = [base.indices[i] for i in idx]
+        base = base.dataset
+    names = [os.path.basename(base.raw_files[i]) for i in idx]
+
+    os.makedirs(args.out, exist_ok=True)
+    rows, keys, Ts = [], [], []
+    loader = DataLoader(vset, batch_size=args.batch_size, num_workers=0)
+    done = 0
+    print(f"{args.run}: {len(vset)} ood valid files, floors {args.floors}, "
+          f"tonal-window={args.tonal_window}, decimate={args.decimate}")
+    for batch in loader:
+        for j in range(batch["audio"].shape[0]):
+            x = batch["audio"][j].cpu()
+            if done == 0:
+                nf = (x.shape[-1] - N_FFT) // HOP + 1
+                assert (x.shape[-1] - N_FFT) % HOP == 0, (
+                    "frame grid does not divide evenly; compute_lsd pads "
+                    "differently and S would misalign")
+                print(f"  {x.shape[-1]} samples -> {nf} frames "
+                      f"(compute_lsd's grid)")
+            if args.dump_thresholds:
+                r, T = analyse(x, args.floors, args.tonal_window,
+                               args.decimate, want_T=True,
+                               criterion=args.criterion)
+                keys.append(audio_key(x))
+                # float16: the spacing at a 100 dB threshold is 0.06 dB, four
+                # orders below anything that changes which side of the floor a
+                # bin lands on, and it halves a cache that is already 0.5 GB.
+                Ts.append(T.astype(np.float16))
+            else:
+                r = analyse(x, args.floors, args.tonal_window, args.decimate,
+                        criterion=args.criterion)
+            r["file"] = names[done]
+            r["family"] = names[done].split("_acoustic_")[0] \
+                .split("_electronic_")[0].split("_synthetic_")[0]
+            rows.append(r)
+            done += 1
+            if done % 100 == 0:
+                print(f"  {done}/{len(vset)}")
+            if args.limit and done >= args.limit:
+                break
+        if args.limit and done >= args.limit:
+            break
+
+    if args.dump_thresholds:
+        shp = {t.shape for t in Ts}
+        if len(shp) != 1:
+            raise SystemExit(f"clips gave differing STFT shapes {shp}; the "
+                             f"cache is one dense array and cannot hold them")
+        os.makedirs(os.path.dirname(os.path.abspath(args.dump_thresholds)),
+                    exist_ok=True)
+        np.savez(args.dump_thresholds, keys=np.array(keys), T=np.stack(Ts),
+                 C=np.float64(spl_offset(torch.hann_window(N_FFT))),
+                 tonal_window=args.tonal_window, decimate=args.decimate)
+        mb = os.path.getsize(args.dump_thresholds) / 1024 / 1024
+        print(f"\nwrote {args.dump_thresholds}  ({len(keys)} clips, "
+              f"{next(iter(shp))[0]}x{next(iter(shp))[1]}, {mb:.0f} MB)")
+        print(f"  ds_mfcc_check.py --mask {args.dump_thresholds}")
+
+    cols = ["file", "family", "frames", "n_tonal_mean"] + [
+        f"{m}_{F:g}" for F in args.floors
+        for m in (("frac_energy_safe", "frac_bins_safe")
+                  if args.criterion == "removed" else ())
+        + ("frac_energy_masked", "frac_energy_smasked",
+           "frac_bins_masked", "frac_total_energy")]
+    path = os.path.join(args.out, "masking.csv")
+    with open(path, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=cols)
+        w.writeheader()
+        w.writerows(rows)
+    print(f"\nwrote {path}  ({len(rows)} files)")
+
+    def q(v, p):
+        v = sorted(v)
+        return v[max(0, min(len(v) - 1, int(round(p * (len(v) - 1)))))]
+
+    print(f"\nmasker counts: mean tonal per frame = "
+          f"{st.mean(r['n_tonal_mean'] for r in rows):.1f} "
+          f"(min {min(r['n_tonal_mean'] for r in rows):.1f}, "
+          f"max {max(r['n_tonal_mean'] for r in rows):.1f})")
+    print("  logged per file so a systematic f0 effect from the +/-172 Hz "
+          "window\n  and the 0.5 Bark decimation is visible rather than "
+          "discovered in the aggregate.")
+
+    print("\nsafe   = threshold from what SURVIVES the floor, energy summed per")
+    print("         critical band -- can this hole be punched inaudibly")
+    print("masked = FALSIFIED. Each bin against the threshold of the FULL")
+    print("         signal, so the removed content masks itself; a flat band's")
+    print("         noise masker sits up to 13.7 dB above its own average bin.")
+    print("         Gating audio on it is plainly audible. Shown so the")
+    print("         correction is visible rather than a silent restatement.")
+    print(f"\n{'floor':>6}{'med safe':>10}{'IQR(safe)':>20}{'>0.9':>8}"
+          f"{'med masked':>12}{'med frac_bins':>15}{'med frac_tot_E':>16}")
+    key = ("frac_energy_safe" if args.criterion == "removed"
+           else "frac_energy_masked")
+    for F in args.floors:
+        v = [r[f"{key}_{F:g}"] for r in rows
+             if r[f"{key}_{F:g}"] == r[f"{key}_{F:g}"]]
+        b = [r[f"frac_bins_masked_{F:g}"] for r in rows]
+        t = [r[f"frac_total_energy_{F:g}"] for r in rows]
+        if not v:
+            continue
+        sm = [r[f"frac_energy_masked_{F:g}"] for r in rows
+              if r[f"frac_energy_masked_{F:g}"] == r[f"frac_energy_masked_{F:g}"]]
+        print(f"{F:>6.0f}{st.median(v):>10.4f}"
+              f"{f'[{q(v, .25):.4f}, {q(v, .75):.4f}]':>20}"
+              f"{sum(x > 0.9 for x in v) / len(v):>8.2f}"
+              f"{st.median(sm):>11.4f}{st.median(b):>15.4f}{st.median(t):>16.6f}")
+
+    fams = sorted({r["family"] for r in rows})
+    print(f"\nby family, {key} median")
+    print(f"{'family':<14}{'n':>5}" + "".join(f"{F:>10.0f}" for F in args.floors))
+    for fam in fams:
+        sub = [r for r in rows if r["family"] == fam]
+        cells = "".join(
+            f"{st.median([r[f'{key}_{F:g}'] for r in sub]):>10.4f}"
+            for F in args.floors)
+        print(f"{fam:<14}{len(sub):>5}{cells}")
+
+    if args.hist:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        v = [r[f"{key}_{args.hist:g}"] for r in rows]
+        plt.figure(figsize=(6, 3.4))
+        plt.hist(v, bins=40, range=(0, 1))
+        plt.xlabel(f"{key} at {args.hist:g} dB below peak")
+        plt.ylabel("files"); plt.grid(alpha=.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(args.out, f"hist_{args.hist:g}.png"), dpi=110)
+        print(f"\nhistogram -> {args.out}/hist_{args.hist:g}.png")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,49 @@
+# switch.yaml, plus a third crossfade: the log term of the spectral loss is
+# introduced over epochs 150-200 rather than being present from the start.
+#
+# param_w and sw_w are byte-identical to switch.yaml -- this must stay a
+# one-variable change against every arm already run, or the comparison against
+# magx and hybridx says nothing.
+#
+# log_mag_w rides on SpecWaveLoss's normalisation, which divides by
+# (mag_w + log_mag_w). So the loss is a weighted AVERAGE, and ramping
+# log_mag_w 0 -> 1 moves from pure linear to a 50/50 average without any step
+# in scale for the optimiser to absorb.
+#
+# WHY 150-200 rather than starting at 200. Epoch 200 is where the real-audio
+# branch switches its training set to NSynth, and that is exactly where the
+# power-domain linear arms break: real_mag goes 2.727 -> 3.164 on ood_mfcc at
+# the switch and real_mag_halfw 2.628 -> 3.131, finishing at 2.679, worse than
+# where it started. NSynth carries far more near-silence than harmor, so the
+# |a^2 - t^2| dead zone is triggered precisely when real audio arrives.
+# Finishing the loss crossfade BEFORE the data crossfade means the two never
+# coincide, so an effect cannot be attributed to their collision.
+#
+# The overlap with param_w's taper is deliberate and harmless: the pure
+# parameter phase is epochs 0-50 (pre_base, shared by every arm), and 50-200 is
+# already a window in which two weights are moving. This adds a third.
+#
+# 250 steps/epoch -- 16000 training examples at batch 64 -- so epoch 150 is
+# step 37500 and epoch 200 is step 50000.
+name: switch_logfade
+
+param_w:
+  type: linear
+  start: 12500
+  warm: 37500
+  start_v: 10.0
+  end_v: 0.0
+
+sw_w:
+  type: linear
+  start: 12500
+  warm: 37500
+  start_v: 0.0
+  end_v: 1.0
+
+log_mag_w:
+  type: linear
+  start: 37500
+  warm: 12500
+  start_v: 0.0
+  end_v: 1.0

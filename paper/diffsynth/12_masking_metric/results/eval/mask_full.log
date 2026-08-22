@@ -1,0 +1,64 @@
+/home/bhpark3/dsenv/lib/python3.12/site-packages/nnAudio/Spectrogram.py:4: Warning: importing Spectrogram subpackage will be deprecated soon. You should import the feature extractor from the feature subpackage. See actual documentation.
+  warnings.warn(
+Seed set to 0
+STFT kernels created, time used = 0.0256 seconds
+STFT filter created, time used = 0.0016 seconds
+Mel filter created, time used = 0.0016 seconds
+output dims after convolution 16
+loaded 20000 files
+loaded 25000 files
+real_hybridx: 2000 ood valid files, floors [80.0, 70.0, 60.0, 40.0, 20.0], tonal-window=hz, decimate=all
+  64000 samples -> 247 frames (compute_lsd's grid)
+  100/2000
+  200/2000
+  300/2000
+  400/2000
+  500/2000
+  600/2000
+  700/2000
+  800/2000
+  900/2000
+  1000/2000
+  1100/2000
+  1200/2000
+  1300/2000
+  1400/2000
+  1500/2000
+  1600/2000
+  1700/2000
+  1800/2000
+  1900/2000
+  2000/2000
+
+wrote masking/masking.csv  (2000 files)
+
+masker counts: mean tonal per frame = 4.4 (min 0.0, max 25.7)
+  logged per file so a systematic f0 effect from the +/-172 Hz window
+  and the 0.5 Bark decimation is visible rather than discovered in the aggregate.
+
+masked = under T_global (maskers OR absolute threshold)
+smask  = under the maskers alone -- simultaneous masking by the signal,
+         which is what the paper's sentence actually claims
+
+ floor    median                 IQR    >0.9  med smask  med frac_bins  med frac_tot_E
+    80    0.9818    [0.9321, 0.9985]    0.83     0.7720         0.9994        0.000000
+    70    0.8701    [0.7811, 0.9499]    0.41     0.7722         0.9942        0.000003
+    60    0.7779    [0.6685, 0.8793]    0.21     0.7266         0.9868        0.000019
+    40    0.5885    [0.4511, 0.7527]    0.07     0.5638         0.9718        0.000858
+    20    0.2060    [0.0732, 0.4434]    0.03     0.1683         0.9587        0.033505
+
+by family, frac_energy_masked median
+family            n        80        70        60        40        20
+bass            445    0.9689    0.8677    0.7960    0.6293    0.2865
+brass            83    0.9976    0.8778    0.8093    0.6433    0.1678
+flute            65    0.9623    0.8281    0.7014    0.4805    0.0850
+guitar          237    0.9845    0.8686    0.7604    0.5400    0.1739
+keyboard        367    0.9734    0.8369    0.7414    0.5205    0.1362
+mallet          224    0.9829    0.8739    0.7807    0.5549    0.1179
+organ           266    0.9692    0.8660    0.7768    0.7020    0.3534
+reed             87    0.9937    0.8914    0.8196    0.5484    0.0979
+string          127    0.9957    0.9420    0.8399    0.6138    0.2794
+synth_lead       32    0.9966    0.9204    0.8157    0.6906    0.3084
+vocal            67    0.9943    0.9316    0.8199    0.6018    0.3075
+
+histogram -> masking/hist_70.png

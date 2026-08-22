@@ -357,6 +357,145 @@ def check_diffsynth(b: Path):
                   + ", ".join(f"{k}@{v}" for k, v in short.items()))
 
 
+# Every floor ds_masking reports, and the two ways each is reported: against the
+# full threshold and against the maskers alone. The pair is the point -- a
+# single column would let the absolute threshold carry a claim about masking.
+MASK_FLOORS = (80, 70, 60, 40, 20)
+MASK_COLS = ("frac_energy_masked", "frac_energy_smasked", "frac_bins_masked",
+             "frac_total_energy")
+
+
+def check_masking(b: Path):
+    head("masking: the evaluation floor is derived rather than chosen")
+    root = b / "diffsynth/12_masking_metric/results"
+    csvp = root / "masking/masking.csv"
+    if not csvp.exists():
+        note(FUND, "no masking/masking.csv in the bundle, so the psychoacoustic "
+                   "justification for the evaluation floor cannot be recomputed "
+                   "-- run scripts/ds_masking.py and rebuild")
+        print("  MISSING"); return
+
+    cols = csv_cols(csvp)
+    want = [f"{m}_{F:g}" for F in MASK_FLOORS for m in MASK_COLS]
+    miss = [c for c in want if c not in cols]
+    with csvp.open() as f:
+        rows = list(csv.DictReader(f))
+    print(f"  masking.csv: {len(rows)} clips, {len(cols)} columns; "
+          f"missing: {miss or 'none'}")
+    if miss:
+        note(FUND, f"masking.csv is missing columns the text quotes: {miss}")
+    elif len(rows) < 500:
+        note(LIM, f"masking.csv covers {len(rows)} clips. The 2000-clip run "
+                  f"was made under the criterion listening falsified and has "
+                  f"NOT been repeated under the corrected one, so section 12 "
+                  f"quotes n={len(rows)} and says so. Family rows are n=2-4 at "
+                  f"this size and carry nothing -- vocal read 0.748 on two "
+                  f"clips and 0.9316 on 67")
+    else:
+        # The smask column is what separates "masked by the signal" from
+        # "below the absolute threshold". If it were ever dropped the paper's
+        # sentence would still typeset and would no longer be supported.
+        note(OK, f"masking thresholds recomputable over {len(rows)} clips, with "
+                 f"masker-only fractions reported beside the full-threshold "
+                 f"ones at every floor")
+
+    # The cache must NOT be here: 484 MB, and regenerable. Its absence is the
+    # correct state, so what is checked is that the regeneration path exists.
+    big = [p for p in root.rglob("*") if p.is_file()
+           and p.stat().st_size > 50 * 1024 * 1024]
+    if big:
+        note(LIM, "large regenerable files copied into the bundle: "
+                  + ", ".join(f"{p.name} ({p.stat().st_size >> 20} MB)"
+                              for p in big))
+    if not (b / "diffsynth/12_masking_metric/scripts/ds_masking.py").exists():
+        note(FUND, "ds_masking.py is not in the bundle, so neither masking.csv "
+                   "nor the threshold cache behind the `mask` metric column "
+                   "can be regenerated")
+
+    # The eval tables. These are the only record of the mask and saturation
+    # columns -- no scalars.csv carries them, because they are recomputed from
+    # checkpoints rather than logged during training.
+    ev = root / "eval"
+    logs = sorted(ev.glob("*.log")) if ev.exists() else []
+    txt = "\n".join(p.read_text(errors="replace") for p in logs)
+    print(f"  eval tables: {[p.name for p in logs] or 'none'}")
+    if not logs:
+        note(FUND, "no results/eval tables in the bundle; the mask and "
+                   "saturation columns are recomputed from checkpoints and "
+                   "logged nowhere else, so nothing quoted from them is "
+                   "recoverable without a rerun")
+    else:
+        for tag, msg in (
+            ("mask", "the `mask` column"),
+            ("SATURATION", "the unrelated-pairs saturation row, without which a "
+                           "gap cannot be read as a fraction of the metric's range"),
+            ("db70post", "db70post, the pre/post-mel bridge -- without it the "
+                         "move to a pre-mel clamp silently restates every dB "
+                         "number in sections 08-11"),
+        ):
+            if tag not in txt:
+                note(FUND, f"the eval tables do not carry {msg}")
+        if all(t in txt for t in ("mask", "SATURATION", "db70post")):
+            note(OK, "mask, saturation and the pre/post-mel bridge column are "
+                     "all present in the eval tables")
+
+
+def check_plate_gamma(b: Path):
+    head("plate gamma ladder: shared base, and the arms that resume it")
+    root = b / "plate/13_gamma_ladder/results"
+    if not root.exists():
+        note(LIM, "no plate gamma ladder in the bundle; the cross-system claim "
+                  "rests on diffsynth alone")
+        print("  MISSING"); return
+
+    got, short_ = {}, []
+    for d in sorted(root.rglob("history.json")):
+        try:
+            h = json.load(d.open())
+        except Exception:
+            continue
+        rows = [r for r in h["history"] if "val_nmse_6d" in r]
+        if not rows:
+            continue
+        name = f"{d.parent.parent.name}/{d.parent.name}"
+        got[name] = (rows[-1]["step"], rows[-1]["val_nmse_6d"] / h["const_nmse_6d"])
+        # gamma_pre is the 5000-step base by design; everything else is 40000.
+        if "gamma_pre/" not in name and rows[-1]["step"] < 40000:
+            short_.append(f"{name}@{rows[-1]['step']}")
+    # Prefixed by directory: gamma_pre and gamma_ppre both hold an arm called
+    # L1_STFT and gamma_ppre/gamma_raw both hold L1_STFT_g1, so the bare arm
+    # name prints the same label twice and the pair that IS the experiment --
+    # pretrained against from-scratch -- reads as a duplicate.
+    print(f"  {len(got)} arms: " + ", ".join(
+        f"{k.split('/')[0].replace('gamma_', '')}:{k.split('/')[-1]}={v[1]:.2f}"
+        for k, v in sorted(got.items())))
+    if not got:
+        note(FUND, "plate gamma arms carry no evaluated rows"); return
+    if short_:
+        note(LIM, "plate gamma arms stopped before 40000, so a cross-arm number "
+                  "must be read at a matched step: " + ", ".join(short_))
+
+    # The base is what makes the comparison single-variable. Without it every
+    # arm ran its own parameter-only phase divided by its own loss_scale, which
+    # differs by ~2000x between L1_STFT and L1_STFT_g1.
+    if not any(k.startswith("gamma_pre/") for k in got):
+        note(FUND, "the shared parameter-only base is absent, so nothing "
+                   "establishes that the arms started the crossfade from one "
+                   "point -- and each arm's hold is divided by its own "
+                   "loss_scale, which spans ~2000x across this ladder")
+    if not any(k.startswith("gamma_raw/") for k in got):
+        note(LIM, "no raw arm, so the retraction that the dead zone does NOT "
+                  "reproduce here rests on the pretrained arms alone")
+    if all(k in got for k in ("gamma_pre/L1_STFT", "gamma_raw/L1_STFT_g1")):
+        note(OK, "plate gamma ladder complete: shared base, pretrained arms and "
+                 "the from-scratch control that ruled the dead zone out")
+
+    if not (b / "plate/13_gamma_ladder/scripts/jobs_plate_gamma.txt").exists():
+        note(FUND, "jobs_plate_gamma.txt is not in the bundle; it carries the "
+                   "exponent-domain correction, the shared-base rationale and "
+                   "the ladder's own result table, none of which is anywhere else")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--bundle", type=Path, default=Path("paper"))
@@ -372,6 +511,8 @@ def main():
     check_collisions(a.bundle)
     check_ddsp(a.bundle)
     check_diffsynth(a.bundle)
+    check_masking(a.bundle)
+    check_plate_gamma(a.bundle)
 
     print("\n" + "=" * 70)
     print(f"FUNDAMENTAL ({len(FUND)}) -- a number cannot be recomputed or a run reproduced")
