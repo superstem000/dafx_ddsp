@@ -171,7 +171,7 @@ def main() -> None:
              "lives is meant to be a property of the parameter rather than of "
              "how hard it was poked.")
     p.add_argument(
-        "--step", default="value", choices=("value", "range"),
+        "--step", default="value", choices=("value", "range", "mul"),
         help="value: --rel as a fraction of the parameter's own value. range: "
              "--rel as a fraction of (hi - lo) for the fitted seven, which is "
              "the space the encoder searches and the only convention under "
@@ -179,7 +179,12 @@ def main() -> None:
              "and Ly spans a factor of 3.6, so a 2%% value step means wildly "
              "different fractions of what is actually being estimated. Pinned "
              "parameters have no range and fall back to value, marked * in the "
-             "output.")
+             "output. mul: GEOMETRIC, v*(1+rel) and v/(1+rel). The only "
+             "convention valid past rel=1 for a positive-only quantity -- "
+             "value's minus branch reaches zero at rel=1 and goes negative "
+             "beyond it, and a negative T60 is a decay time that grows. It is "
+             "also the natural step for anything spanning decades, which T0 "
+             "and the T60s do.")
     p.add_argument("--n-fft", type=int, default=4096)
     p.add_argument("--hop", type=int, default=1024)
     p.add_argument("--only", nargs="+", default=None, metavar="PARAM")
@@ -222,7 +227,7 @@ def main() -> None:
 
     names = [k for k in BatchedModalPlateTorch.PARAM_ORDER
              if not args.only or k in args.only]
-    res, rows, clamped = {}, [], {}
+    res, rows, clamped, nonfinite = {}, [], {}, {}
     for name in names:
       i = BatchedModalPlateTorch.PARAM_ORDER.index(name)
       for rel in args.rel:
@@ -232,7 +237,10 @@ def main() -> None:
         with torch.no_grad():
             for sign in (+1.0, -1.0):
                 p14 = ref14.clone()
-                if args.step == "range" and name in FITTED_BOUNDS:
+                if args.step == "mul":
+                    f = (1.0 + rel)
+                    p14[:, i] = p14[:, i] * (f if sign > 0 else 1.0 / f)
+                elif args.step == "range" and name in FITTED_BOUNDS:
                     lo, hi = FITTED_BOUNDS[name]
                     v = p14[:, i] + sign * rel * (hi - lo)
                     # A large step walks off the range the dataset was drawn
@@ -244,6 +252,14 @@ def main() -> None:
                 else:
                     p14[:, i] = p14[:, i] * (1.0 + sign * rel)
                 x_p = plate.forward(p14, args.duration, normalize=False)
+                # A perturbation can leave the physical range -- T60 <= 0 is a
+                # decay time that grows without bound. Counted and excluded
+                # rather than averaged in, where one inf would take the whole
+                # cell to nan and read as "this parameter does nothing".
+                bad = int((~torch.isfinite(x_p)).any(dim=-1).sum())
+                if bad:
+                    nonfinite[(name, rel)] = nonfinite.get((name, rel), 0) + bad
+                    x_p = torch.nan_to_num(x_p, nan=0.0, posinf=0.0, neginf=0.0)
                 norm_runs.append(decompose(A_n, stft_mag(x_p, args.n_fft, args.hop, True)))
                 raw_runs.append(decompose(A_r, stft_mag(x_p, args.n_fft, args.hop, False)))
 
@@ -276,6 +292,10 @@ def main() -> None:
           0, "{:>11.3f}")
     table("log dec -- mean decile of |log(a+e)-log(b+e)|, 1 quietest to 10 loudest",
           1, "{:>11.2f}")
+    if nonfinite:
+        print("\nNON-FINITE renders, zeroed and counted (a perturbation left the "
+              "physical\nrange -- T60 <= 0 is a decay time that grows): "
+              + ", ".join(f"{n}@{100*r:g}%={c}" for (n, r), c in sorted(nonfinite.items())))
     if clamped:
         print("\nclamped to the dataset's bounds (IRs, of "
               f"{2 * len(dicts)} per cell): " +
