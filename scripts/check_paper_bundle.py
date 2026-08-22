@@ -385,9 +385,12 @@ def check_masking(b: Path):
     if miss:
         note(FUND, f"masking.csv is missing columns the text quotes: {miss}")
     elif len(rows) < 500:
-        note(LIM, f"masking.csv covers {len(rows)} clips; the quoted medians "
-                  f"and the family breakdown are from the full 2000-clip ood "
-                  f"split, and a short run's family rows are n=2-4")
+        note(LIM, f"masking.csv covers {len(rows)} clips. The 2000-clip run "
+                  f"was made under the criterion listening falsified and has "
+                  f"NOT been repeated under the corrected one, so section 12 "
+                  f"quotes n={len(rows)} and says so. Family rows are n=2-4 at "
+                  f"this size and carry nothing -- vocal read 0.748 on two "
+                  f"clips and 0.9316 on 67")
     else:
         # The smask column is what separates "masked by the signal" from
         # "below the absolute threshold". If it were ever dropped the paper's
