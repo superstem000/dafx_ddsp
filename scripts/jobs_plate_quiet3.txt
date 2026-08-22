@@ -109,10 +109,19 @@
 #
 # Hence GRAD_CKPT=on and --chunk-elems 200000000 below: checkpointing stops the
 # retention, the smaller chunk bounds the transient at ~800 MB per intermediate
-# over 10 chunks. Drop to 1e8 if a card still runs out. Neither changes a
-# forward value -- checkpointing recomputes identically, and chunking is over
-# time while the reduction is over modes -- but "should not" is not "does not",
-# so re-run diag_gt_floor at the settings training will use before believing it.
+# over 10 chunks. Drop to 1e8 if a card still runs out -- but if you do, the
+# DATA HAS TO BE REGENERATED AT THAT VALUE.
+#
+# BECAUSE chunk_elems IS PART OF THE NUMERICS CONTRACT, NOT A MEMORY KNOB. It
+# was one under compile, where the chunk kernel fused; eager does not, and the
+# reduction over the mode axis keys off the innermost dimension's size. Data
+# rendered at 1e9 and re-synthesized at 2e8 disagrees by 8.51% of saturation for
+# log, with the same quiet-decile concentration as the compile mismatch --
+# measured, after this header predicted it would be identical because chunking
+# is over time and the reduction is over modes. It is not. --batch-size is in
+# the contract for the same reason, since the per-chunk span is
+# chunk_elems // (B * n_modes). Checkpointing recomputes identical values and
+# stays out of it.
 #
 # WHAT IS HELD FIXED AGAINST jobs_plate_gamma.txt, deliberately, so the two
 # ladders are comparable: same arms, same 40000 steps, same LR schedule, same

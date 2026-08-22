@@ -124,18 +124,36 @@ python -m src.data.make_dataset --number 1000 --report-grid
 #    grid constant, no parameter set can need a finer one than the pin.
 python -m src.data.make_dataset --number 1000 --seed 2 \
   --output-dir data/val-quiet3 --duration 0.25 --render-path training \
-  --batched-plate --chunk-elems 1000000000 \
+  --batched-plate --chunk-elems 200000000 \
   --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 30,92
 
 python -m src.data.make_dataset --number 100000 --seed 3 \
   --output-dir data/train-quiet3 --duration 0.25 --render-path training \
-  --batched-plate --chunk-elems 1000000000 \
+  --batched-plate --chunk-elems 200000000 \
   --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 30,92
 
 # 3. Verify, exactly as above. Same requirement: 0.0000e+00 on the SHUFFLED row.
 python -m src.ddsp.diag_gt_floor --data-dir data/val-quiet3 --n-val 512 \
-  --chunk-elems 1000000000 --fixed-mode-grid 30,92
+  --chunk-elems 200000000 --fixed-mode-grid 30,92
 ```
+
+**`--chunk-elems` is part of the numerics contract, not a memory knob.** It was
+one under `--compile-plate`, where Inductor fused the whole chunk kernel; eager
+does not, and the reduction over the mode axis evidently keys off the innermost
+dimension's size. Measured: data rendered at `1e9` and re-synthesized at `2e8`
+disagrees by **8.51% of saturation for log**, with the same quiet-decile
+concentration as the compile mismatch. Generation and training must pass the
+same value — and the same `--batch-size`, since the per-chunk time span is
+`chunk_elems // (B * n_modes)`.
+
+`2e8` is what the jobs file trains at, because eager also needs the memory.
+`chunk_elems` splits over *time*, so at `1e9` each intermediate is a 4 GB
+`[64, 2760, 5661]` tensor and, without gradient checkpointing, every chunk's
+copy stays resident for backward — 15 GiB, which is what killed the first
+attempt at the shared base. `GRAD_CKPT=on` removes the retention and `2e8`
+bounds the transient to ~800 MB per intermediate over 10 chunks. Checkpointing
+recomputes identical values, so it does not enter this contract; `chunk_elems`
+and `batch_size` do.
 
 **`--compile-plate` is off for this family, in generation and in training.**
 With it, targets rendered by one process and re-synthesized by another disagree
