@@ -140,7 +140,17 @@ def main() -> None:
     p.add_argument("--n", type=int, default=64, help="Reference IRs")
     p.add_argument("--duration", type=float, default=0.25)
     p.add_argument("--rel", type=float, default=0.02,
-                   help="Perturbation as a fraction of each parameter's value")
+                   help="Perturbation size, read according to --step")
+    p.add_argument(
+        "--step", default="value", choices=("value", "range"),
+        help="value: --rel as a fraction of the parameter's own value. range: "
+             "--rel as a fraction of (hi - lo) for the fitted seven, which is "
+             "the space the encoder searches and the only convention under "
+             "which totals compare across parameters -- T0 spans five decades "
+             "and Ly spans a factor of 3.6, so a 2%% value step means wildly "
+             "different fractions of what is actually being estimated. Pinned "
+             "parameters have no range and fall back to value, marked * in the "
+             "output.")
     p.add_argument("--n-fft", type=int, default=4096)
     p.add_argument("--hop", type=int, default=1024)
     p.add_argument("--only", nargs="+", default=None, metavar="PARAM")
@@ -167,7 +177,10 @@ def main() -> None:
 
     with torch.no_grad():
         ref14 = BatchedModalPlateTorch.params_dicts_to_tensor(dicts, dev)
-        x_ref = plate.forward(ref14, args.duration)
+        # normalize=False: forward() peak-normalizes BY DEFAULT, so leaving
+        # it on made the raw and normalized columns identical and silently
+        # deleted every level effect this script exists to show.
+        x_ref = plate.forward(ref14, args.duration, normalize=False)
         # Saturation: the same L1 against UNRELATED IRs, so a parameter's effect
         # can be read as a fraction of the distance between two different
         # plates. Without it "0.004" is a number with no scale.
@@ -180,7 +193,7 @@ def main() -> None:
     names = [k for k in BatchedModalPlateTorch.PARAM_ORDER
              if not args.only or k in args.only]
     print(f"{'param':<10}{'fit':>5}{'dnorm%':>10}{'draw%':>10}"
-          f"{'lin dec':>9}{'log dec':>9}{'gap':>7}   top band lin / log")
+          f"{'lin dec':>9}{'log dec':>9}   top band lin / log")
     rows = []
     for name in names:
         i = BatchedModalPlateTorch.PARAM_ORDER.index(name)
@@ -190,8 +203,12 @@ def main() -> None:
         with torch.no_grad():
             for sign in (+1.0, -1.0):
                 p14 = ref14.clone()
-                p14[:, i] = p14[:, i] * (1.0 + sign * args.rel)
-                x_p = plate.forward(p14, args.duration)
+                if args.step == "range" and name in FITTED_BOUNDS:
+                    lo, hi = FITTED_BOUNDS[name]
+                    p14[:, i] = p14[:, i] + sign * args.rel * (hi - lo)
+                else:
+                    p14[:, i] = p14[:, i] * (1.0 + sign * args.rel)
+                x_p = plate.forward(p14, args.duration, normalize=False)
                 norm_runs.append(decompose(A_n, stft_mag(x_p, args.n_fft, args.hop, True)))
                 raw_runs.append(decompose(A_r, stft_mag(x_p, args.n_fft, args.hop, False)))
 
@@ -209,23 +226,26 @@ def main() -> None:
         dr = 100.0 * ltot_r / max(sat_r, 1e-30)
         top_l = DB_BANDS[max(range(len(lb)), key=lambda k: lb[k])]
         top_g = DB_BANDS[max(range(len(gb)), key=lambda k: gb[k])]
-        gap = cl - cg
         fit = "y" if name in FITTED_BOUNDS else "-"
-        print(f"{name:<10}{fit:>5}{dn:>10.3f}{dr:>10.3f}{cl:>9.2f}{cg:>9.2f}"
-              f"{gap:>7.2f}   {top_l[0]}-{top_l[1]} / {top_g[0]}-{top_g[1]} dB")
+        mark = "*" if args.step == "range" and name not in FITTED_BOUNDS else ""
+        print(f"{name + mark:<10}{fit:>5}{dn:>10.3f}{dr:>10.3f}{cl:>9.2f}"
+              f"{cg:>9.2f}   {top_l[0]}-{top_l[1]} / {top_g[0]}-{top_g[1]} dB")
         rows.append((name, lb, gb))
 
     print("\ndnorm% / draw%  L1 on STFT magnitude as a percentage of the "
           "distance between\n                UNRELATED IRs, peak-normalized "
           "and raw. raw >> norm means the\n                parameter acts "
           "mostly through level, which normalizing deletes.")
-    print("lin dec/log dec share-weighted mean decile of the change, 1 quietest "
-          "to 10\n                loudest, on |a-b| and on |log(a+e)-log(b+e)|.")
-    print("gap             lin dec - log dec. LARGE means the change is "
-          "concentrated in\n                loud bins in absolute terms but "
-          "spread into quiet ones in relative\n                terms -- i.e. a "
-          "log loss spends its weight somewhere other than where\n              "
-          "  the parameter's signature actually is.")
+    print("lin dec         share-weighted mean decile of |a-b|. Pins near 10 for "
+          "EVERY\n                parameter and carries almost nothing: "
+          "|a-b| <= max(a,b), so absolute\n                error concentrates "
+          "in the loudest bins whatever changed. Printed to\n                "
+          "show that, not as a result.")
+    print("log dec         the informative one. Mean decile of "
+          "|log(a+e)-log(b+e)|, 1\n                quietest to 10 loudest. LOW "
+          "means the parameter's RELATIVE signature\n                lives in "
+          "quiet bins -- the region only a compressed loss weights, and\n      "
+          "          the region a dB floor throws away.")
 
     if args.detail:
         for name, lb, gb in rows:
