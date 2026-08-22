@@ -56,14 +56,33 @@ the numpy-vs-torch gap: same 4096-point Hann STFT at hop 1024, same
 log(x + 1e-7). Reusing it means a parameter's signature and a renderer's
 disagreement are read on one axis.
 
-PERTURBATION. --rel is a fraction of the parameter's own VALUE, default 2%,
-applied to all fourteen. Range-relative (delta * (hi - lo)) would be the more
-meaningful step for the fitted seven, since normalized space is what the encoder
-actually searches -- but it is undefined for the pinned seven, and putting all
-fourteen on one footing is the point of the exercise. The `fit` column marks
-which seven have bounds at all, so a reader knows which numbers carry that
-caveat. Both signs are rendered and averaged, so an asymmetric response does not
-report a misleading single number.
+PERTURBATION IS A LADDER, default 0.5 / 2 / 5 / 20 / 50%, both signs averaged.
+One step size measures a local derivative and an encoder does not start near the
+answer, so whether the local picture applies is itself part of the question.
+
+  --step value  a fraction of the parameter's own value; the only convention
+                defined for all fourteen, since the pinned seven have no range.
+  --step range  a fraction of (hi - lo) for the fitted seven, the space the
+                encoder actually searches and the only convention under which
+                totals compare across parameters -- T0 spans five decades and Ly
+                a factor of 3.6. Pinned parameters fall back to value, marked *.
+                Large steps walk off the dataset's bounds and are clamped, with
+                the count reported: at 50% every fitted parameter clamps exactly
+                half its draws, because one sign is always out of range, so that
+                column is a one-sided step and does not compare with the rest.
+
+MEASURED, and it changed what this script is for. log dec is NOT step-invariant
+for the damping constants -- T60_DC runs 2.33 / 2.55 / 2.94 / 4.23 / 5.15 across
+the ladder while every geometry parameter sits flat near 5.5. A small change in
+decay barely alters the attack and compounds over time, so it lands in late quiet
+bins; a large change reshapes the envelope including the attack. So "damping
+lives where compression helps" is a LOCAL property, true only near the solution.
+Far from it -- which is where training starts -- damping looks like everything
+else, which is why a compressed loss can only matter after a parameter-loss
+handover has already brought the encoder close.
+
+T0 is the exception: 3.33 -> 3.93 across two orders of magnitude of step, low and
+flat, and the weakest fitted parameter by a wide margin.
 """
 
 from __future__ import annotations
