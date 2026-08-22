@@ -567,6 +567,24 @@ def fit_mu_scale(loss_fn, target, pred, mu_pred, iters: int = 30):
     return mu_pred / torch.exp(0.5 * (lo + hi))
 
 
+# The g03 metric, on peak-normalized signals. Not a detail -- without this it
+# reads 0.0000 for every arm at every step, which it did.
+#
+# The dataset's IR peaks span 4.3e-12 to 1.1e-06. Through a 2048-point window
+# that puts mel-band sums near 1e-11, BELOW metric_mfcc_gamma's eps of 1e-10, so
+# (mel + eps)^0.3 returns (1e-10)^0.3 for target and candidate alike and the DCT
+# of a near-constant is zero. eps 1e-10 comes from loss_mfcc, which was written
+# for normalized audio.
+#
+# The wrapper is reused rather than the eps retuned, for the reason
+# peak_normalized() already gives about the training loss: any fixed eps against
+# raw plate amplitudes is a different floor for a loud IR than for a quiet one --
+# measured at percentile 96.2 unnormalized against 0.0 normalized -- and a
+# metric read across the val set has to mean one thing. Normalized, the peak is
+# 1.0 and mel sums land near 1e6, six decades clear of eps.
+_G03 = peak_normalized(metric_mfcc_g03, "target")
+
+
 @torch.no_grad()
 def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
              refiner=None, cond=None, two_stage=False, mu_loss_fn=None) -> Dict[str, float]:
@@ -606,7 +624,7 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
             mu_fits.append(fit_mu_scale(mu_loss_fn, xb, pred, mu_b).cpu().numpy())
         preds.append(zp.detach())
         preds0.append(z0.detach())
-        g03.append(metric_mfcc_g03(xb, pred).detach())
+        g03.append(_G03(xb, pred).detach())
     model.train()
     if refiner is not None:
         refiner.train()
