@@ -459,8 +459,13 @@ def check_plate_gamma(b: Path):
         # gamma_pre is the 5000-step base by design; everything else is 40000.
         if "gamma_pre/" not in name and rows[-1]["step"] < 40000:
             short_.append(f"{name}@{rows[-1]['step']}")
+    # Prefixed by directory: gamma_pre and gamma_ppre both hold an arm called
+    # L1_STFT and gamma_ppre/gamma_raw both hold L1_STFT_g1, so the bare arm
+    # name prints the same label twice and the pair that IS the experiment --
+    # pretrained against from-scratch -- reads as a duplicate.
     print(f"  {len(got)} arms: " + ", ".join(
-        f"{k.split('/')[-1]}={v[1]:.2f}" for k, v in sorted(got.items())))
+        f"{k.split('/')[0].replace('gamma_', '')}:{k.split('/')[-1]}={v[1]:.2f}"
+        for k, v in sorted(got.items())))
     if not got:
         note(FUND, "plate gamma arms carry no evaluated rows"); return
     if short_:
