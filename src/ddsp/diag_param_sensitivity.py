@@ -139,8 +139,18 @@ def main() -> None:
     p.add_argument("--data-dir", type=Path, default=Path("data/val-p99"))
     p.add_argument("--n", type=int, default=64, help="Reference IRs")
     p.add_argument("--duration", type=float, default=0.25)
-    p.add_argument("--rel", type=float, default=0.02,
-                   help="Perturbation size, read according to --step")
+    p.add_argument(
+        "--rel", type=float, nargs="+",
+        default=[0.005, 0.02, 0.05, 0.2, 0.5],
+        help="Perturbation sizes, read according to --step. A LADDER rather "
+             "than one value: a single small step measures a local derivative, "
+             "and whether the estimation problem is local is itself in "
+             "question. Two things to read off it -- dnorm%% should grow "
+             "roughly linearly with rel while the response is local and bend "
+             "over as it saturates toward the unrelated-IR distance, and "
+             "log dec should NOT move, since where a parameter's signature "
+             "lives is meant to be a property of the parameter rather than of "
+             "how hard it was poked.")
     p.add_argument(
         "--step", default="value", choices=("value", "range"),
         help="value: --rel as a fraction of the parameter's own value. range: "
@@ -172,8 +182,9 @@ def main() -> None:
     if not csvs:
         raise SystemExit(f"no random_IR_params_*.csv under {args.data_dir}")
     dicts = [pd.read_csv(c).iloc[0].to_dict() for c in csvs]
-    print(f"{args.data_dir}   {len(dicts)} IRs   perturbation {100*args.rel:g}% "
-          f"of value, both signs\n")
+    how = "of range (fitted only, * = of value)" if args.step == "range" else "of value"
+    print(f"{args.data_dir}   {len(dicts)} IRs   perturbations "
+          + ", ".join(f"{100*r:g}%" for r in args.rel) + f" {how}, both signs")
 
     with torch.no_grad():
         ref14 = BatchedModalPlateTorch.params_dicts_to_tensor(dicts, dev)
@@ -192,22 +203,27 @@ def main() -> None:
 
     names = [k for k in BatchedModalPlateTorch.PARAM_ORDER
              if not args.only or k in args.only]
-    print(f"{'param':<10}{'fit':>5}{'dnorm%':>10}{'draw%':>10}"
-          f"{'lin dec':>9}{'log dec':>9}   top band lin / log")
-    rows = []
+    res, rows, clamped = {}, [], {}
     for name in names:
-        i = BatchedModalPlateTorch.PARAM_ORDER.index(name)
+      i = BatchedModalPlateTorch.PARAM_ORDER.index(name)
+      for rel in args.rel:
         # Both signs, averaged. A parameter with an asymmetric response would
         # otherwise report whichever direction happened to be tried.
-        norm_runs, raw_runs = [], []
+        norm_runs, raw_runs, n_clamp = [], [], 0
         with torch.no_grad():
             for sign in (+1.0, -1.0):
                 p14 = ref14.clone()
                 if args.step == "range" and name in FITTED_BOUNDS:
                     lo, hi = FITTED_BOUNDS[name]
-                    p14[:, i] = p14[:, i] + sign * args.rel * (hi - lo)
+                    v = p14[:, i] + sign * rel * (hi - lo)
+                    # A large step walks off the range the dataset was drawn
+                    # from, which would render plates no target ever contained.
+                    # Clamped, and the count reported, so the ladder's top rungs
+                    # are read knowing how much of the batch hit the wall.
+                    n_clamp += int((v.clamp(lo, hi) != v).sum())
+                    p14[:, i] = v.clamp(lo, hi)
                 else:
-                    p14[:, i] = p14[:, i] * (1.0 + sign * args.rel)
+                    p14[:, i] = p14[:, i] * (1.0 + sign * rel)
                 x_p = plate.forward(p14, args.duration, normalize=False)
                 norm_runs.append(decompose(A_n, stft_mag(x_p, args.n_fft, args.hop, True)))
                 raw_runs.append(decompose(A_r, stft_mag(x_p, args.n_fft, args.hop, False)))
@@ -218,29 +234,39 @@ def main() -> None:
                 return [sum(c) / len(c) for c in zip(*v)]
             return sum(v) / len(v)
 
-        cl, cg = mean_of(norm_runs, 0), mean_of(norm_runs, 1)
+        cg = mean_of(norm_runs, 1)
         lb, gb = mean_of(norm_runs, 2), mean_of(norm_runs, 3)
-        ltot = mean_of(norm_runs, 4)
-        ltot_r = mean_of(raw_runs, 4)
-        dn = 100.0 * ltot / max(sat_n, 1e-30)
-        dr = 100.0 * ltot_r / max(sat_r, 1e-30)
-        top_l = DB_BANDS[max(range(len(lb)), key=lambda k: lb[k])]
-        top_g = DB_BANDS[max(range(len(gb)), key=lambda k: gb[k])]
-        fit = "y" if name in FITTED_BOUNDS else "-"
-        mark = "*" if args.step == "range" and name not in FITTED_BOUNDS else ""
-        print(f"{name + mark:<10}{fit:>5}{dn:>10.3f}{dr:>10.3f}{cl:>9.2f}"
-              f"{cg:>9.2f}   {top_l[0]}-{top_l[1]} / {top_g[0]}-{top_g[1]} dB")
-        rows.append((name, lb, gb))
+        dn = 100.0 * mean_of(norm_runs, 4) / max(sat_n, 1e-30)
+        res[(name, rel)] = (dn, cg)
+        if n_clamp:
+            clamped[(name, rel)] = n_clamp
+        if rel == args.rel[0]:
+            rows.append((name, lb, gb))
 
-    print("\ndnorm% / draw%  L1 on STFT magnitude as a percentage of the "
-          "distance between\n                UNRELATED IRs, peak-normalized "
-          "and raw. raw >> norm means the\n                parameter acts "
-          "mostly through level, which normalizing deletes.")
-    print("lin dec         share-weighted mean decile of |a-b|. Pins near 10 for "
-          "EVERY\n                parameter and carries almost nothing: "
-          "|a-b| <= max(a,b), so absolute\n                error concentrates "
-          "in the loudest bins whatever changed. Printed to\n                "
-          "show that, not as a result.")
+    def table(title, key, fmt):
+        print(f"\n=== {title}")
+        print(f"{'param':<10}{'fit':>5}" +
+              "".join(f"{100*r:>10.3g}%" for r in args.rel))
+        for name in names:
+            fit = "y" if name in FITTED_BOUNDS else "-"
+            mark = "*" if args.step == "range" and name not in FITTED_BOUNDS else ""
+            print(f"{name + mark:<10}{fit:>5}" +
+                  "".join(fmt.format(res[(name, r)][key]) for r in args.rel))
+
+    table("dnorm% -- total change as a percentage of the unrelated-IR distance",
+          0, "{:>11.3f}")
+    table("log dec -- mean decile of |log(a+e)-log(b+e)|, 1 quietest to 10 loudest",
+          1, "{:>11.2f}")
+    if clamped:
+        print("\nclamped to the dataset's bounds (IRs, of "
+              f"{2 * len(dicts)} per cell): " +
+              ", ".join(f"{n}@{100*r:g}%={c}" for (n, r), c in sorted(clamped.items())))
+
+    print("\ndnorm%          L1 on STFT magnitude as a percentage of the "
+          "distance between\n                UNRELATED IRs, peak-normalized. "
+          "Grows ~linearly with rel while the\n                response is "
+          "local; bending over means it is saturating toward the\n            "
+          "    distance between two different plates.")
     print("log dec         the informative one. Mean decile of "
           "|log(a+e)-log(b+e)|, 1\n                quietest to 10 loudest. LOW "
           "means the parameter's RELATIVE signature\n                lives in "
