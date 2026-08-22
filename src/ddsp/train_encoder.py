@@ -679,10 +679,13 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
         "val_nmse_6d_mean": float(np.mean(n6)),
         "val_nmse_6d_p90": float(np.percentile(n6, 90)),
         "val_nmse_6d_p99": float(np.percentile(n6, 99)),
-        "val_nmse_5d_geo": float(np.exp(np.mean(np.log(np.maximum(n5, 1e-30))))),
-        "val_nmse_5d": float(np.median(n5)),
         "val_nmse_7d": float(np.median(n7)),
     }
+    if HAS_COMPOSITE:
+        # Only where there are five shape composites to score. Emitting these
+        # unconditionally would print the 3-parameter NMSE under a "5d" label.
+        out["val_nmse_5d_geo"] = float(np.exp(np.mean(np.log(np.maximum(n5, 1e-30)))))
+        out["val_nmse_5d"] = float(np.median(n5))
     if n6_post is not None:
         out["val_nmse_6d_postmu_geo"] = float(
             np.exp(np.mean(np.log(np.maximum(n6_post, 1e-30))))
@@ -1136,10 +1139,15 @@ def run(args) -> None:
                         mu_loss_fn=mu_loss_fn,
                     )
                 )
-                corr = "  ".join(
-                    f"{k}={row[f'c6_{k}']:+.2f}"
-                    for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
-                )
+                if HAS_COMPOSITE:
+                    corr = "  ".join(
+                        f"{k}={row[f'c6_{k}']:+.2f}"
+                        for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
+                    )
+                else:
+                    # With no composite reduction the searched parameters ARE the
+                    # identifiable ones, so corr_{k} is what c6_* stands in for.
+                    corr = "  ".join(f"{k}={row[f'corr_{k}']:+.2f}" for k in PARAM_KEYS)
                 spread = np.mean([row[f"spread_{k}"] for k in PARAM_KEYS])
                 print(
                     f"step {step:6d}  train {tr:.4e}  val {row['val_loss']:.4e}  "
@@ -1150,7 +1158,10 @@ def run(args) -> None:
                 # Shape and scale never collapsed into one number: 5d is what the
                 # (possibly normalized) loss fits, postmu is the like-for-like
                 # number against the CMA-ES post-ternary result.
-                stage = f"           5d geo {row['val_nmse_5d_geo']:.3e} med {row['val_nmse_5d']:.3e}"
+                stage = ""
+                if "val_nmse_5d_geo" in row:
+                    stage = (f"           5d geo {row['val_nmse_5d_geo']:.3e} "
+                             f"med {row['val_nmse_5d']:.3e}")
                 if "val_nmse_6d_postmu_geo" in row:
                     stage += (
                         f"   postmu 6d geo {row['val_nmse_6d_postmu_geo']:.3e} "
@@ -1158,7 +1169,8 @@ def run(args) -> None:
                         f"p90 {row['val_nmse_6d_postmu_p90']:.3e}"
                         f"   mu |dlog| {row['val_mu_logerr']:.4f}"
                     )
-                print(stage)
+                if stage:
+                    print(stage)
                 if spread < 0.05:
                     print(
                         f"           WARNING: prediction spread {spread:.3f} of ground truth -- "
@@ -1168,13 +1180,14 @@ def run(args) -> None:
                 stage0 = row.get("val_nmse_6d_stage0")
                 extra = f"   stage0 6d {stage0:.3e}" if stage0 is not None else ""
                 print(f"           corr(identifiable)  {corr}   mean spread/GT {spread:.2f}{extra}")
-                tot = sum(row[f"nmse_{k}"] for k in
-                          ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y"))
-                share = "  ".join(
-                    f"{k}={row[f'nmse_{k}']/max(tot,1e-30)*100:.0f}%"
-                    for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
-                )
-                print(f"           err share           {share}")
+                if HAS_COMPOSITE:
+                    tot = sum(row[f"nmse_{k}"] for k in
+                              ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y"))
+                    share = "  ".join(
+                        f"{k}={row[f'nmse_{k}']/max(tot,1e-30)*100:.0f}%"
+                        for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
+                    )
+                    print(f"           err share           {share}")
             else:
                 print(f"step {step:6d}  train {tr:.4e}  |g| {gnorm:.2e}  [{row['elapsed_s']:.0f}s]")
             hist.append(row)
