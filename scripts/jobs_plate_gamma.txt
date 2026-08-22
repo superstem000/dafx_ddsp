@@ -59,29 +59,65 @@
 # while the parameter loss is still being traded against.
 #
 # PRETRAINING AND NORM. Masuda & Saito's schedule as fractions -- parameter loss
-# alone for 12.5%, crossfade to 50%, param_w 10 -> 0 -- identical to
-# jobs_ppre_hybrid.txt, so these arms drop straight into that table. NORM=batch
-# for the same reason every line there uses it: GroupNorm normalises within one
-# example and permits an encoder that maps every input to the same output, which
-# is this encoder's documented failure mode, while BatchNorm makes that solution
-# unreachable.
+# alone for 12.5%, crossfade to 50%, param_w 10 -> 0. NORM=batch for the same
+# reason jobs_ppre_hybrid.txt uses it on every line: GroupNorm normalises within
+# one example and permits an encoder that maps every input to the same output,
+# which is this encoder's documented failure mode, while BatchNorm makes that
+# solution unreachable.
 #
-# ORDERING. Anchor first, then the two exponents the plate has never had, then
-# the log and hybrid ends, then the one raw arm. Every number in this directory
-# is reported as a ratio against L1_STFT and the constant-predictor floor, so a
-# queue that stops halfway is still interpretable -- but only if the anchor
-# got in, which is why it leads.
+# ONE SHARED BASE, AND IT IS NOT MERELY AN EFFICIENCY WIN. diffsynth trains
+# epochs 0-50 once as pre_base and resumes every variant from it. Doing the same
+# here removes a confound rather than just 5000 x 6 duplicated steps.
+#
+# The confound: spec_w == 0 does drop the spectral term from the graph, so the
+# objective during the hold is param_w*param_term + hinge for every arm. But it
+# is then divided by loss_scale, which is fixed at step 1 from THAT ARM'S OWN
+# spectral loss -- measured at 2.12 for L1_STFT and 4483 for L1_STFT_g1, a
+# factor of 2000. So "the parameter-only phase is identical for every arm" is
+# false as the ladder currently stands, in a way that is invisible in the logs
+# because train_loss reports the undivided spectral value.
+#
+# Training the hold once and resuming fixes it exactly: --resume restores
+# loss_scale from the checkpoint (deliberately -- recomputing it would rescale
+# every gradient and silently change the effective learning rate mid-run), so
+# every arm inherits ONE divisor and starts the crossfade from bit-identical
+# weights and optimizer moments.
+#
+# --lr-decay-end 40000 on a --steps 5000 run is what makes the base's learning
+# rate the first 5000 steps of the 40000-step schedule rather than a compressed
+# 5000-step one: s0_end = stage0_end_step or lr_decay_end or steps.
+# --param-hold-frac 1.0 holds param_w at 10 for the whole base, since the
+# handover reads its boundaries as fractions of --steps.
+#
+# WHAT THIS DOES NOT FIX, and it should be stated. param_w = 10 is weighed
+# against each arm's own spectral magnitude during the crossfade, and those span
+# five decades here (g1 ~200, eps1e7 ~0.01). loss_scale cancels in that ratio,
+# so it is param_w itself that means different things across arms. diffsynth has
+# the same property but its losses sit within about one decade of each other.
+# Left alone because changing it would depart from the published recipe; noted
+# because a reviewer comparing the crossfade across arms is comparing this too.
+#
+# ORDERING. The base alone in stage 1, because every arm below depends on it and
+# gpu_queue runs stages in order. Then the anchor, the two new exponents, the
+# log and hybrid ends, and the raw arm last. Every number here is reported as a
+# ratio against L1_STFT and the constant-predictor floor, so a queue that stops
+# halfway is still interpretable -- provided the base and the anchor got in.
 
-# STAGE the anchor, first, so a queue that stops early is still interpretable
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT"     EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+# STAGE the shared parameter-only base. ~1 hour. EVERYTHING BELOW RESUMES FROM
+# IT, so if this fails the rest must not start -- which is why it is alone in
+# its stage.
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=5000 OUT=results/ddsp/gamma_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 40000" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE the anchor, first of the resumed arms
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT"     EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE the two exponents the plate has never had
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g03" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g1"  EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g03" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_g1"  EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE the log end and the hybrid, so the whole ladder sits in one directory
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_eps1e7" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_eps1e7" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/gamma_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE g1 WITHOUT pretraining -- the one raw arm worth its 7 hours.
 #
