@@ -161,9 +161,15 @@ PLATE_PARAM_SPACE=quiet3 TRAIN=data/train-quiet3 VAL=data/val-quiet3 N_TRAIN=983
 
 # Monitor it the same way:
 #
-#   python -m src.ddsp.monitor_sweep --root results/ddsp/quiet3_pre \
-#     --root results/ddsp/quiet3_ppre --root results/ddsp/quiet3_raw \
+#   python -m src.ddsp.monitor_sweep \
+#     --root results/ddsp/quiet3_pre results/ddsp/quiet3_ppre results/ddsp/quiet3_raw \
 #     --metrics spec_w param g03 nmse ratio
+#
+# ONE --root, SEVERAL PATHS. Repeated --root flags now accumulate too, but they
+# did not until monitor_sweep grew action="extend": nargs="+" kept only the last
+# flag, so the repeated form asked for three directories and watched one. If
+# that one was a stage the queue had not reached, the monitor said "no runs"
+# about a run that was training normally.
 #
 # READ val_nmse_6d AS THE NMSE OVER THE THREE SEARCHED PARAMETERS. quiet3 has no
 # composite reduction because it has no symmetry to quotient out, so the key

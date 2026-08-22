@@ -182,10 +182,20 @@ def short(name: str) -> str:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--root", nargs="+", default=["results/ddsp/eps_ladder"],
-                   help="One or more sweep directories. With several, arm names "
-                        "are prefixed by directory so the same arm run under two "
-                        "conditions stays two columns.")
+    # action="extend" so that BOTH "--root a b c" and "--root a --root b --root c"
+    # work. With plain nargs="+" the repeated form silently keeps only the last
+    # flag, which reads as "watch these three" and means "watch the third" -- and
+    # if that one is a stage that has not started yet, the whole monitor reports
+    # nothing while the run it was asked about is training fine. default=None
+    # rather than a list because extend appends to the default rather than
+    # replacing it.
+    p.add_argument("--root", nargs="+", action="extend", default=None,
+                   help="One or more sweep directories, as repeated flags or one "
+                        "flag with several paths. With several, arm names are "
+                        "prefixed by directory so the same arm run under two "
+                        "conditions stays two columns. Directories that do not "
+                        "exist yet are skipped, since a queued stage has not "
+                        "created its output directory.")
     p.add_argument("--metrics", nargs="+", default=["train", "val", "nmse"],
                    choices=sorted(METRICS))
     p.add_argument("--steps", type=int, default=40000, help="For the ETA column")
@@ -195,9 +205,22 @@ def main() -> None:
                    help="Show only the last N eval rows (0 = all)")
     args = p.parse_args()
 
-    arms = load(args.root)
+    roots = args.root or ["results/ddsp/eps_ladder"]
+    # A root that does not exist yet is normal while a queue is partway through
+    # its stages, so it is named and skipped rather than counted as "no runs".
+    missing = [r for r in roots if not Path(r).is_dir()]
+    present = [r for r in roots if Path(r).is_dir()]
+    if missing:
+        print(f"not started yet, skipping: {' '.join(missing)}")
+    # Prefixing keyed to what was ASKED for, not to what exists: otherwise arm
+    # names change the moment a queued stage creates its directory, and a column
+    # you were watching as "L1_STFT" becomes "quiet3_ppre/L1_STFT" mid-run.
+    multi = len(roots) > 1
+    arms = {}
+    for r in present:
+        arms.update(load(r, f"{Path(r).name}/" if multi else ""))
     if not arms:
-        print(f"no runs under {' '.join(args.root)}")
+        print(f"no runs under {' '.join(present) or ' '.join(roots)}")
         return
 
     names = sorted(arms)
