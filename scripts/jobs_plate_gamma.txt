@@ -66,9 +66,11 @@
 # is this encoder's documented failure mode, while BatchNorm makes that solution
 # unreachable.
 #
-# ORDERING. Wiring check, then the two new exponents, then the anchor pair that
-# lets this table be read against the existing spectral-only ladder. A queue
-# that stops halfway is still interpretable as long as g05 and L1_STFT got in.
+# ORDERING. Anchor first, then the two exponents the plate has never had, then
+# the log and hybrid ends, then the one raw arm. Every number in this directory
+# is reported as a ratio against L1_STFT and the constant-predictor floor, so a
+# queue that stops halfway is still interpretable -- but only if the anchor
+# got in, which is why it leads.
 
 # STAGE the anchor, first, so a queue that stops early is still interpretable
 NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/gamma_ppre ARMS="L1_STFT"     EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
