@@ -13,6 +13,11 @@ works mid-run. Arms are whatever directories exist under the root.
     python -m src.ddsp.monitor_sweep
     python -m src.ddsp.monitor_sweep --root results/ddsp/lr_probe
     python -m src.ddsp.monitor_sweep --metrics ratio spread train_sat
+
+    # the gamma ladder: pretrained and raw side by side, with the handover
+    python -m src.ddsp.monitor_sweep \
+        --root results/ddsp/gamma_ppre results/ddsp/gamma_raw \
+        --metrics spec_w param ratio nmse
 """
 
 from __future__ import annotations
@@ -49,13 +54,37 @@ METRICS = {
     "zmax_op_x": ("|z|max for op_x specifically", "{:.2f}"),
     "hinge": ("weighted hinge penalty, kept out of train_loss", "{:.4g}"),
     "h_abs": ("mean |h| entering the head", "{:.3f}"),
+    # The handover. Without these a pretrained ladder is unreadable: an arm that
+    # is flat at step 4000 is flat because spec_w is still 0, not because it has
+    # stalled, and the two look identical in every other column. DiffMoog's
+    # narrow_* runs collapsed AT the switch -- 10x their best and then flat for
+    # 4000 steps -- while narrow_ploss, which never switches, did not. That is
+    # the phenomenon this ladder exists to reproduce, and it is invisible unless
+    # the switch is on the table beside the metric.
+    "spec_w": ("spectral weight, 0 during the hold and 1 after the crossfade", "{:.2f}"),
+    "param": ("parameter L1 on z, the objective during the hold", "{:.4f}"),
 }
 
 
-def load(root: str):
+def load(root, prefix: str = ""):
+    """One root, or several. Arms are prefixed when there is more than one.
+
+    This ladder spans two directories on purpose -- gamma_ppre resumes the shared
+    parameter-only base, gamma_raw does not -- and the pair IS the experiment:
+    whether the handover is what rescues an I^1.0 loss. Both hold an arm called
+    L1_STFT_g1, so without the prefix one silently overwrites the other and the
+    comparison the campaign was built for disappears from its own monitor.
+    """
+    if not isinstance(root, str):
+        roots = list(root)
+        multi = len(roots) > 1
+        out = {}
+        for r in roots:
+            out.update(load(r, f"{Path(r).name}/" if multi else ""))
+        return out
     arms = {}
     for hp in sorted(glob.glob(os.path.join(root, "*", "history.json"))):
-        name = Path(hp).parent.name
+        name = prefix + Path(hp).parent.name
         try:
             d = json.load(open(hp))
         except Exception:
@@ -81,6 +110,8 @@ def load(root: str):
                 "zmax_op_x": zc.get("op_x", float("nan")),
                 "hinge": r.get("hinge", float("nan")),
                 "h_abs": r.get("h_absmean", float("nan")),
+                "spec_w": r.get("spec_w", float("nan")),
+                "param": r.get("param_loss", float("nan")),
             }
         h = d["history"]
         arms[name] = {
@@ -102,14 +133,21 @@ def load(root: str):
 
 
 def short(name: str) -> str:
-    if name == "L1_STFT":
-        return "linear"
-    return name.replace("L1_STFT_", "").replace("L1_STFT", "lin")
+    pre, _, arm = name.rpartition("/")
+    # gamma_ppre -> ppre, gamma_raw -> raw: enough to tell the pair apart in a
+    # column header without spending the width on the shared stem.
+    pre = (pre.rstrip("/").split("_")[-1] + ":") if pre else ""
+    if arm == "L1_STFT":
+        return pre + "linear"
+    return pre + arm.replace("L1_STFT_", "").replace("L1_STFT", "lin")
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--root", default="results/ddsp/eps_ladder")
+    p.add_argument("--root", nargs="+", default=["results/ddsp/eps_ladder"],
+                   help="One or more sweep directories. With several, arm names "
+                        "are prefixed by directory so the same arm run under two "
+                        "conditions stays two columns.")
     p.add_argument("--metrics", nargs="+", default=["train", "val", "nmse"],
                    choices=sorted(METRICS))
     p.add_argument("--steps", type=int, default=40000, help="For the ETA column")
@@ -121,7 +159,7 @@ def main() -> None:
 
     arms = load(args.root)
     if not arms:
-        print(f"no runs under {args.root}")
+        print(f"no runs under {' '.join(args.root)}")
         return
 
     names = sorted(arms)
