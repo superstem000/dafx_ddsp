@@ -83,6 +83,20 @@ handover has already brought the encoder close.
 
 T0 is the exception: 3.33 -> 3.93 across two orders of magnitude of step, low and
 flat, and the weakest fitted parameter by a wide margin.
+
+READ log dec AGAINST 5.5, NOT AGAINST 10. A change spread evenly across all ten
+deciles gives a centroid of exactly 5.5, so that is the neutral value. The
+geometry parameters sit at 5.4-5.9 -- they are UNIFORM, not loud-biased, and both
+losses can see them, which is why the compression ladder cannot separate losses
+on them. Only T0 (3.4-4.0 at every step) and damping at perturbations too small
+to learn from (T60_DC 2.55 at 2%) sit meaningfully below it.
+
+Which settles the question this script was built to ask. Damping at a learnable
+step size -- x2/÷2, where it moves the audio 11-20% -- reads 5.4 to 6.05, i.e.
+neutral. There is no damping range that is simultaneously wide enough to train on
+and narrow enough to keep the signature where only a compressed loss reaches. The
+one parameter that IS quiet-biased at a meaningful step is T0, and T0 is already
+in the fitted seven.
 """
 
 from __future__ import annotations
@@ -326,10 +340,15 @@ def main() -> None:
           "local; bending over means it is saturating toward the\n            "
           "    distance between two different plates.")
     print("log dec         the informative one. Mean decile of "
-          "|log(a+e)-log(b+e)|, 1\n                quietest to 10 loudest. LOW "
-          "means the parameter's RELATIVE signature\n                lives in "
-          "quiet bins -- the region only a compressed loss weights, and\n      "
-          "          the region a dB floor throws away.")
+          "|log(a+e)-log(b+e)|, 1\n                quietest to 10 loudest.")
+    print("                5.5 IS NEUTRAL -- a change spread evenly across all "
+          "ten deciles\n                gives exactly 5.5, so that is the "
+          "reference, not the top of the\n                scale. Below it the "
+          "signature is concentrated in quiet bins and only\n                a "
+          "compressed loss sees it; above it in loud bins, where linear has\n"
+          "                the advantage; at it, both losses see the parameter "
+          "and the\n                compression ladder cannot separate them "
+          "on it.")
 
     if args.detail:
         for name, lb, gb in rows:
