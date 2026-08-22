@@ -120,22 +120,40 @@ python -m src.data.make_dataset --check-pin data/val-p99
 #    number below, since it is what the whole dataset is rendered under.
 python -m src.data.make_dataset --number 1000 --report-grid
 
-# 2. Generate. Nothing is excluded: with the grid constant, no parameter set
-#    can need a finer one than the pin.
+# 2. Generate. NO --compile-plate -- see below. Nothing is excluded: with the
+#    grid constant, no parameter set can need a finer one than the pin.
 python -m src.data.make_dataset --number 1000 --seed 2 \
   --output-dir data/val-quiet3 --duration 0.25 --render-path training \
-  --batched-plate --compile-plate --chunk-elems 1000000000 \
+  --batched-plate --chunk-elems 1000000000 \
   --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 30,92
 
 python -m src.data.make_dataset --number 100000 --seed 3 \
   --output-dir data/train-quiet3 --duration 0.25 --render-path training \
-  --batched-plate --compile-plate --chunk-elems 1000000000 \
+  --batched-plate --chunk-elems 1000000000 \
   --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 30,92
 
 # 3. Verify, exactly as above. Same requirement: 0.0000e+00 on the SHUFFLED row.
 python -m src.ddsp.diag_gt_floor --data-dir data/val-quiet3 --n-val 512 \
-  --compile-plate --chunk-elems 1000000000 --fixed-mode-grid 30,92
+  --chunk-elems 1000000000 --fixed-mode-grid 30,92
 ```
+
+**`--compile-plate` is off for this family, in generation and in training.**
+With it, targets rendered by one process and re-synthesized by another disagree
+by **7.66% of saturation for log**, 42.6% of it in the quietest decile — the
+exact failure shape this diagnostic exists to catch. It is not run-to-run
+noise: two runs of the identical command reproduced the figure to the digit, so
+each process settles on a stable choice of reduction kernel and the choices
+differ between them. Eager renders `0.0000e+00`, with `target and training
+synthesis agree bit-for-bit; nothing to decompose`.
+
+`raw7` tolerated compile at ≤0.074% because its quiet bins were never this far
+down. `quiet3`'s sit at 3.3e-06 against a peak of 13.4 — at the float32
+cancellation floor of the modal sum, which is both the point of the family and
+what makes it unforgiving. In the eager table the deliberately mismatched paths
+(`batch=1`, unbatched modal sum, no-float32-z) still cost log 3.3–9.1% of
+saturation, so every numeric flag has to match what the data was rendered with,
+exactly. Eager also generated *faster* here (119 IR/s against 74), so the only
+real cost is training step time.
 
 30x92 is 2,760 modes against `raw7`'s 24,252, so both generation and training
 are roughly 9x cheaper per step here. Sampling is uniform in `z`, which is
@@ -157,3 +175,4 @@ Two differences from `raw7` worth stating before they surprise someone:
 - **No batch-composition term.** `n_modes` is constant across the whole
   dataset, not merely pinned per run, so the reduction tree is the same for
   every batch and the one residual `raw7` could only bound is absent here.
+  Confirmed: the batched and SHUFFLED rows are identical to the digit.
