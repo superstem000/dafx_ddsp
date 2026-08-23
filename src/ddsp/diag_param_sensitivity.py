@@ -313,6 +313,25 @@ def main() -> None:
     # to resolve, which is this.
     print(f"saturation within this family: {sat_n:.5g} normalized, "
           f"{sat_r:.5g} raw -- every dnorm% below is a fraction of it\n")
+    # PERTURB IN THE SEARCH BASIS, NOT THE PLATE'S COLUMNS. Under --ratio the
+    # family holds T60_F1 = r * T60_DC, so no two IRs in it differ in T60_DC
+    # alone -- that direction is not in the data, and the encoder never searches
+    # it. Poking the plate column by itself therefore measures a direction that
+    # does not exist, for the one parameter the ranges were chosen on. Holding r
+    # fixed instead scales T60_F1 with it, which at fixed r rescales the whole
+    # damping profile in time, since both alpha and beta go as 1/T60_DC.
+    #
+    # The other two rows need no such treatment: T0 is independent, and
+    # perturbing T60_F1 at fixed T60_DC IS perturbing r, which is exactly the
+    # third search coordinate.
+    I_DC = BatchedModalPlateTorch.PARAM_ORDER.index("T60_DC")
+    I_F1 = BatchedModalPlateTorch.PARAM_ORDER.index("T60_F1")
+    ratio_of = None
+    if args.ratio:
+        ratio_of = ref14[:, I_F1] / ref14[:, I_DC].clamp(min=1e-30)
+        print("search basis: T60_DC perturbed at FIXED RATIO (T60_F1 scales with "
+              "it); T60_F1 perturbed at fixed T60_DC, which is the ratio "
+              "coordinate itself\n")
     names = [k for k in BatchedModalPlateTorch.PARAM_ORDER
              if (args.only and k in args.only)
              or (not args.only and (k in vary_bounds if vary_bounds else True))]
@@ -341,6 +360,10 @@ def main() -> None:
                     p14[:, i] = v.clamp(lo, hi)
                 else:
                     p14[:, i] = p14[:, i] * (1.0 + sign * rel)
+                if ratio_of is not None and name == "T60_DC":
+                    # After the clamp, so the coupled T60_F1 follows the value
+                    # actually used rather than the one asked for.
+                    p14[:, I_F1] = ratio_of * p14[:, I_DC]
                 x_p = plate.forward(p14, args.duration, normalize=False)
                 # A perturbation can leave the physical range -- T60 <= 0 is a
                 # decay time that grows without bound. Counted and excluded
