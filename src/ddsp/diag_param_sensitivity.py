@@ -122,7 +122,11 @@ FITTED_BOUNDS = {
     "op_x": (0.51, 1.0),
     "op_y": (0.51, 1.0),
 }
-DB_BANDS = [(0, 20), (20, 40), (40, 60), (60, 80), (80, 400)]
+# Split past 80 dB. A single 80-400 band is unbounded, and in a peak-normalized
+# spectrogram of a decaying IR it holds most of the bins -- so a SUM over it wins
+# on count alone and every parameter reads ~99% there, which is what made the
+# first version of this table unreadable.
+DB_BANDS = [(0, 20), (20, 40), (40, 60), (60, 80), (80, 100), (100, 120), (120, 400)]
 EPS = 1e-7
 
 
@@ -158,13 +162,19 @@ def decompose(ref: torch.Tensor, per: torch.Tensor):
         return float((d * torch.arange(1, 11)).sum() / t) if t > 0 else float("nan")
 
     rel_db = 20.0 * torch.log10((a / a.max().clamp(min=1e-30)).clamp(min=1e-30))
-    lin_b, log_b = [], []
+    lin_b, log_b, cnt_b = [], [], []
     for lo, hi in DB_BANDS:
         m = (-rel_db >= lo) & (-rel_db < hi)
         lin_b.append(float(lin[m].sum()))
         log_b.append(float(log[m].sum()))
+        # Bin count per band, so the shares above can be read per bin rather
+        # than per band. Bands hold wildly different numbers of bins -- the
+        # deciles do not, which is why the centroid was legible while this was
+        # not -- and a sum over a band is a statement about how many bins are in
+        # it as much as about where a parameter's signature lives.
+        cnt_b.append(int(m.sum()))
     return (centroid(lin_d), centroid(log_d), lin_b, log_b,
-            float(lin.sum()), float(log.sum()))
+            float(lin.sum()), float(log.sum()), cnt_b)
 
 
 def main() -> None:
@@ -368,7 +378,7 @@ def main() -> None:
         if n_clamp:
             clamped[(name, rel)] = n_clamp
         if rel == args.rel[0]:
-            rows.append((name, lb, gb))
+            rows.append((name, lb, gb, mean_of(norm_runs, 6)))
 
     def table(title, key, fmt):
         print(f"\n=== {title}")
@@ -417,12 +427,30 @@ def main() -> None:
           "on it.")
 
     if args.detail:
-        for name, lb, gb in rows:
-            print(f"\n=== {name}   share of total change by dB below peak")
-            print(f"{'band':>12}{'linear':>12}{'log':>12}")
+        for name, lb, gb, cb in rows:
+            print(f"\n=== {name}   where the change lives, by dB below peak "
+                  f"(at {100*args.rel[0]:g}%)")
+            print(f"{'band':>10}{'bins':>8}{'linear':>9}{'lin/bin':>9}"
+                  f"{'log':>9}{'log/bin':>9}")
             sl, sg = max(sum(lb), 1e-30), max(sum(gb), 1e-30)
-            for (lo, hi), a, b in zip(DB_BANDS, lb, gb):
-                print(f"{f'{lo}-{hi}':>12}{100*a/sl:>11.1f}%{100*b/sg:>11.1f}%")
+            sc = max(sum(cb), 1)
+            for (lo, hi), a, b, c in zip(DB_BANDS, lb, gb, cb):
+                # share of the change, over share of the bins. 1.00 = this band
+                # carries exactly its numerical weight; >1 concentrated here,
+                # <1 depleted. The only column that compares bands to each other.
+                fb = c / sc
+                kl = (a / sl) / fb if fb > 0 else float("nan")
+                kg = (b / sg) / fb if fb > 0 else float("nan")
+                print(f"{f'{lo}-{hi}':>10}{100*fb:>7.1f}%{100*a/sl:>8.1f}%"
+                      f"{kl:>8.2f}x{100*b/sg:>8.1f}%{kg:>8.2f}x")
+        print("\n  bins       share of all time-frequency bins falling in that band")
+        print("  linear/log share of the TOTAL change the band accounts for")
+        print("  /bin       that share divided by the band's share of bins. This is the")
+        print("             comparable column: 1.00x means the band carries exactly its")
+        print("             numerical weight, above means the signature is concentrated")
+        print("             there, below means depleted. Raw shares cannot be compared")
+        print("             across bands -- the deep bands hold most of the bins, so a")
+        print("             sum over them is large whatever the parameter does.")
 
 
 if __name__ == "__main__":
