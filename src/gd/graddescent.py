@@ -99,8 +99,21 @@ def nmse_7d(est7: Optional[Dict[str, float]], gt7: Dict[str, float]) -> float:
     symmetry scores zero in 6d while 7d sees it. Reporting both says whether a
     fit landed on the true parameters or merely on the manifold through them.
     """
+    e = param_sq_errs(est7, gt7)
+    return float("nan") if e is None else float(np.mean(e))
+
+
+def param_sq_errs(est7: Optional[Dict[str, float]], gt7: Dict[str, float]):
+    """Per-parameter normalized squared error, the terms nmse_7d averages.
+
+    Reported alongside the average because the average cannot say WHICH
+    coordinate is wrong, and corr/spread cannot say by HOW MUCH -- both are
+    invariant to a constant offset, so a biased coordinate prints 1.00/1.00.
+    sqrt of one of these times 100 is that parameter's error as a percentage of
+    its search range.
+    """
     if est7 is None:
-        return float("nan")
+        return None
     errs = []
     for i, k in enumerate(PARAM_KEYS):
         if IS_LOG_NP[i]:
@@ -113,7 +126,7 @@ def nmse_7d(est7: Optional[Dict[str, float]], gt7: Dict[str, float]) -> float:
         else:
             e = (est7[k] - gt7[k]) / (BOUNDS_HI_NP[i] - BOUNDS_LO_NP[i])
         errs.append(e ** 2)
-    return float(np.mean(errs))
+    return errs
 
 
 # --------------------------------------------------------------------------

@@ -68,6 +68,7 @@ from src.gd.graddescent import (
     Raw7Space,
     _read_params_csv,
     nmse_7d,
+    param_sq_errs,
     verify_mapping_matches_cmaes,
 )
 from src.loss.loss_selector import select_loss_function
@@ -706,10 +707,23 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
             return float(np.corrcoef(a, b)[0, 1])
         return 0.0
 
+    # Per-parameter ERROR, not just correlation and spread. Those two are both
+    # invariant to a constant offset, so a biased coordinate reads 1.00/1.00,
+    # and neither carries a magnitude. Observed on quiet3: evals with spread
+    # 1.165 (over-dispersed) and evals with correlation 0.772 (decorrelated)
+    # both produced bad nmse, and no combination of the two says by how much.
+    # perr_k is the same normalized squared error nmse averages, per coordinate,
+    # so sqrt(perr_k)*100 is that parameter's error as a percent of its range.
+    pe = np.array([param_sq_errs(e, g) for e, g in zip(est, gt)], dtype=np.float64)
     for i, k in enumerate(PARAM_KEYS):
         pred_sd, true_sd = float(zp[:, i].std()), float(zt[:, i].std())
         out[f"corr_{k}"] = _corr(zp[:, i], zt[:, i])
         out[f"spread_{k}"] = pred_sd / max(true_sd, 1e-12)
+        out[f"perr_{k}"] = float(np.median(pe[:, i]))
+        # The tail separately: a mean 3x its median is a minority of IRs fit
+        # badly, which is a different failure from a uniformly worse fit and is
+        # invisible in the median the headline nmse reports.
+        out[f"perr_{k}_p90"] = float(np.percentile(pe[:, i], 90))
 
     # The raw-7 correlations above are only meaningful for Ly, op_x and op_y.
     # E, rho and h are individually unidentifiable from audio -- the synthesis

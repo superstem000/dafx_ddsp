@@ -142,6 +142,10 @@ def load(root, prefix: str = ""):
                 "g03": r.get("val_g03", float("nan")),
                 "spec_w": r.get("spec_w", float("nan")),
                 "param": r.get("param_loss", float("nan")),
+                # Every per-parameter error straight through, so a coordinate
+                # can be watched by name without a new entry here for each
+                # parameter of each space. --metrics perr_T60_DC just works.
+                **{k: v for k, v in r.items() if k.startswith("perr_")},
             }
         h = d["history"]
         arms[name] = {
@@ -196,8 +200,12 @@ def main() -> None:
                         "conditions stays two columns. Directories that do not "
                         "exist yet are skipped, since a queued stage has not "
                         "created its output directory.")
+    # No choices=: perr_<param> is per parameter of whichever space is loaded,
+    # so the valid set is not knowable here. Unknown names are rejected below
+    # against what the histories actually contain, which is the real check.
     p.add_argument("--metrics", nargs="+", default=["train", "val", "nmse"],
-                   choices=sorted(METRICS))
+                   help="Any of " + ", ".join(sorted(METRICS))
+                        + ", or a perr_<param> key logged by train_encoder.")
     p.add_argument("--steps", type=int, default=40000, help="For the ETA column")
     p.add_argument("--zmax", action="store_true",
                    help="Per-parameter |z|max at the latest eval, per arm")
@@ -260,7 +268,14 @@ def main() -> None:
         all_steps = all_steps[-args.tail:]
 
     for m in args.metrics:
-        desc, fmt = METRICS[m]
+        if m in METRICS:
+            desc, fmt = METRICS[m]
+        elif m.startswith("perr_"):
+            desc, fmt = (f"median normalized squared error in {m[5:]}; "
+                         f"sqrt(x)*100 = percent of that parameter's range"), "{:.5f}"
+        else:
+            raise SystemExit(f"unknown metric {m!r}; known: "
+                             + ", ".join(sorted(METRICS)) + ", or perr_<param>")
         print(f"\n=== {m}   ({desc})")
         print(f"{'step':>8}" + "".join(f"{short(n):>{w}}" for n in names))
         for s in all_steps:
