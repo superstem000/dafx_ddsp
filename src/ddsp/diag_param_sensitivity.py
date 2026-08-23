@@ -139,7 +139,7 @@ def stft_mag(x: torch.Tensor, n_fft: int, hop: int, normalize: bool) -> torch.Te
     return torch.stft(x, n_fft, hop, window=w, return_complex=True).abs()
 
 
-def decompose(ref: torch.Tensor, per: torch.Tensor):
+def decompose(ref: torch.Tensor, per: torch.Tensor, eps: float = EPS):
     """(linear centroid, log centroid, linear bands, log bands, totals).
 
     Bins are ordered by the REFERENCE magnitude, not the perturbed one, so the
@@ -147,7 +147,12 @@ def decompose(ref: torch.Tensor, per: torch.Tensor):
     """
     a, b = ref.flatten(), per.flatten()
     lin = (a - b).abs()
-    log = (torch.log(a + EPS) - torch.log(b + EPS)).abs()
+    # eps is the floor of the log measure: two bins both far below it clamp to
+    # log(eps) and register no disagreement at all. At the default 1e-7 that
+    # floor sits ~160 dB under the reference peak, i.e. forty dB below where
+    # this plate's float32 modal sum stops being physics -- so the log column
+    # counts arithmetic. --floor-db sets it where the signal actually is.
+    log = (torch.log(a + eps) - torch.log(b + eps)).abs()
 
     order = torch.argsort(a)
     lin_s, log_s = lin[order], log[order]
@@ -247,6 +252,17 @@ def main() -> None:
              "vector u, spread_k = sqrt(1 - u_k^2), so the logged per-parameter "
              "spreads solve directly for u. Poking that u is the only way to "
              "ask whether the hard direction is the quiet one.")
+    p.add_argument(
+        "--floor-db", type=float, default=None, metavar="DB",
+        help="Floor the log measure DB below the reference peak, instead of at "
+             "the default absolute eps of 1e-7 (~160 dB down). This decides "
+             "whether a low log dec means the signature is in the quiet region "
+             "or merely below the synthesizer's own arithmetic: this plate's "
+             "modal sum is float32, and swapping the reduction kernel moves "
+             "bins below about -120 dB while leaving everything above -100 dB "
+             "alone. Run at -100 and -120 and compare against the default -- if "
+             "log dec rises to neutral once the junk is excluded, the quiet "
+             "region being measured was numerical.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda")
     p.add_argument("--mode-bucket", type=int, default=1024)
@@ -321,6 +337,19 @@ def main() -> None:
         A_r = stft_mag(x_ref, args.n_fft, args.hop, False)
         sat_n = float((A_n - A_n[perm]).abs().sum())
         sat_r = float((A_r - A_r[perm]).abs().sum())
+
+    # The log measure's floor, set once from the reference so every probe is
+    # measured against the same one. Referenced to the peak rather than given
+    # as an absolute, because "how far below the loudest bin" is the question --
+    # an absolute eps means different things for a signal at a different level.
+    if args.floor_db is None:
+        eps_n, eps_r = EPS, EPS
+    else:
+        f = 10.0 ** (-args.floor_db / 20.0)
+        eps_n, eps_r = float(A_n.max()) * f, float(A_r.max()) * f
+        print(f"log floor: {args.floor_db:g} dB below the reference peak "
+              f"(eps {eps_n:.3g} normalized, {eps_r:.3g} raw). Bins below it "
+              f"clamp on both sides and register no disagreement.")
 
     BOUNDS = dict(FITTED_BOUNDS)
     BOUNDS.update(vary_bounds)
@@ -461,8 +490,8 @@ def main() -> None:
                     # T60_DC at x5 read 80% of the unrelated-IR distance, which
                     # was the zeroed render, not sensitivity.
                     continue
-                norm_runs.append(decompose(A_n[ok], stft_mag(x_p[ok], args.n_fft, args.hop, True)))
-                raw_runs.append(decompose(A_r[ok], stft_mag(x_p[ok], args.n_fft, args.hop, False)))
+                norm_runs.append(decompose(A_n[ok], stft_mag(x_p[ok], args.n_fft, args.hop, True), eps_n))
+                raw_runs.append(decompose(A_r[ok], stft_mag(x_p[ok], args.n_fft, args.hop, False), eps_r))
 
         def mean_of(runs, k):
             v = [r[k] for r in runs]
