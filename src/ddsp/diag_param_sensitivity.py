@@ -154,12 +154,28 @@ def decompose(ref: torch.Tensor, per: torch.Tensor, eps: float = EPS):
     # counts arithmetic. --floor-db sets it where the signal actually is.
     log = (torch.log(a + eps) - torch.log(b + eps)).abs()
 
+    # RELATIVE change per bin -- the direct answer to "does this perturbation
+    # move the loud parts or the quiet parts", in percent, with no centroid and
+    # no share-of-total in the way. A share says how the change is distributed
+    # given how many bins are where; this says how much each bin actually moved.
+    rel = lin / (a + eps)
+
+    # NEUTRAL FOR THIS FLOOR. A change that is uniform in RELATIVE terms -- every
+    # bin scaled by the same factor -- contributes a*delta/(a+eps) per bin, which
+    # is flat only while eps is far below every bin. Raise the floor and the
+    # quiet bins are suppressed, so a uniform change no longer scores 5.5 and the
+    # centroid drifts upward on its own. This computes where neutral actually
+    # sits, from the reference and the eps in force, so the log dec column stays
+    # readable at any floor. At the default eps it comes out at 5.5.
+    w = a / (a + eps)
+
     order = torch.argsort(a)
-    lin_s, log_s = lin[order], log[order]
+    lin_s, log_s, w_s = lin[order], log[order], w[order]
     n = lin_s.numel()
     edges = [round(i * n / 10) for i in range(11)]
     lin_d = torch.tensor([lin_s[edges[i]:edges[i + 1]].sum() for i in range(10)])
     log_d = torch.tensor([log_s[edges[i]:edges[i + 1]].sum() for i in range(10)])
+    w_d = torch.tensor([w_s[edges[i]:edges[i + 1]].sum() for i in range(10)])
 
     def centroid(d):
         t = d.sum()
@@ -168,11 +184,12 @@ def decompose(ref: torch.Tensor, per: torch.Tensor, eps: float = EPS):
         return float((d * torch.arange(1, 11)).sum() / t) if t > 0 else float("nan")
 
     rel_db = 20.0 * torch.log10((a / a.max().clamp(min=1e-30)).clamp(min=1e-30))
-    lin_b, log_b, cnt_b = [], [], []
+    lin_b, log_b, cnt_b, rel_b = [], [], [], []
     for lo, hi in DB_BANDS:
         m = (-rel_db >= lo) & (-rel_db < hi)
         lin_b.append(float(lin[m].sum()))
         log_b.append(float(log[m].sum()))
+        rel_b.append(float(rel[m].mean()) if int(m.sum()) else 0.0)
         # Bin count per band, so the shares above can be read per bin rather
         # than per band. Bands hold wildly different numbers of bins -- the
         # deciles do not, which is why the centroid was legible while this was
@@ -180,7 +197,7 @@ def decompose(ref: torch.Tensor, per: torch.Tensor, eps: float = EPS):
         # it as much as about where a parameter's signature lives.
         cnt_b.append(int(m.sum()))
     return (centroid(lin_d), centroid(log_d), lin_b, log_b,
-            float(lin.sum()), float(log.sum()), cnt_b)
+            float(lin.sum()), float(log.sum()), cnt_b, rel_b, centroid(w_d))
 
 
 def main() -> None:
@@ -454,7 +471,7 @@ def main() -> None:
         p14[:, j] = p14[:, j] * (1.0 + sign * delta_frac)
         return 0
 
-    res, rows, clamped, nonfinite = {}, [], {}, {}
+    res, rows, clamped, nonfinite, neutral = {}, [], {}, {}, []
     onesided = set()
     for name in names:
       is_dir = name == dir_name
@@ -512,7 +529,8 @@ def main() -> None:
             clamped[(name, rel)] = n_clamp
         # Every rel, not just the first: whether a signature MIGRATES between
         # bands as the poke grows is exactly what a single centroid cannot say.
-        rows.append((name, rel, lb, gb, mean_of(norm_runs, 6)))
+        rows.append((name, rel, lb, gb, mean_of(norm_runs, 6), mean_of(norm_runs, 7)))
+        neutral.append(mean_of(norm_runs, 8))
 
     w_name = max(10, max(len(n) for n in names) + 2)
 
@@ -536,6 +554,13 @@ def main() -> None:
           0, "{:>10.3f}")
     table("log dec -- mean decile of |log(a+e)-log(b+e)|, 1 quietest to 10 loudest",
           1, "{:>10.2f}")
+    if neutral:
+        nz = sum(neutral) / len(neutral)
+        print(f"\n  NEUTRAL FOR THIS FLOOR: {nz:.2f}  -- where a change that is "
+              f"uniform in relative terms lands.")
+        print("  Compare every log dec above against THIS, not against 5.5. Raising the")
+        print("  floor suppresses the quiet deciles, so the centroid drifts up on its own")
+        print("  and a fixed 5.5 reference would read that drift as 'loud-biased'.")
     if nonfinite:
         print("\n! = one sign branch dropped entirely, so that cell is a "
               "ONE-SIDED step and\n    does not compare with the rest of its "
@@ -566,14 +591,14 @@ def main() -> None:
           "on it.")
 
     if args.detail:
-        for name, rel, lb, gb, cb in rows:
+        for name, rel, lb, gb, cb, rb in rows:
             print(f"\n=== {name}   where the change lives, by dB below peak "
                   f"(at {100*rel:g}%)")
             print(f"{'band':>10}{'bins':>8}{'linear':>9}{'lin/bin':>9}"
-                  f"{'log':>9}{'log/bin':>9}")
+                  f"{'log':>9}{'log/bin':>9}{'rel%':>9}")
             sl, sg = max(sum(lb), 1e-30), max(sum(gb), 1e-30)
             sc = max(sum(cb), 1)
-            for (lo, hi), a, b, c in zip(DB_BANDS, lb, gb, cb):
+            for (lo, hi), a, b, c, r in zip(DB_BANDS, lb, gb, cb, rb):
                 # share of the change, over share of the bins. 1.00 = this band
                 # carries exactly its numerical weight; >1 concentrated here,
                 # <1 depleted. The only column that compares bands to each other.
@@ -581,7 +606,7 @@ def main() -> None:
                 kl = (a / sl) / fb if fb > 0 else float("nan")
                 kg = (b / sg) / fb if fb > 0 else float("nan")
                 print(f"{f'{lo}-{hi}':>10}{100*fb:>7.1f}%{100*a/sl:>8.1f}%"
-                      f"{kl:>8.2f}x{100*b/sg:>8.1f}%{kg:>8.2f}x")
+                      f"{kl:>8.2f}x{100*b/sg:>8.1f}%{kg:>8.2f}x{100*r:>8.2f}%")
         print("\n  bins       share of all time-frequency bins falling in that band")
         print("  linear/log share of the TOTAL change the band accounts for")
         print("  /bin       that share divided by the band's share of bins. This is the")
@@ -590,6 +615,12 @@ def main() -> None:
         print("             there, below means depleted. Raw shares cannot be compared")
         print("             across bands -- the deep bands hold most of the bins, so a")
         print("             sum over them is large whatever the parameter does.")
+        print("  rel%       mean |a-b|/(a+eps) over the band's bins: how much the signal")
+        print("             in that band MOVED, in percent. This is the direct answer to")
+        print("             'does the perturbation change the loud parts or the quiet")
+        print("             parts', and unlike the share columns it needs no correction")
+        print("             for how many bins a band holds. Rising with depth means a")
+        print("             compressed loss has something to gain there.")
 
 
 if __name__ == "__main__":
