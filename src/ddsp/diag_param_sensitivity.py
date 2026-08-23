@@ -102,6 +102,7 @@ in the fitted seven.
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -235,6 +236,17 @@ def main() -> None:
              "without bound -- r < 1 makes that unreachable by construction "
              "instead of by rejection sampling. Perturbing T60_F1 at fixed "
              "T60_DC IS perturbing r, so the ladder needs no special case.")
+    p.add_argument(
+        "--direction", default=None, metavar="NAME=W,NAME=W",
+        help="Probe a COMBINATION of search coordinates instead of one at a "
+             "time, e.g. T60_DC=1,T60_ratio=0.6. Weights are normalized to a "
+             "unit vector and each coordinate moves (hi-lo)*rel*w, so a "
+             "single-coordinate direction reproduces that coordinate's row "
+             "exactly. This exists because an encoder's failure is a shrinkage "
+             "along a DIRECTION, not a parameter: for one unresolved unit "
+             "vector u, spread_k = sqrt(1 - u_k^2), so the logged per-parameter "
+             "spreads solve directly for u. Poking that u is the only way to "
+             "ask whether the hard direction is the quiet one.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda")
     p.add_argument("--mode-bucket", type=int, default=1024)
@@ -299,7 +311,12 @@ def main() -> None:
         # Saturation: the same L1 against UNRELATED IRs, so a parameter's effect
         # can be read as a fraction of the distance between two different
         # plates. Without it "0.004" is a number with no scale.
-        perm = torch.randperm(x_ref.shape[0], device=dev)
+        # Seeded. Unseeded, the pairing changed every run and dnorm% moved with
+        # it -- 1.6% and 5.1% between runs of the same command, applied as a
+        # common factor to every parameter because they share this denominator.
+        # That is larger than several of the effects being compared.
+        perm = torch.randperm(x_ref.shape[0],
+                              generator=torch.Generator().manual_seed(args.seed)).to(dev)
         A_n = stft_mag(x_ref, args.n_fft, args.hop, True)
         A_r = stft_mag(x_ref, args.n_fft, args.hop, False)
         sat_n = float((A_n - A_n[perm]).abs().sum())
@@ -335,10 +352,83 @@ def main() -> None:
     names = [k for k in BatchedModalPlateTorch.PARAM_ORDER
              if (args.only and k in args.only)
              or (not args.only and (k in vary_bounds if vary_bounds else True))]
+
+    # T60_ratio as a FIRST-CLASS ROW, and arbitrary directions in the search
+    # basis. The single-coordinate rows answer "what does one parameter do",
+    # which is not the question when the encoder's failure is a shrinkage along
+    # a COMBINATION -- spread_k = sqrt(1 - u_k^2) for an unresolved unit
+    # direction u, and the observed spreads solve to one consistent u. Poking
+    # that u directly is the only way to ask whether the hard direction is quiet.
+    #
+    # Steps are (hi - lo) * rel * u_k per coordinate with |u| = 1, so a direction
+    # that is a single coordinate reproduces that coordinate's row exactly and
+    # the numbers stay comparable.
+    ratio_bounds = None
+    if args.ratio:
+        ratio_bounds = tuple(float(v) for v in args.ratio.split(":"))
+        # T60_ratio REPLACES the T60_F1 column rather than joining it. The
+        # coupling below rewrites T60_F1 from r and T60_DC after every probe, so
+        # a probe that moved the T60_F1 column would have its perturbation
+        # overwritten and silently report zero. The ratio row measures the same
+        # direction and measures it in the coordinate the encoder emits.
+        names = [k for k in names if k != "T60_F1"] + ["T60_ratio"]
+    dir_u = {}
+    if args.direction:
+        for item in args.direction.split(","):
+            k, w = item.split("=")
+            dir_u[k.strip()] = float(w)
+        nrm = math.sqrt(sum(w * w for w in dir_u.values())) or 1.0
+        dir_u = {k: w / nrm for k, w in dir_u.items()}
+        dir_name = "dir(" + ",".join(f"{k}{v:+.2f}" for k, v in dir_u.items()) + ")"
+        names = names + [dir_name]
+        print("direction probe: " + "  ".join(f"{k} {v:+.3f}" for k, v in dir_u.items())
+              + "   (unit vector in normalized search coordinates)\n")
+    else:
+        dir_name = None
+
+    def search_bounds(k):
+        """Bounds of a SEARCH coordinate, which T60_ratio has and no plate column does."""
+        if k == "T60_ratio":
+            return ratio_bounds
+        return BOUNDS.get(k)
+
+    def perturb(p14, k, delta_frac, sign):
+        """Move search coordinate k by sign*delta_frac of its range, in place.
+
+        Returns the number of IRs clamped. T60_ratio and T60_DC both write
+        T60_F1, so the caller applies the ratio coupling once, after all
+        coordinates have moved.
+        """
+        b = search_bounds(k)
+        if k == "T60_ratio":
+            if new_r is None:
+                raise SystemExit("T60_ratio is a coordinate only under --ratio")
+            lo, hi = b
+            v = ratio_of + sign * delta_frac * (hi - lo)
+            n = int((v.clamp(lo, hi) != v).sum())
+            new_r.copy_(v.clamp(lo, hi))
+            return n
+        j = BatchedModalPlateTorch.PARAM_ORDER.index(k)
+        if args.step == "mul":
+            f = 1.0 + delta_frac
+            p14[:, j] = p14[:, j] * (f if sign > 0 else 1.0 / f)
+            return 0
+        if args.step == "range" and b is not None:
+            lo, hi = b
+            v = p14[:, j] + sign * delta_frac * (hi - lo)
+            # A large step walks off the range the dataset was drawn from, which
+            # would render plates no target ever contained. Clamped, and counted,
+            # so the ladder's top rungs are read knowing how much hit the wall.
+            n = int((v.clamp(lo, hi) != v).sum())
+            p14[:, j] = v.clamp(lo, hi)
+            return n
+        p14[:, j] = p14[:, j] * (1.0 + sign * delta_frac)
+        return 0
+
     res, rows, clamped, nonfinite = {}, [], {}, {}
     onesided = set()
     for name in names:
-      i = BatchedModalPlateTorch.PARAM_ORDER.index(name)
+      is_dir = name == dir_name
       for rel in args.rel:
         # Both signs, averaged. A parameter with an asymmetric response would
         # otherwise report whichever direction happened to be tried.
@@ -346,24 +436,15 @@ def main() -> None:
         with torch.no_grad():
             for sign in (+1.0, -1.0):
                 p14 = ref14.clone()
-                if args.step == "mul":
-                    f = (1.0 + rel)
-                    p14[:, i] = p14[:, i] * (f if sign > 0 else 1.0 / f)
-                elif args.step == "range" and name in BOUNDS:
-                    lo, hi = BOUNDS[name]
-                    v = p14[:, i] + sign * rel * (hi - lo)
-                    # A large step walks off the range the dataset was drawn
-                    # from, which would render plates no target ever contained.
-                    # Clamped, and the count reported, so the ladder's top rungs
-                    # are read knowing how much of the batch hit the wall.
-                    n_clamp += int((v.clamp(lo, hi) != v).sum())
-                    p14[:, i] = v.clamp(lo, hi)
-                else:
-                    p14[:, i] = p14[:, i] * (1.0 + sign * rel)
-                if ratio_of is not None and name == "T60_DC":
-                    # After the clamp, so the coupled T60_F1 follows the value
-                    # actually used rather than the one asked for.
-                    p14[:, I_F1] = ratio_of * p14[:, I_DC]
+                new_r = ratio_of.clone() if ratio_of is not None else None
+                for k, w in (dir_u.items() if is_dir else ((name, 1.0),)):
+                    n_clamp += perturb(p14, k, rel * w, sign)
+                if ratio_of is not None:
+                    # Applied once, AFTER every coordinate has moved and been
+                    # clamped, so T60_F1 follows the values actually used. This
+                    # is the whole point of the search basis: T60_F1 is not a
+                    # coordinate, it is r times T60_DC.
+                    p14[:, I_F1] = new_r * p14[:, I_DC]
                 x_p = plate.forward(p14, args.duration, normalize=False)
                 # A perturbation can leave the physical range -- T60 <= 0 is a
                 # decay time that grows without bound. Counted and excluded
@@ -400,18 +481,24 @@ def main() -> None:
         res[(name, rel)] = (dn, cg)
         if n_clamp:
             clamped[(name, rel)] = n_clamp
-        if rel == args.rel[0]:
-            rows.append((name, lb, gb, mean_of(norm_runs, 6)))
+        # Every rel, not just the first: whether a signature MIGRATES between
+        # bands as the poke grows is exactly what a single centroid cannot say.
+        rows.append((name, rel, lb, gb, mean_of(norm_runs, 6)))
+
+    w_name = max(10, max(len(n) for n in names) + 2)
 
     def table(title, key, fmt):
         print(f"\n=== {title}")
-        print(f"{'param':<10}{'fit':>5}" +
+        print(f"{'param':<{w_name}}{'fit':>5}" +
               "".join(f"{100*r:>10.3g}%" for r in args.rel))
         for name in names:
-            fit = ("v" if name in vary_bounds
+            fit = ("v" if name in vary_bounds or name == "T60_ratio" or name == dir_name
                    else "y" if name in FITTED_BOUNDS else "-")
-            mark = "*" if args.step == "range" and name not in BOUNDS else ""
-            print(f"{name + mark:<10}{fit:>5}" +
+            # A direction and the ratio both have a range to step; only a plate
+            # column with no bounds falls back to a fraction of its own value.
+            has_range = (name == dir_name or search_bounds(name) is not None)
+            mark = "*" if args.step == "range" and not has_range else ""
+            print(f"{name + mark:<{w_name}}{fit:>5}" +
                   "".join(fmt.format(res[(name, r)][key])
                           + ("!" if (name, r) in onesided else " ")
                           for r in args.rel))
@@ -450,9 +537,9 @@ def main() -> None:
           "on it.")
 
     if args.detail:
-        for name, lb, gb, cb in rows:
+        for name, rel, lb, gb, cb in rows:
             print(f"\n=== {name}   where the change lives, by dB below peak "
-                  f"(at {100*args.rel[0]:g}%)")
+                  f"(at {100*rel:g}%)")
             print(f"{'band':>10}{'bins':>8}{'linear':>9}{'lin/bin':>9}"
                   f"{'log':>9}{'log/bin':>9}")
             sl, sg = max(sum(lb), 1e-30), max(sum(gb), 1e-30)
