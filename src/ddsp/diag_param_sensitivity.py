@@ -292,6 +292,16 @@ def main() -> None:
              "alone. Run at -100 and -120 and compare against the default -- if "
              "log dec rises to neutral once the junk is excluded, the quiet "
              "region being measured was numerical.")
+    p.add_argument(
+        "--pin", default=None, metavar="NAME=V,NAME=V",
+        help="Override plate parameters in the reference before anything is "
+             "measured, e.g. nu=0.15. Sensitivity is not a property of a "
+             "parameter on its own -- it is measured at whatever the other "
+             "thirteen are, and moving one moves everyone else's band "
+             "distribution. Combine with --vary to ask the design question "
+             "directly: at which operating point are the searched parameters "
+             "most starved in the loud bands, which is where a compression "
+             "ladder has something to separate.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda")
     p.add_argument(
@@ -323,6 +333,27 @@ def main() -> None:
     if not csvs:
         raise SystemExit(f"no random_IR_params_*.csv under {args.data_dir}")
     dicts = [pd.read_csv(c).iloc[0].to_dict() for c in csvs]
+
+    # OVERRIDE THE OPERATING POINT. Where a parameter's signature lives is not a
+    # property of that parameter alone -- it is measured at whatever the other
+    # thirteen happen to be, and moving one of them moves everyone else's
+    # distribution. So the PINNED half is a design variable too: it sets how
+    # loud-starved the searched half is, which is the property that decides
+    # whether a compression ladder can separate anything at all. This makes that
+    # variable addressable, so an operating point can be chosen by measurement
+    # rather than inherited from whichever IR happened to be first in the
+    # directory.
+    if args.pin:
+        pins = {}
+        for item in args.pin.split(","):
+            k, v = item.split("=")
+            pins[k.strip()] = float(v)
+        bad = [k for k in pins if k not in BatchedModalPlateTorch.PARAM_ORDER]
+        if bad:
+            raise SystemExit(f"not plate parameters: {', '.join(bad)}")
+        dicts = [{**d, **pins} for d in dicts]
+        print("operating point: " + ", ".join(f"{k}={v:g}" for k, v in pins.items())
+              + "   (overriding the dataset)\n")
 
     vary_bounds = {}
     if args.vary or args.ratio:
