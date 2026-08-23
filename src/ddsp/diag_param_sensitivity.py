@@ -131,6 +131,18 @@ DB_BANDS = [(0, 20), (20, 40), (40, 60), (60, 80), (80, 100), (100, 120), (120, 
 EPS = 1e-7
 
 
+def _mode_grid(text: str):
+    """Parse "DDX,DDY". Local rather than imported from make_dataset, which pulls
+    in the fitter stack to parse two integers."""
+    try:
+        x, y = (int(v) for v in text.split(","))
+    except Exception:
+        raise argparse.ArgumentTypeError(f"expected DDX,DDY (e.g. 86,282), got {text!r}")
+    if x < 1 or y < 1:
+        raise argparse.ArgumentTypeError("both grid dimensions must be positive")
+    return (x, y)
+
+
 def stft_mag(x: torch.Tensor, n_fft: int, hop: int, normalize: bool) -> torch.Tensor:
     """Peak-normalized or raw magnitude spectrogram, matching diag_gt_floor."""
     if normalize:
@@ -282,6 +294,14 @@ def main() -> None:
              "region being measured was numerical.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda")
+    p.add_argument(
+        "--fixed-mode-grid", type=_mode_grid, default=None, metavar="DDX,DDY",
+        help="Pin the modal grid, as the datasets are rendered with. Load-bearing "
+             "for any parameter that changes the mode COUNT -- E, rho, h, T0, nu. "
+             "Unpinned, the grid follows the batch maximum, so a perturbation that "
+             "shifts that maximum makes the reference and the perturbed render sum "
+             "a different number of modes in a different order. That lands in the "
+             "quietest bins, which is exactly where this tool is reading.")
     p.add_argument("--mode-bucket", type=int, default=1024)
     p.add_argument("--chunk-elems", type=int, default=1_000_000_000)
     args = p.parse_args()
@@ -291,6 +311,13 @@ def main() -> None:
         device=dev, batched_modal_sum=True, compile_modal_sum=False,
         chunk_elems=args.chunk_elems, mode_bucket=args.mode_bucket,
     )
+    plate.fixed_mode_grid = (None if args.fixed_mode_grid is None
+                             else (int(args.fixed_mode_grid[0]), int(args.fixed_mode_grid[1])))
+    if args.fixed_mode_grid is None:
+        print("WARNING: no --fixed-mode-grid. Any parameter that changes the mode "
+              "count\n  renders its reference and its perturbation on different "
+              "grids, and that\n  difference lands in the quiet bins this tool "
+              "reads. Pin it.\n")
 
     csvs = sorted(args.data_dir.glob("random_IR_params_*.csv"))[: args.n]
     if not csvs:
