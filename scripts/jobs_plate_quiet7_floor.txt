@@ -1,0 +1,71 @@
+# Does a HARD floor rescue log and hybrid on the plate?
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_plate_quiet7_floor.txt
+#
+# Queue this WITHOUT killing the quiet7 ladder. Every arm here resumes from the
+# same quiet7_pre base, and quiet7's linear and eps1e4 arms are the control this
+# is measured against -- killing them means re-running them. gpu_queue waits for
+# free cards, so this starts when they finish.
+#
+# THE HYPOTHESIS, and why the eps ladder did not test it. log(x + eps) never
+# stops up-weighting quiet bins; it caps how far. For x << eps the term is
+# (a-b)/eps, weight 1/eps, against 1/(x+eps) at the peak -- at eps 1e-1 with a
+# peak magnitude near 13 that is still 134x MORE weight on a floored bin than on
+# a peak bin. So eps1e1 losing to linear says nothing about whether removing the
+# quiet bins would help, because eps1e1 did not remove them.
+#
+# A hard floor does: below it both signals clamp to the same value, the
+# difference is exactly zero, the bin contributes nothing. That is the db70/db80
+# convention the METRICS have used all along and the loss side never had.
+#
+# WHAT EACH FLOOR REMOVES, on a plate IR's magnitude spectrogram:
+#
+#   -40 dB   98% of bins        the aggressive end
+#   -80 dB   88% of bins
+#
+# So db40 is close to "linear, but computed in the log domain on the top two
+# percent of bins". If THAT still loses to linear, the quiet-bin story is dead
+# and compression is doing damage above the floor -- which would leave the
+# landscape explanation as the only one standing, and that is worth knowing for
+# the cost of one wave.
+#
+# READ AGAINST results/ddsp/quiet7. The controls are its L1_STFT (linear) and
+# L1_STFT_eps1e4 (soft eps, no floor) arms, same base, same data, same schedule.
+# The three-way comparison is the result:
+#
+#   linear          no compression
+#   eps1e4          compressed, quiet bins capped
+#   c1_db40         compressed, quiet bins REMOVED
+#
+# If c1_db40 lands near linear, the harm is quiet-bin domination and the fix is
+# a floor. If it lands near eps1e4, the harm is compression itself and no floor
+# helps. Those are cleanly separable and this is the run that separates them.
+#
+# eps is 1e-7 in every floored arm on purpose: nothing below the clamp reaches
+# the log, so eps cannot act there, and holding it fixed leaves the floor as the
+# only variable against the published c1 rung.
+
+# STAGE the floored ladder. One wave on four cards, ~2.2 h at quiet7's 5 st/s.
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_c1_db40" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_c1_db80" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_hyb_db40" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_hyb_db80" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# Monitor both together -- the controls live in the other directory:
+#
+#   python -m src.ddsp.monitor_sweep \
+#     --root results/ddsp/quiet7 results/ddsp/quiet7_floor \
+#     --metrics param nmse ratio
+#
+# And per parameter, where the prediction was two-sided:
+#
+#   python -m src.ddsp.monitor_sweep \
+#     --root results/ddsp/quiet7 results/ddsp/quiet7_floor \
+#     --metrics perr_T0 perr_T60_ratio perr_E
+#
+# quiet7's compressed arms failed hardest on E -- 0.276 against linear's 0.003,
+# i.e. worse than predicting the mean. E is a LOUD parameter (dnorm 19.7%, its
+# linear signature 100x concentrated in the top 20 dB). If a floor fixes
+# anything it should fix E first, since E's information is entirely in the bins
+# a floor keeps. If perr_E stays at 0.27 with 98% of bins clamped away, the harm
+# is not the quiet bins.
