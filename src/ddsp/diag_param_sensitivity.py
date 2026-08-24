@@ -302,6 +302,10 @@ def main() -> None:
              "directly: at which operating point are the searched parameters "
              "most starved in the loud bands, which is where a compression "
              "ladder has something to separate.")
+    p.add_argument("--compact", action="store_true",
+                   help="One table with every metric as a column, instead of one "
+                        "table per metric. Use this rather than recombining the "
+                        "separate tables downstream.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda")
     p.add_argument(
@@ -621,6 +625,31 @@ def main() -> None:
                   "".join(fmt.format(res[(name, r)][key])
                           + ("!" if (name, r) in onesided else " ")
                           for r in args.rel))
+
+    if args.compact:
+        # ONE table, every metric as a column. The four-tables-plus-awk shape
+        # meant every question needed a fresh one-liner to recombine them, and
+        # those one-liners have silently dropped a column, mismatched a label,
+        # and failed to parse -- three times, each time after the numbers had
+        # already been read. Formatting belongs here.
+        for rel in args.rel:
+            print(f"\n=== {100*rel:g}% "
+                  + ("of range (fitted only)" if args.step == "range" else "of value"))
+            print(f"{'param':<{w_name}}{'dnorm%':>10}{'gnorm%':>10}"
+                  f"{'gain':>8}{'logdec':>8}")
+            for name in names:
+                d, c, g, r = res[(name, rel)]
+                print(f"{name:<{w_name}}{d:>10.3f}{g:>10.3f}{r:>8.2f}{c:>8.2f}")
+        print(f"\n  dnorm%  what a LINEAR loss has to work with, as a percentage of the")
+        print(f"          distance between unrelated IRs. Small = the loud bands are starved.")
+        print(f"  gnorm%  the same in the log domain: what a COMPRESSED loss has to work with.")
+        print(f"  gain    gnorm%/dnorm%. >1 means compression sees more of this parameter.")
+        print(f"  logdec  1 quietest decile, 10 loudest; neutral for this floor printed below.")
+        if neutral:
+            print(f"          NEUTRAL = {sum(neutral)/len(neutral):.2f}")
+        if nonfinite:
+            print("\n! = one sign branch dropped entirely (left the physical range)")
+        return
 
     table("dnorm% -- total change as a percentage of the unrelated-IR distance",
           0, "{:>10.3f}")
