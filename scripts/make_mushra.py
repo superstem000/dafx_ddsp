@@ -179,10 +179,13 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>__TITLE__</ti
  textarea{width:100%;height:160px;background:#0e1015;color:#b8c0d0;border:1px solid #2a2e3a;
           border-radius:6px;padding:10px;font:12px/1.4 ui-monospace,monospace}
  .warn{color:#e0a44a} .note{color:#9a9aa4;font-size:12px;margin-top:6px}
+ .pitch{color:#9a9aa4;font-size:12px;white-space:nowrap;user-select:none}
 </style></head><body>
 <h1>__TITLE__</h1>
-<div class="sub">Rate each condition against the reference. One is the hidden reference
- and one is a lowpass anchor &mdash; both unlabelled.</div>
+<div class="sub">Rate each condition against the reference on ONE scale &mdash; total
+ difference, whatever the cause. Tick <b>pitch</b> as well when the difference is
+ wrong notes rather than quality, so the two can be separated afterwards.
+ One condition is the hidden reference and one is a lowpass anchor, both unlabelled.</div>
 <div id="app"></div>
 <div class="card">
  <button onclick="exportResults()">Export results</button>
@@ -192,7 +195,7 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8"><title>__TITLE__</ti
 <script>
 const D = __DATA__;
 let cur = null;           // {audio, startedAt, offset}
-const ratings = {};
+const ratings = {}, flags = {};
 
 function stopAll(){
   document.querySelectorAll('audio').forEach(a=>{a.pause();});
@@ -230,7 +233,9 @@ D.trials.forEach(t=>{
       <audio id="${id}" src="data:audio/wav;base64,${k.audio}"></audio>
       <input type="range" min="0" max="100" value="0"
              oninput="rate(${t.n},'${k.label}',this.value)">
-      <span class="val" id="v${id}">0</span></div>`;
+      <span class="val" id="v${id}">0</span>
+      <label class="pitch"><input type="checkbox"
+        onchange="flag(${t.n},'${k.label}',this.checked)"> pitch</label></div>`;
   });
   c.innerHTML = h; app.appendChild(c);
 });
@@ -242,20 +247,37 @@ function rate(n,label,v){
   const need = D.trials.length * D.trials[0].conds.length;
   document.getElementById('progress').textContent = ` ${done}/${need} rated`;
 }
+// The slider stays Basic Audio Quality -- one number for total difference from
+// the reference, which is what a single spectral distance can be compared
+// against. The flag is separate because a wrong note and a dull tail are not
+// the same failure: if an arm's metric penalty is really just gross pitch
+// errors on a couple of clips, then "the metric tracks perception" is true and
+// uninteresting, and only the listener can tell those apart.
+function flag(n,label,v){ flags[n+'|'+label] = v; }
 
 function exportResults(){
-  const rows = D.key.map(k=>({...k, score: ratings[k.trial+'|'+k.label] ?? null}));
+  const rows = D.key.map(k=>({...k, score: ratings[k.trial+'|'+k.label] ?? null,
+                                    pitch: !!flags[k.trial+'|'+k.label]}));
   // Post-screening, reported rather than applied. BS.1534 excludes a listener
   // who scores the hidden reference below 90 on more than 15% of trials; with
   // one self-testing listener the right move is to show the number and let it
   // be judged, not to silently drop data.
   const hr = rows.filter(r=>r.condition==='reference' && r.score!==null);
   const bad = hr.filter(r=>r.score < 90).length;
-  const byArm = {};
-  rows.forEach(r=>{ if(r.score!==null){ (byArm[r.condition] ||= []).push(r.score); } });
-  const mean = a => a.reduce((x,y)=>x+y,0)/a.length;
+  const byArm = {}, noPitch = {}, nPitch = {};
+  rows.forEach(r=>{ if(r.score!==null){
+    (byArm[r.condition] ||= []).push(r.score);
+    if(r.pitch) nPitch[r.condition] = (nPitch[r.condition]||0)+1;
+    else (noPitch[r.condition] ||= []).push(r.score); } });
+  const mean = a => a && a.length ? (a.reduce((x,y)=>x+y,0)/a.length).toFixed(1) : '  --';
+  // Both columns, because the difference between them IS the question: an arm
+  // whose mean recovers once pitch-flagged trials are dropped was being
+  // penalised for gross parameter failure, not for the fine quality differences
+  // the compression ladder is about.
   const summary = Object.entries(byArm).map(([k,v])=>
-      `${k.padEnd(20)} n=${String(v.length).padStart(2)}  mean ${mean(v).toFixed(1)}`)
+      `${k.padEnd(20)} n=${String(v.length).padStart(2)}  all ${mean(v)}`
+      + `   no-pitch ${mean(noPitch[k])} (n=${(noPitch[k]||[]).length})`
+      + `   pitch-flagged ${nPitch[k]||0}`)
     .join('\n');
   document.getElementById('out').value =
     `seed ${D.seed}   anchor ${D.anchor_hz} Hz\n` +
