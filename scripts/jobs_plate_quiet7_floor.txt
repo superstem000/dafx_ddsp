@@ -45,6 +45,20 @@
 # the log, so eps cannot act there, and holding it fixed leaves the floor as the
 # only variable against the published c1 rung.
 
+# FIRST, finish the two controls. They were killed at 32000 and 30000 of 40000
+# when a pkill on the queue driver took its children with it -- gpu_queue traps
+# SIGTERM and killpg's every running job, which is correct behaviour and was not
+# accounted for. --resume restores step, optimizer, loss_scale and the LR
+# schedule, so these continue in place rather than restarting; they need ~8-10k
+# steps, finish in ~30 min, and free their cards for the last two floored arms.
+#
+# They MUST reach 40000 like everything else. The comparison is between arms at
+# matched step counts on matched data, and a control stopped 8000 steps early is
+# not that -- especially when the claim being made is about where each loss ends
+# up, not how fast it gets there.
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT" EXTRA="--resume results/ddsp/quiet7/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT_eps1e4" EXTRA="--resume results/ddsp/quiet7/L1_STFT_eps1e4/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
 # STAGE the floored ladder. One wave on four cards, ~2.2 h at quiet7's 5 st/s.
 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_c1_db40" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_c1_db80" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
@@ -62,6 +76,28 @@ PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=983
 #   python -m src.ddsp.monitor_sweep \
 #     --root results/ddsp/quiet7 results/ddsp/quiet7_floor \
 #     --metrics perr_T0 perr_T60_ratio perr_E
+#
+# WHAT THE CONTROLS ACTUALLY DID, measured at 30-32k (logs/quiet7_at_kill.txt).
+# Every compressed arm COLLAPSED TO A CONSTANT. Not "learned slowly" -- perr_E
+# reads 0.27812, 0.27812, 0.27815, 0.27813 across four consecutive evals on
+# eps1e4 and 0.27818 four times running on hyb1e4, five significant figures
+# unchanged. perr_rho, perr_fp_x and perr_op_x do the same thing at their own
+# steps. That is a tanh head pinned at a bound, and ratio > 3 says the constant
+# it picked is worse than the dataset mean.
+#
+#   arm       ratio   perr_E    perr_rho  perr_op_x
+#   linear     0.07   0.00083   0.00024   0.00008
+#   eps1e4     2.99   0.27813   0.25212   0.20109
+#   eps1e7     3.50   0.22332   0.24439   0.25620
+#   hyb1e4     3.28   0.27818   0.25568   0.25621
+#
+# The collapse order is informative: E goes first (~14k), rho at ~16k, fp_x and
+# op_x at ~20-22k, T0 at ~22k. Linear never approaches the bound on any of them.
+#
+# So the floored arms have one clean question to answer: DO THEY STAY OFF THE
+# BOUND. A floored arm that ends anywhere other than a pinned constant has
+# already shown the quiet bins were causing the collapse, whatever its final
+# ratio. One that lands on 0.278 alongside eps1e4 has shown they were not.
 #
 # quiet7's compressed arms failed hardest on E -- 0.276 against linear's 0.003,
 # i.e. worse than predicting the mean. E is a LOUD parameter (dnorm 19.7%, its
