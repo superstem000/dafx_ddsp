@@ -1,0 +1,97 @@
+# The compression ladder on quiet7: seven plate parameters chosen so that where
+# each one's information lives is MEASURED, not assumed.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_plate_quiet7.txt
+#
+# GENERATE THE DATA FIRST -- docs/DATASETS.md, "The quiet7 family".
+#
+# WHY A THIRD FAMILY, AND WHY NOT quiet3. quiet3 varied T0 and the two damping
+# times with geometry pinned. Every arm solved it outright -- val_nmse ratio 0.00
+# for all seven by step 38000 -- so it discriminated nothing, and its only
+# attack-shaping parameter, T0, turned out to be the worst possible choice: its
+# gain is 0.51-0.72, meaning a LINEAR loss has MORE of it to work with than a
+# compressed one.
+#
+# WHAT quiet7 SEARCHES, and the number that chose each one. gain is
+# gnorm%/dnorm% -- what a compressed loss has to work with over what a linear one
+# does, each as a fraction of its own unrelated-IR distance -- measured in-family
+# with diag_param_sensitivity --vary --floor-db 100:
+#
+#                  gain @2%   @5%  @10%   dnorm% @2%   role
+#   T60_ratio         4.66   4.63  4.64        0.61    tail, compression-favoured
+#   op_x              2.71   1.82  1.25        8.73    pickup position
+#   fp_x              2.41   1.80  1.25        8.18    excitation position
+#   T60_DC            1.95   1.97  1.97        1.44    tail
+#   E                 1.94   1.34  1.02       19.74    stiffness, via D
+#   rho               1.42   0.97  0.80       31.21    mass, via mu
+#   T0                0.72   0.56  0.51        0.71    tension, LINEAR-favoured
+#
+# THE PREDICTION IS TWO-SIDED WITHIN ONE RUN, which is the point and is much
+# harder to explain away than an aggregate: compressed arms should beat linear on
+# T60_ratio, LOSE to linear on T0, and roughly tie on the four loud parameters.
+# perr_<param> is logged at every eval and measures exactly that.
+#
+# Note also that the damping pair's gain is FLAT across perturbation size while
+# every loud parameter's decays as it saturates. Near an optimum -- the regime
+# that sets final precision -- the damping pair is where the advantage is stable
+# rather than transient.
+#
+# DEGENERACY BUDGET. E, rho, h and nu enter synthesis only through
+# D = E h^3 / 12(1-nu^2) and mu = rho*h: four parameters, two degrees of freedom.
+# h and nu are pinned so D tracks E and mu tracks rho, independently, and the
+# (E, rho, h) -> (c^3 E, c rho, h/c) symmetry that forced raw7 to report
+# composite metrics cannot arise. That is why val_nmse_6d here is the plain NMSE
+# over the seven searched parameters, with no composite reduction.
+#
+# ARMS. The ladder is the compression axis with eps held at 1e-4 wherever eps
+# does anything:
+#
+#   L1_STFT            magnitude, I^0.5      eps irrelevant above gamma 0.5
+#   L1_STFT_hyb1e4     hybrid, mag + log     eps 1e-4
+#   L1_STFT_eps1e4     log                   eps 1e-4
+#   L1_STFT_g1         power, I^1.0          eps irrelevant
+#   L1_STFT_eps1e7     log, 60 dB deeper     the depth control
+#
+# eps IS the floor; there is no separate concept. Above gamma 0.5 it is a no-op
+# -- L1_STFT and the same loss at eps 1e-4 agree to six figures -- so only the
+# compressed arms carry it. eps1e4 stops at about -102 dB, which is where this
+# plate's modal sum stops being physics; eps1e7 reaches 60 dB past that into the
+# float32 band, and is here to measure what that costs rather than to win.
+#
+# COMPILE IS BACK, and the earlier reason for dropping it was a probe artefact.
+# diag_gt_floor compiles three configurations in one process and reported 7.66%
+# of saturation for a log arm; the TRAINING process, which compiles one, reads
+# gt_loss 0.0000e+00 against compiled targets -- for eps1e7 as well as for the
+# floored arms. So the numerics here are raw7's exactly: --compile-plate,
+# --chunk-elems 1e9, gradient checkpointing off.
+#
+# ORDERING. Two stages. The shared parameter-only base alone in the first,
+# because every arm below resumes from it and a stage is a hard barrier.
+
+# STAGE the shared parameter-only base. EVERYTHING BELOW RESUMES FROM IT.
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=5000 OUT=results/ddsp/quiet7_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 40000" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE the ladder. eps1e7 leads as the long pole; the magnitude anchor is second
+# so it lands in the same wave, since every number is quoted against it.
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT_eps1e7" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT_eps1e4" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT_hyb1e4" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT_g1" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# Monitor:
+#
+#   python -m src.ddsp.monitor_sweep \
+#     --root results/ddsp/quiet7_pre results/ddsp/quiet7 \
+#     --metrics spec_w param nmse ratio
+#
+# And the per-parameter read, which is where the prediction is tested:
+#
+#   python -m src.ddsp.monitor_sweep --root results/ddsp/quiet7 \
+#     --metrics perr_T60_ratio perr_T0 perr_E
+#
+# READ perr_T60_ratio AND perr_T0 AGAINST EACH OTHER. The aggregate can only say
+# which arm won; those two say whether it won for the predicted reason. An arm
+# ordering that reverses between them -- compressed ahead on T60_ratio, behind on
+# T0 -- is the result. The same ordering on both would mean something other than
+# compression is driving it.

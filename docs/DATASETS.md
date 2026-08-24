@@ -86,6 +86,48 @@ parameters 0.0000% of saturation for linear and at most 0.074% for log, the
 residual being `torch.compile` selecting different kernels in different
 processes (two runs of the same command gave 0.074% and exactly 0).
 
+## The quiet7 family — where each parameter's information lives, measured
+
+Seven searched parameters (`T0`, `T60_DC`, `T60_ratio`, `E`, `rho`, `fp_x`,
+`op_x`) with `Lx`, `Ly`, `h`, `nu`, `loss_F1`, `fp_y`, `op_y` pinned. `h` and
+`nu` are pinned to keep the degeneracy budget at two — `E`, `rho`, `h`, `nu`
+enter only through `D` and `μ`, so searching `E` and `rho` avoids the
+`(E, ρ, h)` symmetry that forced `raw7` into composite metrics.
+
+Numerics are `raw7`'s exactly, because compile turned out to be safe after all:
+`diag_gt_floor` compiles three configurations in one process and reported 7.66%
+of saturation for a log arm, but the *training* process compiles one and reads
+`gt_loss 0.0000e+00` against compiled targets — for `eps1e7` as well as for the
+floored arms. So the diagnostic is stricter than training, and `--compile-plate`
+with `--chunk-elems 1e9` and no gradient checkpointing is correct here.
+
+```bash
+export PLATE_PARAM_SPACE=quiet7
+
+python -m src.data.make_dataset --number 2000 --report-grid   # expect 60,185 at p99
+
+python -m src.data.make_dataset --number 1000 --seed 2 \
+  --output-dir data/val-quiet7 --duration 0.25 --render-path training \
+  --batched-plate --compile-plate --chunk-elems 1000000000 \
+  --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 60,185
+
+python -m src.data.make_dataset --number 100000 --seed 3 \
+  --output-dir data/train-quiet7 --duration 0.25 --render-path training \
+  --batched-plate --compile-plate --chunk-elems 1000000000 \
+  --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 60,185
+
+python -m src.ddsp.diag_gt_floor --data-dir data/val-quiet7 --n-val 512 \
+  --compile-plate --chunk-elems 1000000000 --fixed-mode-grid 60,185
+```
+
+The p99 pin drops ~0.85%, leaving ~991 val and ~99,150 train. 11,100 modes
+against `quiet3`'s 2,760 and `raw7`'s 24,252.
+
+`diag_gt_floor`'s SHUFFLED row is the gate as always — but note that on this
+family it is a *stricter* test than training faces, for the reason above. If it
+reads percent-level for a log arm while the training process's own `gt_loss`
+reads zero, the training number is the one that governs.
+
 ## The quiet3 family — a task whose information is in the quiet region
 
 Everything above describes `raw7`, where the seven searched parameters are
