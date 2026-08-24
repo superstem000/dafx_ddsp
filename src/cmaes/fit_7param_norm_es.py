@@ -129,7 +129,68 @@ PLATE_QUIET3 = dict(
     composite=False,
 )
 
-PARAM_SPACES = {"raw7": PLATE_RAW7, "quiet3": PLATE_QUIET3}
+# quiet3 with the attack given more than one degree of freedom, which is what it
+# was missing: T0 was the only thing shaping the impact, and it turned out to be
+# the WORST parameter in the set for this experiment -- gain 0.51-0.72, i.e. a
+# linear loss has MORE of it to work with than a compressed one. quiet3 was also
+# solved outright by every arm (ratio 0.00 for all seven by step 38000), so it
+# discriminated nothing.
+#
+# Measured in-family with diag_param_sensitivity --vary --floor-db 100, as
+# gnorm%/dnorm% -- what a compressed loss has to work with over what a linear one
+# does, each against its own unrelated-IR distance:
+#
+#                  gain @2%   @5%   @10%     dnorm% @2%
+#   T60_ratio         4.66    4.63   4.64        0.61
+#   op_x              2.71    1.82   1.25        8.73
+#   fp_x              2.41    1.80   1.25        8.18
+#   T60_DC            1.95    1.97   1.97        1.44
+#   E                 1.94    1.34   1.02       19.74
+#   rho               1.42    0.97   0.80       31.21
+#   T0                0.72    0.56   0.51        0.71
+#
+# The damping pair's gain is FLAT across perturbation size while every loud
+# parameter's decays as it saturates -- so near an optimum, which is the regime
+# that sets final precision, the damping pair is where compression's advantage
+# is stable rather than transient.
+#
+# And the prediction is two-sided within one run, which is far harder to explain
+# away than an aggregate: compressed arms should beat linear on T60_ratio,
+# LOSE to it on T0, and roughly tie on the four loud parameters. perr_<param>
+# measures exactly that.
+#
+# THE DEGENERACY BUDGET is why h and nu are pinned. E, rho, h and nu enter
+# synthesis only through D = E h^3 / 12(1-nu^2) and mu = rho*h -- four
+# parameters, two degrees of freedom. Searching E and rho with h and nu pinned
+# gives D proportional to E and mu proportional to rho, independent, and the
+# (E, rho, h) -> (c^3 E, c rho, h/c) symmetry that forced raw7 to report
+# composite metrics simply does not arise.
+PLATE_QUIET7 = dict(
+    keys=["T0", "T60_DC", "T60_ratio", "E", "rho", "fp_x", "op_x"],
+    bounds={
+        "T0": (10.0, 1000.0),
+        "T60_DC": (1.0, 10.0),
+        "T60_ratio": (0.25, 0.75),
+        "E": (6.7e10, 2.2e11),
+        "rho": (2430.0, 21230.0),
+        "fp_x": (0.1, 0.5),
+        "op_x": (0.51, 1.0),
+    },
+    log_keys={"T0"},
+    fixed={
+        "Lx": 1.0,
+        "Ly": 3.049607820029296,
+        "h": 0.0029523135969623,
+        "nu": 0.25,
+        "loss_F1": 500.0,
+        "fp_y": 0.467,
+        "op_y": 0.6558350243649326,
+    },
+    products={"T60_F1": ("T60_ratio", "T60_DC")},
+    composite=False,
+)
+
+PARAM_SPACES = {"raw7": PLATE_RAW7, "quiet3": PLATE_QUIET3, "quiet7": PLATE_QUIET7}
 PARAM_SPACE = os.environ.get("PLATE_PARAM_SPACE", "raw7")
 if PARAM_SPACE not in PARAM_SPACES:
     raise SystemExit(
