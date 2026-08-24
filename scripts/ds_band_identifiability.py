@@ -63,6 +63,16 @@ def main() -> None:
                     help="Where --vary holds the unsearched columns.")
     ap.add_argument("--list", action="store_true",
                     help="Print the parameter columns and exit.")
+    ap.add_argument("--cond", nargs="+", default=None, metavar="NAME=V",
+                    help="Value for a fixed parameter the config leaves to be "
+                         "supplied at run time -- f0_hz in the _f0 chains, and "
+                         "anything else whose attribute is None. These are NOT "
+                         "in [0,1]: they are physical (f0_hz in Hz), which is "
+                         "why fill_params skips scaling them. Unset ones get a "
+                         "default and the run says which. They are held equal "
+                         "across target and candidates, so they contribute no "
+                         "distance and no difference -- conditioning, not a "
+                         "searched parameter.")
     ap.add_argument("--sr", type=int, default=16000)
     ap.add_argument("--audio-len", type=float, default=4.0)
     ap.add_argument("--n-fft", type=int, default=1024)
@@ -120,13 +130,34 @@ def main() -> None:
     if pins:
         print(f"held: {', '.join(f'{label[i]}={v:g}' for i, v in sorted(pins.items()))}")
 
+    # Some chains leave a fixed parameter to be supplied at run time -- the _f0
+    # configs take f0_hz from the dataset -- and fill_params reads it out of
+    # `conditioning`, which defaults to None and then raises TypeError on
+    # subscript. Supply a constant for each so the chain can be measured at all.
+    # Constant is the right choice here and not a shortcut: conditioning is not
+    # a searched parameter, so holding it equal across target and candidates is
+    # exactly what it should contribute -- nothing.
+    _DEFAULT_COND = {"f0_hz": 220.0}
+    need = [n for n in synth.fixed_param_names if getattr(synth, n) is None]
+    cond_v = {n: _DEFAULT_COND.get(n, 1.0) for n in need}
+    for item in args.cond or []:
+        k, v = item.split("=")
+        cond_v[k] = float(v)
+    unknown = [n for n in need if n not in _DEFAULT_COND
+               and n not in {i.split("=")[0] for i in args.cond or []}]
+    if need:
+        print(f"conditioning: " + ", ".join(f"{k}={v:g}" for k, v in cond_v.items())
+              + (f"   ({', '.join(unknown)} had no default -- set with --cond "
+                 f"if 1.0 is wrong for it)" if unknown else ""))
+
     def render(p: torch.Tensor) -> torch.Tensor:
         out = []
         for i in range(0, p.shape[0], args.render_batch):
+            chunk = p[i:i + args.render_batch, None, :].to(dev)
+            cond = {k: torch.full((chunk.shape[0], 1, 1), v, device=dev)
+                    for k, v in cond_v.items()}
             with torch.no_grad():
-                audio, _ = synth(
-                    synth.fill_params(p[i:i + args.render_batch, None, :].to(dev)),
-                    n_samples)
+                audio, _ = synth(synth.fill_params(chunk, cond), n_samples)
             out.append(audio)
         return torch.cat(out, dim=0)
 

@@ -134,18 +134,41 @@ def report_marginal(rows: list[dict], title: str = "") -> None:
         v = [r[k] for r in live if r[k] == r[k]]
         return sum(v) / len(v) if v else float("nan")
 
+    lw, gw = mean("lin_wrong"), mean("log_wrong")
+    g_giv_l, l_giv_g = mean("log_given_lin_wrong"), mean("lin_given_log_wrong")
+    # THE BASELINE IS NOT 0.5. If the two losses failed independently, log would
+    # be right on linear's wrong pairs at its OWN overall rate, 1 - log_wrong.
+    # Comparing against a coin flip instead understates redundancy badly and is
+    # simply the wrong null: a loss that is right 67% of the time overall and
+    # 50% of the time on another loss's failures is already strongly correlated
+    # with it, not independent of it.
+    ind_g, ind_l = 1.0 - gw, 1.0 - lw
+    fixes = lw * g_giv_l                      # linear wrong, log right
+    breaks = gw - lw * (1.0 - g_giv_l)        # log wrong, linear right
+
     print(f"\n=== marginal value of the log term{'   ' + title if title else ''}")
     print(f"  full-spectrum concordance     linear {mean('id_lin'):.3f}   "
           f"log {mean('id_log'):.3f}")
-    print(f"  linear misranks               {100*mean('lin_wrong'):.1f}% of pairs")
-    print(f"  log correct on THOSE pairs    {mean('log_given_lin_wrong'):.3f}"
-          f"   <- the number that decides hybrid")
-    print(f"  log misranks                  {100*mean('log_wrong'):.1f}% of pairs")
-    print(f"  linear correct on THOSE       {mean('lin_given_log_wrong'):.3f}")
-    print("\n  0.50 on the conditional means redundant: the log term is right")
-    print("  about the same pairs linear was already right about, so hybrid pays")
-    print("  the loud-band reweighting for information it already had. Well above")
-    print("  0.50 means complementary, and hybrid can beat both parents.")
+    print(f"  linear misranks               {100*lw:.1f}% of pairs")
+    print(f"  log correct on THOSE          {g_giv_l:.3f}   "
+          f"(if errors were independent: {ind_g:.3f})")
+    print(f"  log misranks                  {100*gw:.1f}% of pairs")
+    print(f"  linear correct on THOSE       {l_giv_g:.3f}   "
+          f"(independent: {ind_l:.3f})")
+    print(f"\n  adding the log term FIXES {100*fixes:.1f}% of pairs and "
+          f"BREAKS {100*breaks:.1f}%")
+    if g_giv_l < ind_g - 0.02:
+        print("  Errors are CORRELATED -- log fails well below its own average on")
+        print("  exactly the pairs linear fails. Both losses read the same")
+        print("  spectrogram, so a pair whose spectral distance misorders the")
+        print("  parameter distance misorders it in every domain. That is a")
+        print("  property of the synthesizer's forward map, and no reweighting")
+        print("  of the same spectrogram can recover it. Little headroom for any")
+        print("  hybrid, whatever weight it puts on each term.")
+    else:
+        print("  Errors are near-independent or better -- the log term is right")
+        print("  about pairs linear is wrong about, which is the headroom a")
+        print("  hybrid can actually capture.")
 
 
 def probe(A_ref: torch.Tensor, A_cand: torch.Tensor, dist: torch.Tensor,
