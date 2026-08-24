@@ -898,6 +898,44 @@ for _tag, _g in _GAMMA_I.items():
 
 
 # ---------------------------------------------------------------------------
+# THE SAME LADDER AT A SHARED FLOOR.
+#
+# The arms above do not share one. eps 1e-7 on a magnitude whose peak is ~13
+# for peak-normalized audio floors at about -162 dB; the c1 rungs floor wherever
+# their own eps puts them. So the ladder varies compression AND how deep each
+# arm reaches, confounded -- and on the plate the deepest arms spend most of
+# their weight below -120 dB, where the modal sum is float32 rounding rather
+# than physics. Measured: 86-99% of a parameter's log-domain signature sits
+# there, and swapping the reduction kernel moves those bins.
+#
+# Naming the floor in dB below a unit-peak magnitude makes it a stated choice
+# rather than an inherited constant:
+#
+#   f100 -> eps 1e-4  (-102 dB)     the physical quiet region, junk excluded
+#   f120 -> eps 1e-5  (-122 dB)     right at the boundary
+#
+# A floor is not free of assumptions. At the numerical floor the experiment is
+# about this synthesizer's arithmetic; at a masking threshold it is about
+# audibility; at zero it is about pure mathematics. f100/f120 pick the first
+# deliberately, because it is the only one this system can defend exactly.
+#
+# It also removes the reason --compile-plate was unsafe here. The compiled and
+# eager reduction kernels disagree almost entirely below -107 dB (42.6% of the
+# disagreement in the quietest decile, 0.3% by the seventh), so a loss floored
+# at -100 dB cannot see that disagreement at all.
+_LOSS_FLOORS = {"f100": 1e-4, "f120": 1e-5}
+for _ftag, _feps in _LOSS_FLOORS.items():
+    for _tag, _g in _GAMMA_I.items():
+        _DECOMP_LOSSES[f"L1_STFT_{_tag}_{_ftag}"] = _make_stft_l1(
+            [4096], comp="gpow", gamma=_g, eps=_feps)
+    # The log end of the same ladder at the same floor. c1 IS log(x + eps), so
+    # this is exactly L1_STFT_eps1e4 / eps1e5 under a name that says what the
+    # eps is doing rather than what its value is.
+    _DECOMP_LOSSES[f"L1_STFT_c1_{_ftag}"] = _make_stft_l1(
+        [4096], comp="c1", eps=_feps)
+
+
+# ---------------------------------------------------------------------------
 # The ladder above is four named losses; this is the same axis as one number.
 #
 # log(x + eps) at eps = 1 is log1p, which is C2 exactly, and at eps = 1e-7 it
@@ -1093,6 +1131,9 @@ for _name, _fn in (
     *((f"L1_STFT_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_eps{_t}"]) for _t in _EPS_LADDER),
     *((f"L1_STFT_hyb{_t}", _DECOMP_LOSSES[f"L1_STFT_hyb{_t}"]) for _t in _HYBRID_EPS),
     *((f"L1_STFT_{_t}", _DECOMP_LOSSES[f"L1_STFT_{_t}"]) for _t in _GAMMA_I),
+    *((f"L1_STFT_{_t}_{_f}", _DECOMP_LOSSES[f"L1_STFT_{_t}_{_f}"])
+      for _f in _LOSS_FLOORS for _t in _GAMMA_I),
+    *((f"L1_STFT_c1_{_f}", _DECOMP_LOSSES[f"L1_STFT_c1_{_f}"]) for _f in _LOSS_FLOORS),
 ):
     LOSS_COMPONENTS[_name] = _fn
     LOSS_NAME_ALIASES[_normalize_name(_name)] = _name
