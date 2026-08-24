@@ -55,7 +55,20 @@ def main() -> None:
                         "where this float32 modal sum stops being physics.")
     p.add_argument("--fixed-mode-grid", type=_grid, default=None, metavar="DDX,DDY")
     p.add_argument("--mode-bucket", type=int, default=1024)
-    p.add_argument("--chunk-elems", type=int, default=1_000_000_000)
+    # The modal sum allocates [B, n_modes, chunk] where chunk = chunk_elems /
+    # (B * n_modes), so the transient is chunk_elems * 4 bytes per tensor and
+    # three of them are live at once. The 1e9 the datasets are generated with
+    # is 4 GB a tensor -- fine on an idle card, an instant OOM beside a
+    # training job. 5e7 is 200 MB, which fits in what a busy card has left.
+    # This is a DIAGNOSTIC, not a target render: chunk_elems changes speed and
+    # nothing else here, so it does not have to match the generation contract.
+    p.add_argument("--chunk-elems", type=int, default=50_000_000)
+    p.add_argument("--render-batch", type=int, default=8, metavar="K",
+                   help="Render this many candidates at a time. Candidates are "
+                        "a batch dimension of the modal sum, so K=32 in one "
+                        "call is a 4x larger transient than four calls of 8 "
+                        "for identical output. Lower it further to share a "
+                        "card with a training job.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
@@ -75,9 +88,13 @@ def main() -> None:
           f"{args.k} candidates each   radii (0, {args.max_rel:g}] of range")
 
     def render(norm: np.ndarray) -> torch.Tensor:
-        p14 = physical_to_plate14_tensor(norm_to_physical(norm), dev)
-        with torch.no_grad():
-            return plate.forward(p14, args.duration, normalize=False)
+        out = []
+        for i in range(0, norm.shape[0], args.render_batch):
+            p14 = physical_to_plate14_tensor(
+                norm_to_physical(norm[i:i + args.render_batch]), dev)
+            with torch.no_grad():
+                out.append(plate.forward(p14, args.duration, normalize=False))
+        return torch.cat(out, dim=0)
 
     g = torch.Generator().manual_seed(args.seed)
     rows, dropped = [], 0

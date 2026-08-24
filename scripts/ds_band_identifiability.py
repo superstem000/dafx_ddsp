@@ -58,6 +58,11 @@ def main() -> None:
     ap.add_argument("--floor-db", type=float, default=None,
                     help="Set the log measure's floor this far below each "
                          "target's peak instead of at the absolute eps 1e-7.")
+    ap.add_argument("--render-batch", type=int, default=8, metavar="K",
+                    help="Render this many candidates at a time. Candidates are "
+                         "a batch dimension, so all K at once is a K/8 larger "
+                         "transient for identical output. Lower it to share a "
+                         "card with a training job.")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
@@ -86,9 +91,14 @@ def main() -> None:
         print("operating point: " + ", ".join(args.pin))
 
     def render(p: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            audio, _ = synth(synth.fill_params(p[:, None, :].to(dev)), n_samples)
-        return audio
+        out = []
+        for i in range(0, p.shape[0], args.render_batch):
+            with torch.no_grad():
+                audio, _ = synth(
+                    synth.fill_params(p[i:i + args.render_batch, None, :].to(dev)),
+                    n_samples)
+            out.append(audio)
+        return torch.cat(out, dim=0)
 
     g = torch.Generator().manual_seed(args.seed)
     rows, dropped = [], 0
