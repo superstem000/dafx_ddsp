@@ -1,0 +1,23 @@
+# Finish quiet7's controls at 40000, so every arm in the campaign is read at the
+# same step count.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_plate_quiet7_finish.txt --gpus 2,3
+#
+# PASS --gpus. Another queue (jobs_plate_quiet7_linfloor.txt) is already polling
+# for free cards, and two queues watching the same pool can both see one card go
+# idle and both claim it -- the free-memory poll is not a lock. Splitting the
+# cards between them by hand is the only thing that makes that impossible.
+#
+# FORCE=1 because eps_ladder refuses a directory that already holds results, and
+# writing into it is the intent: train_encoder --resume restores step, optimizer,
+# loss_scale and the LR schedule, and continues history.json rather than
+# replacing it. These pick up from their own encoder_last.pt.
+#
+# Note eps_ladder rewrites OUT/sweep_command.txt and truncates OUT/<arm>.log; the
+# originals are already copied to results/ddsp/quiet7/_pre_resume.
+#
+# The result is not in doubt -- linear has been at ratio 0.05-0.11 since 10000
+# and eps1e4 pinned at a constant from 22000 -- but a control stopped early is
+# not a control, and the floored arms all run to 40000.
+FORCE=1 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT" EXTRA="--resume results/ddsp/quiet7/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+FORCE=1 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT_eps1e4" EXTRA="--resume results/ddsp/quiet7/L1_STFT_eps1e4/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
