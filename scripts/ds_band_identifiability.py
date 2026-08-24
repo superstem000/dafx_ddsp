@@ -131,7 +131,7 @@ def main() -> None:
         return torch.cat(out, dim=0)
 
     g = torch.Generator().manual_seed(args.seed)
-    rows, dropped = [], 0
+    rows, marg, dropped = [], [], 0
     for _ in range(args.n):
         tgt = torch.rand(P, generator=g)
         for i, v in pins.items():
@@ -161,7 +161,9 @@ def main() -> None:
         A_can = stft_mag(x_can, args.n_fft, args.hop, True)
         eps = (EPS if args.floor_db is None
                else float(A_ref.max()) * 10.0 ** (-args.floor_db / 20.0))
-        rows.append(bi.probe(A_ref, A_can, dist.to(A_ref.device), eps))
+        dt = dist.to(A_ref.device)
+        rows.append(bi.probe(A_ref, A_can, dt, eps))
+        marg.append(bi.marginal(A_ref, A_can, dt, eps))
 
     if not rows:
         raise SystemExit("no usable targets")
@@ -171,6 +173,7 @@ def main() -> None:
         print(f"  log floor: {args.floor_db:g} dB below each target's peak")
     bi.report(bi.accumulate(rows),
               title=f"{Path(args.conf).stem}   {len(rows)} targets")
+    bi.report_marginal(marg)
 
 
 if __name__ == "__main__":

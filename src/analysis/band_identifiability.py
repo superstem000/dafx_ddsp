@@ -72,6 +72,82 @@ def _concordance(loss: torch.Tensor, dist: torch.Tensor) -> float:
     return (agree + 0.5 * ties) / n
 
 
+def marginal(A_ref: torch.Tensor, A_cand: torch.Tensor, dist: torch.Tensor,
+             eps: float = EPS) -> dict:
+    """Is the log term's information NEW, given a linear term already present?
+
+    Hybrid contains the linear term, so what a log term can contribute is only
+    the pairs linear gets wrong. Concordance on its own does not distinguish
+    "log ranks 62% of pairs correctly" from "log ranks the SAME 62% linear
+    already had" -- and those have opposite implications for hybrid, because
+    only the first pays for the loud-band reweighting hybrid also forces.
+
+      id_log_given_lin_wrong ~ 0.50   redundant. Adding a log term buys nothing
+                                      and costs the reweighting.
+      well above 0.50                 complementary. Hybrid should beat both,
+                                      even where log alone does not beat linear.
+
+    Computed on the FULL spectrum rather than per band, because that is the
+    comparison an actual loss makes.
+    """
+    a = A_ref.flatten().double()
+    c = A_cand.reshape(A_cand.shape[0], -1).double()
+    Ll = (c - a).abs().sum(1)
+    Lg = ((c + eps).log() - (a + eps).log()).abs().sum(1)
+
+    dd = dist[:, None] - dist[None, :]
+    m = dd < 0
+    n = int(m.sum())
+    if n == 0:
+        return {}
+
+    def right(L):
+        ll = L[:, None] - L[None, :]
+        return (ll < 0) & m, (ll == 0) & m
+
+    rl, tl = right(Ll)
+    rg, tg = right(Lg)
+    # A tie is half a correct vote, and the two losses tie on different pairs,
+    # so "wrong" has to mean "not right and not tied" for the conditionals to
+    # partition the same population both ways.
+    wl, wg = m & ~rl & ~tl, m & ~rg & ~tg
+    nwl, nwg = int(wl.sum()), int(wg.sum())
+    return dict(
+        n_pairs=n,
+        id_lin=(float(rl.sum()) + 0.5 * float(tl.sum())) / n,
+        id_log=(float(rg.sum()) + 0.5 * float(tg.sum())) / n,
+        lin_wrong=nwl / n,
+        log_wrong=nwg / n,
+        log_given_lin_wrong=((float((rg & wl).sum()) + 0.5 * float((tg & wl).sum()))
+                             / nwl) if nwl else float("nan"),
+        lin_given_log_wrong=((float((rl & wg).sum()) + 0.5 * float((tl & wg).sum()))
+                             / nwg) if nwg else float("nan"),
+    )
+
+
+def report_marginal(rows: list[dict], title: str = "") -> None:
+    live = [r for r in rows if r]
+    if not live:
+        return
+
+    def mean(k):
+        v = [r[k] for r in live if r[k] == r[k]]
+        return sum(v) / len(v) if v else float("nan")
+
+    print(f"\n=== marginal value of the log term{'   ' + title if title else ''}")
+    print(f"  full-spectrum concordance     linear {mean('id_lin'):.3f}   "
+          f"log {mean('id_log'):.3f}")
+    print(f"  linear misranks               {100*mean('lin_wrong'):.1f}% of pairs")
+    print(f"  log correct on THOSE pairs    {mean('log_given_lin_wrong'):.3f}"
+          f"   <- the number that decides hybrid")
+    print(f"  log misranks                  {100*mean('log_wrong'):.1f}% of pairs")
+    print(f"  linear correct on THOSE       {mean('lin_given_log_wrong'):.3f}")
+    print("\n  0.50 on the conditional means redundant: the log term is right")
+    print("  about the same pairs linear was already right about, so hybrid pays")
+    print("  the loud-band reweighting for information it already had. Well above")
+    print("  0.50 means complementary, and hybrid can beat both parents.")
+
+
 def probe(A_ref: torch.Tensor, A_cand: torch.Tensor, dist: torch.Tensor,
           eps: float = EPS, bands=DB_BANDS) -> list[dict]:
     """One target: [F,T] reference, [K,F,T] candidates, [K] parameter distances.
