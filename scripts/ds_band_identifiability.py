@@ -51,6 +51,18 @@ def main() -> None:
                          "so it contributes no distance and no difference. The "
                          "operating point is a design variable here as it is in "
                          "ds_param_sensitivity.")
+    ap.add_argument("--vary", nargs="+", default=None, metavar="NAME",
+                    help="Search ONLY these columns; every other column is held "
+                         "at --rest for both target and candidates. This defines "
+                         "a TASK, the way PLATE_PARAM_SPACE does on the plate, "
+                         "and the task is what the decomposition is a property "
+                         "of -- a synthesizer does not have one answer, a chosen "
+                         "set of searched parameters does. Combine with --pin to "
+                         "put the held columns somewhere other than --rest.")
+    ap.add_argument("--rest", type=float, default=0.5, metavar="V",
+                    help="Where --vary holds the unsearched columns.")
+    ap.add_argument("--list", action="store_true",
+                    help="Print the parameter columns and exit.")
     ap.add_argument("--sr", type=int, default=16000)
     ap.add_argument("--audio-len", type=float, default=4.0)
     ap.add_argument("--n-fft", type=int, default=1024)
@@ -78,17 +90,35 @@ def main() -> None:
     P = len(label)
     n_samples = int(args.audio_len * args.sr)
 
+    if args.list:
+        print(f"{Path(args.conf).name}   {P} columns:")
+        for l in label:
+            print(f"  {l}")
+        return
+
+    # --vary first so an explicit --pin can override where a held column sits.
     pins = {}
+    if args.vary:
+        bad = set(args.vary) - set(label)
+        if bad:
+            raise SystemExit(f"unknown: {', '.join(sorted(bad))}; "
+                             f"have: {', '.join(label)}")
+        pins = {i: args.rest for i, l in enumerate(label) if l not in args.vary}
     for item in args.pin or []:
         k, v = item.split("=")
         if k not in label:
             raise SystemExit(f"unknown parameter {k!r}; have: {', '.join(label)}")
         pins[label.index(k)] = float(v)
 
-    print(f"{Path(args.conf).name}   {P} parameter columns   {args.n} targets   "
-          f"{args.k} candidates each   radii (0, {args.max_rel:g}] of range")
+    searched = [l for i, l in enumerate(label) if i not in pins]
+    if not searched:
+        raise SystemExit("every column is held; nothing is being searched")
+    print(f"{Path(args.conf).name}   {P} columns, {len(searched)} searched   "
+          f"{args.n} targets   {args.k} candidates each   "
+          f"radii (0, {args.max_rel:g}] of range")
+    print(f"searching: {', '.join(searched)}")
     if pins:
-        print("operating point: " + ", ".join(args.pin))
+        print(f"held: {', '.join(f'{label[i]}={v:g}' for i, v in sorted(pins.items()))}")
 
     def render(p: torch.Tensor) -> torch.Tensor:
         out = []
