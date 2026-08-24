@@ -1064,6 +1064,19 @@ for _db in _LOSS_TOP_DB:
         [4096], comp="c1", eps=1e-7, top_db=_db)
     _DECOMP_LOSSES[f"L1_STFT_hyb_db{_t}"] = _make_stft_hybrid(
         [4096], eps=1e-7, top_db=_db)
+    # LINEAR AT THE SAME FLOOR -- the control the first wave did not have.
+    # Reading floored-log against unfloored-linear changes two things at once,
+    # so a floored arm matching L1_STFT proves nothing until it is known what
+    # the floor alone does. If linear improves at db40 too, the floor is the
+    # result and compression is still along for the ride; if linear is flat,
+    # the floored compressed arms genuinely closed the gap.
+    #
+    # Expected flat, and that is the point of running it: a linear loss already
+    # puts ~0.1% of its weight below -100 dB (see diag_band_identifiability), so
+    # clamping there should be very close to a no-op. "Expected flat" is not
+    # "known flat", and this arm is one card-hour.
+    _DECOMP_LOSSES[f"L1_STFT_lin_db{_t}"] = _make_stft_l1(
+        [4096], comp="linear", top_db=_db)
 
 
 # ===========================================================================
@@ -1197,6 +1210,8 @@ for _name, _fn in (
     *((f"L1_STFT_c1_db{int(_d)}", _DECOMP_LOSSES[f"L1_STFT_c1_db{int(_d)}"])
       for _d in _LOSS_TOP_DB),
     *((f"L1_STFT_hyb_db{int(_d)}", _DECOMP_LOSSES[f"L1_STFT_hyb_db{int(_d)}"])
+      for _d in _LOSS_TOP_DB),
+    *((f"L1_STFT_lin_db{int(_d)}", _DECOMP_LOSSES[f"L1_STFT_lin_db{int(_d)}"])
       for _d in _LOSS_TOP_DB),
 ):
     LOSS_COMPONENTS[_name] = _fn

@@ -1,0 +1,50 @@
+# The control the floored wave is missing: LINEAR at the same floor.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_plate_quiet7_linfloor.txt
+#
+# Queue this while quiet7_floor runs. gpu_queue waits for free cards, so these
+# start as the four floored arms finish, and everything lands at 40000 steps on
+# the same base, the same data and the same schedule.
+#
+# WHY. quiet7_floor showed c1_db40, c1_db80, hyb_db40 and hyb_db80 all alive at
+# ratio 0.05-0.09 through step 18000, where every UNFLOORED compressed arm had
+# already reached 1.4-2.5 and was on its way to 3.0. That is a real effect and
+# the floor is clearly what produced it.
+#
+# But the comparison as it stands is floored-compressed against UNFLOORED
+# linear, which changes two things at once. If a hard floor also helps a linear
+# loss, then "the floored log arm matches linear" is not the claim -- the floor
+# is the result and the compression is along for the ride. The only way to
+# separate them is to run linear at the identical clamp.
+#
+#   L1_STFT            linear, no floor      (quiet7, already done)
+#   L1_STFT_lin_db40   linear, -40 dB floor  <- this file
+#   L1_STFT_lin_db80   linear, -80 dB floor  <- this file
+#   L1_STFT_c1_db40    log,    -40 dB floor  (quiet7_floor, running)
+#   L1_STFT_hyb_db40   hybrid, -40 dB floor  (quiet7_floor, running)
+#
+# Read the four db40 arms against each other and the loss family is the only
+# thing left varying.
+#
+# WHAT TO EXPECT, so the result is falsifiable rather than interpreted after
+# the fact. diag_band_identifiability puts ~0.1% of a LINEAR loss's weight
+# below -100 dB and 0.2% below -120 on this task, so clamping there is close to
+# a no-op for linear and lin_db40 should land on top of L1_STFT. If it does,
+# the floored compressed arms genuinely closed a gap that was real. If instead
+# lin_db40 beats L1_STFT by as much as the compressed arms gained, then the
+# floor is doing all the work in every arm and compression contributes nothing
+# -- which is a cleaner and more publishable statement than the one currently
+# on the table, and worth two card-hours to be able to say either way.
+
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_lin_db40" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_lin_db80" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# No comment line in this file may begin with the word "stage": gpu_queue
+# matches ^#\s*STAGE[:\s] case-insensitively, so ordinary prose starting that
+# way silently becomes a barrier.
+#
+# Monitor:
+#
+#   python -m src.ddsp.monitor_sweep \
+#     --root results/ddsp/quiet7 --root results/ddsp/quiet7_floor \
+#     --metrics ratio perr_E perr_rho
