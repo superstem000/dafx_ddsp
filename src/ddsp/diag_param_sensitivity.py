@@ -426,6 +426,15 @@ def main() -> None:
               f"(eps {eps_n:.3g} normalized, {eps_r:.3g} raw). Bins below it "
               f"clamp on both sides and register no disagreement.")
 
+    # LOG-DOMAIN SATURATION, so what a COMPRESSED loss has to work with can be
+    # stated in the same units as what a linear one does. dnorm% has always been
+    # the linear answer and there was no counterpart, which left "does
+    # compression have more to go on here" to be inferred from band ratios --
+    # and a ratio rewards a parameter for being invisible everywhere, which is
+    # how a window too short to contain any decay came out looking like a good
+    # quiet-region task.
+    sat_g = float((torch.log(A_n + eps_n) - torch.log(A_n[perm] + eps_n)).abs().sum())
+
     BOUNDS = dict(FITTED_BOUNDS)
     BOUNDS.update(vary_bounds)
     # The denominator, printed because it is the whole point of --vary. A
@@ -575,14 +584,19 @@ def main() -> None:
             return sum(v) / len(v)
 
         if not norm_runs:
-            res[(name, rel)] = (float("nan"), float("nan"))
+            res[(name, rel)] = (float("nan"),) * 4
             continue
         if len(norm_runs) == 1:
             onesided.add((name, rel))
         cg = mean_of(norm_runs, 1)
         lb, gb = mean_of(norm_runs, 2), mean_of(norm_runs, 3)
         dn = 100.0 * mean_of(norm_runs, 4) / max(sat_n, 1e-30)
-        res[(name, rel)] = (dn, cg)
+        gn = 100.0 * mean_of(norm_runs, 5) / max(sat_g, 1e-30)
+        # gain = how much more a compressed loss has to work with than a linear
+        # one, both as a fraction of their own unrelated-IR distance. Above 1
+        # means compression sees more of this parameter; that is the whole
+        # hypothesis, stated per parameter in one number.
+        res[(name, rel)] = (dn, cg, gn, gn / dn if dn > 0 else float("nan"))
         if n_clamp:
             clamped[(name, rel)] = n_clamp
         # Every rel, not just the first: whether a signature MIGRATES between
@@ -610,6 +624,10 @@ def main() -> None:
 
     table("dnorm% -- total change as a percentage of the unrelated-IR distance",
           0, "{:>10.3f}")
+    table("gnorm% -- the same, in the LOG domain: what a compressed loss sees",
+          2, "{:>10.3f}")
+    table("gain -- gnorm%/dnorm%. >1 = compression has more of this parameter "
+          "to work with", 3, "{:>10.2f}")
     table("log dec -- mean decile of |log(a+e)-log(b+e)|, 1 quietest to 10 loudest",
           1, "{:>10.2f}")
     if neutral:
