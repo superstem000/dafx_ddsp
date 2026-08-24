@@ -27,10 +27,15 @@ mistake this whole script exists to avoid making by ear.
 Levels are NOT normalised. An arm that gets the overall gain wrong should sound
 like it does.
 
-The per-clip table gives db70 for each arm, so the clips where the arms differ
-most can be found rather than guessed at. Read down an arm's column. --metrics
-g0.3 db70 adds back the other rung the ladder disagreed across; the two have
-unrelated scales and should never be read against each other.
+The per-clip table gives g0.3 and db70 for each arm -- the two rungs the ladder
+disagrees across -- so the clips where the arms differ most can be found rather
+than guessed at. Read down an arm's column; the two metrics have unrelated
+scales and must never be compared to each other.
+
+That disagreement is the whole reason to listen. Compressed metrics rank mag
+above hybrid and log-domain ones rank hybrid above mag, and on the real branch
+there is no ground truth to say which is right. A listening test is how that
+gets settled, so both columns stay unless --metrics narrows them deliberately.
 """
 
 from __future__ import annotations
@@ -73,9 +78,10 @@ def main() -> None:
              "the SAME clips -- which is the one property this comparison "
              "cannot lose. --skip 5, 10, 15 walk through the split five at a "
              "time.")
-    p.add_argument("--metrics", nargs="+", default=["db70"],
-                   help="Per-clip distance columns. db70 by default; "
-                        "'g0.3 db70' for both, as the ladder comparison used.")
+    p.add_argument("--metrics", nargs="+", default=["g0.3", "db70"],
+                   help="Per-clip distance columns. Both by default, because "
+                        "they are the two rungs that rank the arms DIFFERENTLY "
+                        "and that disagreement is what a listening test is for.")
     p.add_argument("--out", default="compare_audio")
     p.add_argument("--device", default="cpu")
     p.add_argument("--no-png", action="store_true")
@@ -83,10 +89,12 @@ def main() -> None:
     args = p.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
-    # db70 only. g0.3 was here as the second of the two rungs the ladder
-    # disagreed across, but it is not part of the current question and a column
-    # nobody is reading is a column that gets read wrongly later.
-    # --metrics g0.3 db70 brings it back.
+    # BOTH, and the pair is the point: g0.3 and db70 sit on opposite sides of
+    # the ladder's crossover, so they disagree about which arm is better --
+    # compressed metrics favour mag, log-domain ones favour hybrid, and on the
+    # real branch there is no ground truth to break the tie. Dropping either
+    # column hides exactly the disagreement a listening test is convened to
+    # settle. --metrics narrows it when one is genuinely all that is wanted.
     _AVAILABLE = {
         "g0.3": lambda: mc.make_mfcc(args.device, window="hann", log="pow",
                                      gamma=0.3, mel_norm="slaney",
