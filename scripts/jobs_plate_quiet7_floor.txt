@@ -56,8 +56,22 @@
 # matched step counts on matched data, and a control stopped 8000 steps early is
 # not that -- especially when the claim being made is about where each loss ends
 # up, not how fast it gets there.
-PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT" EXTRA="--resume results/ddsp/quiet7/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT_eps1e4" EXTRA="--resume results/ddsp/quiet7/L1_STFT_eps1e4/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+#
+# FORCE=1 is REQUIRED on these two and is not a workaround. eps_ladder.sh
+# refuses to start when $OUT/$arm/history.json exists, because a mistyped
+# invocation once launched the default arms into the published ladder's
+# directory. Here writing into the existing directory is the entire intent:
+# train_encoder --resume reads that history.json, keeps the rows below the
+# resumed step and continues it. Without FORCE these exit 1 in a second, the
+# stage barrier sees the failure and the whole queue aborts -- which is exactly
+# what happened on the first attempt.
+#
+# What FORCE does NOT protect: eps_ladder.sh rewrites $OUT/sweep_command.txt
+# and truncates $OUT/$arm.log unconditionally. Copy results/ddsp/quiet7's
+# sweep_command.txt and *.log aside before running this, or the provenance
+# record for the control ladder is gone.
+FORCE=1 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT" EXTRA="--resume results/ddsp/quiet7/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+FORCE=1 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT_eps1e4" EXTRA="--resume results/ddsp/quiet7/L1_STFT_eps1e4/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE the floored ladder. One wave on four cards, ~2.2 h at quiet7's 5 st/s.
 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_c1_db40" EXTRA="--resume results/ddsp/quiet7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
