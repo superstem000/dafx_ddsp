@@ -137,18 +137,33 @@ def main() -> None:
     # Constant is the right choice here and not a shortcut: conditioning is not
     # a searched parameter, so holding it equal across target and candidates is
     # exactly what it should contribute -- nothing.
-    _DEFAULT_COND = {"f0_hz": 220.0}
+    #
+    # NO SILENT DEFAULT for an unrecognized name. The first version handed 1.0
+    # to anything it did not know and merely printed a warning, and BFRQ -- a
+    # base frequency in Hz -- got 1.0, so two whole configs were measured with a
+    # 1 Hz oscillator. Their spectra came back 92-95% below -120 dB with 80%+ of
+    # the linear loss in the top band, which is what a DC signal looks like, and
+    # the tables were read as a result before the warning was. A wrong physical
+    # conditioning value does not fail, it just produces a plausible table about
+    # a synthesizer nobody is studying. Refuse instead.
+    _DEFAULT_COND = {"f0_hz": 220.0, "BFRQ": 220.0}
     need = [n for n in synth.fixed_param_names if getattr(synth, n) is None]
-    cond_v = {n: _DEFAULT_COND.get(n, 1.0) for n in need}
+    given = {}
     for item in args.cond or []:
         k, v = item.split("=")
-        cond_v[k] = float(v)
-    unknown = [n for n in need if n not in _DEFAULT_COND
-               and n not in {i.split("=")[0] for i in args.cond or []}]
+        given[k] = float(v)
+    missing = [n for n in need if n not in _DEFAULT_COND and n not in given]
+    if missing:
+        raise SystemExit(
+            f"{Path(args.conf).name} leaves {', '.join(missing)} to be supplied "
+            f"at run time and there is no default for it.\nThese are PHYSICAL "
+            f"values, not [0,1] -- fill_params does not scale them -- so a guess "
+            f"is not safe.\nSet it explicitly, e.g. --cond {missing[0]}=220")
+    cond_v = {n: given.get(n, _DEFAULT_COND.get(n)) for n in need}
     if need:
-        print(f"conditioning: " + ", ".join(f"{k}={v:g}" for k, v in cond_v.items())
-              + (f"   ({', '.join(unknown)} had no default -- set with --cond "
-                 f"if 1.0 is wrong for it)" if unknown else ""))
+        print("conditioning: "
+              + ", ".join(f"{k}={v:g}" for k, v in cond_v.items())
+              + "   (held equal across target and candidates)")
 
     def render(p: torch.Tensor) -> torch.Tensor:
         out = []
