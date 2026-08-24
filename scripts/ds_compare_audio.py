@@ -27,10 +27,10 @@ mistake this whole script exists to avoid making by ear.
 Levels are NOT normalised. An arm that gets the overall gain wrong should sound
 like it does.
 
-The per-clip table gives g0.3 and db70 for each arm -- the two rungs the ladder
-disagrees across -- so the clips where the arms differ most can be found rather
-than guessed at. Read down an arm's column; the two metrics have unrelated
-scales.
+The per-clip table gives db70 for each arm, so the clips where the arms differ
+most can be found rather than guessed at. Read down an arm's column. --metrics
+g0.3 db70 adds back the other rung the ladder disagreed across; the two have
+unrelated scales and should never be read against each other.
 """
 
 from __future__ import annotations
@@ -73,6 +73,9 @@ def main() -> None:
              "the SAME clips -- which is the one property this comparison "
              "cannot lose. --skip 5, 10, 15 walk through the split five at a "
              "time.")
+    p.add_argument("--metrics", nargs="+", default=["db70"],
+                   help="Per-clip distance columns. db70 by default; "
+                        "'g0.3 db70' for both, as the ladder comparison used.")
     p.add_argument("--out", default="compare_audio")
     p.add_argument("--device", default="cpu")
     p.add_argument("--no-png", action="store_true")
@@ -80,12 +83,23 @@ def main() -> None:
     args = p.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
-    metrics = {"g0.3": mc.make_mfcc(args.device, window="hann", log="pow",
-                                    gamma=0.3, mel_norm="slaney",
-                                    mel_scale="slaney"),
-               "db70": mc.make_mfcc(args.device, window="hann", log="db",
-                                    top_db=70.0, mel_norm="slaney",
-                                    mel_scale="slaney")}
+    # db70 only. g0.3 was here as the second of the two rungs the ladder
+    # disagreed across, but it is not part of the current question and a column
+    # nobody is reading is a column that gets read wrongly later.
+    # --metrics g0.3 db70 brings it back.
+    _AVAILABLE = {
+        "g0.3": lambda: mc.make_mfcc(args.device, window="hann", log="pow",
+                                     gamma=0.3, mel_norm="slaney",
+                                     mel_scale="slaney"),
+        "db70": lambda: mc.make_mfcc(args.device, window="hann", log="db",
+                                     top_db=70.0, mel_norm="slaney",
+                                     mel_scale="slaney"),
+    }
+    bad = [m for m in args.metrics if m not in _AVAILABLE]
+    if bad:
+        raise SystemExit(f"unknown metric(s) {', '.join(bad)}; "
+                         f"available: {', '.join(_AVAILABLE)}")
+    metrics = {m: _AVAILABLE[m]() for m in args.metrics}
 
     target = None
     resyn = {}
