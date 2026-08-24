@@ -925,9 +925,12 @@ for _tag, _g in _GAMMA_I.items():
 # disagreement in the quietest decile, 0.3% by the seventh), so an arm whose eps
 # stops at -102 dB cannot see that disagreement -- confirmed by a training-
 # process gt_loss of exactly 0.0000e+00 under compile.
-for _tag in ("1e4", "1e5"):
+# Values written out rather than read from _EPS_LADDER, which is defined below
+# this point -- the tags match it and _check_eps_tags_agree asserts they do.
+_G03_EPS = {"1e4": 1e-4, "1e5": 1e-5}
+for _tag, _e in _G03_EPS.items():
     _DECOMP_LOSSES[f"L1_STFT_g03_eps{_tag}"] = _make_stft_l1(
-        [4096], comp="gpow", gamma=0.3, eps=_EPS_LADDER[_tag])
+        [4096], comp="gpow", gamma=0.3, eps=_e)
 
 
 # ---------------------------------------------------------------------------
@@ -951,6 +954,14 @@ for _tag in ("1e4", "1e5"):
 # percentage points of the bin distribution -- by far the widest rung, and so
 # the one where a cliff would be least localised.
 _EPS_LADDER = {"1": 1.0, "1e1": 1e-1, "1e3": 1e-3, "1e4": 1e-4, "1e5": 1e-5, "1e7": 1e-7}
+# The g03 rungs above spell their eps out because they are registered before
+# this dict exists. A tag meaning one eps for c1 and another for g03 would make
+# the ladder single-variable in name only, so it is checked rather than trusted.
+for _tag, _e in _G03_EPS.items():
+    if _EPS_LADDER[_tag] != _e:
+        raise AssertionError(
+            f"L1_STFT_g03_eps{_tag} uses eps {_e:g} but L1_STFT_eps{_tag} uses "
+            f"{_EPS_LADDER[_tag]:g}")
 for _tag, _eps in _EPS_LADDER.items():
     _DECOMP_LOSSES[f"L1_STFT_eps{_tag}"] = _make_stft_l1([4096], comp="c1", eps=_eps)
 
