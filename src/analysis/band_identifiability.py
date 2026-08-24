@@ -143,22 +143,41 @@ def report(agg: list[dict], bands=DB_BANDS, title: str = "") -> None:
         print(f"{f'{lo}-{hi}':>14}{100*o['binfrac']:>7.1f}%"
               f"{100*o['w_lin']:>8.1f}%{100*o['w_log']:>8.1f}%{idl}{idg}")
 
-    # The one number the whole table is for. Each band's log-domain vote is
-    # worth (2*id - 1): +1 for a band that always ranks correctly, 0 for a coin
-    # flip, negative for one that prefers the wrong candidate. Weighting by the
-    # share of the log term that lands in the band gives what a log term buys
-    # with its reweighting, and doing the same with w_lin gives the linear
-    # term's baseline. Hybrid can only pay off if the first exceeds the second.
-    def payoff(key_w, key_id):
-        num = sum(o[key_w] * (2.0 * o[key_id] - 1.0)
-                  for o in agg if o[key_id] == o[key_id])
-        den = sum(o[key_w] for o in agg if o[key_id] == o[key_id]) or 1.0
-        return num / den
+    # THE DECOMPOSITION, which is the point of the table. Going from linear to
+    # log does two independent things and they are not the same effect:
+    #
+    #   A = sum w_lin * id_lin    linear as it actually is
+    #   B = sum w_log * id_lin    log's WEIGHTING, linear's within-band ranking
+    #   C = sum w_log * id_log    log as it actually is
+    #
+    # B - A is what moving weight into the quiet bands costs. C - B is what
+    # comparing in the log domain buys within a band, holding the weighting
+    # fixed. Their sum is the whole effect, and they can have opposite signs.
+    #
+    # This separation is the answer to "when does adding a log term help",
+    # and it is not the answer the quiet-bin framing predicted. On the plate
+    # the transform is worth about zero and the reweighting costs ~0.16 -- the
+    # deep bins are not noise, they vote around 0.59, they are merely much
+    # weaker than the loud ones and log hands them ~70% of its weight. On
+    # diffsynth the reweighting costs little, because the band profile is flat
+    # rather than a cliff, and the transform GAINS within every band.
+    #
+    # So: hybrid has an edge iff the transform's gain exceeds the reweighting's
+    # cost. Both are measurable here, before any training run.
+    def wmean(key_w, key_id):
+        live = [o for o in agg if o[key_id] == o[key_id]]
+        den = sum(o[key_w] for o in live) or 1.0
+        return sum(o[key_w] * o[key_id] for o in live) / den
 
-    pl, pg = payoff("w_lin", "id_lin"), payoff("w_log", "id_log")
-    print(f"\n  weighted vote quality   linear {pl:+.3f}   log {pg:+.3f}"
-          f"   (1 = every weighted bin ranks correctly, 0 = coin flip)")
-    print("  A log term is worth adding only where its number exceeds the linear")
-    print("  one: that is the margin hybrid has to pay for the loud-band")
-    print("  reweighting it also forces. Equal or below means the reweighting is")
-    print("  buying noise, in proportion to how many quiet bins there are.")
+    A = wmean("w_lin", "id_lin")
+    B = wmean("w_log", "id_lin")
+    C = wmean("w_log", "id_log")
+    print(f"\n  weighted concordance    linear {A:.3f}   log {C:.3f}"
+          f"   (0.5 = coin flip)")
+    print(f"  reweighting  B-A {B - A:+.3f}   moving weight to the quiet bands")
+    print(f"  transform    C-B {C - B:+.3f}   comparing in the log domain")
+    print(f"  net          C-A {C - A:+.3f}")
+    print("\n  A log term is worth adding iff the transform gain exceeds the")
+    print("  reweighting cost. They are independent -- a flat band profile makes")
+    print("  reweighting cheap regardless of the transform, and a transform can")
+    print("  gain within a band whose weight share never changes.")
