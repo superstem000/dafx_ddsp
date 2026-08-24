@@ -123,12 +123,11 @@ FITTED_BOUNDS = {
     "op_x": (0.51, 1.0),
     "op_y": (0.51, 1.0),
 }
-# Split past 80 dB. A single 80-400 band is unbounded, and in a peak-normalized
-# spectrogram of a decaying IR it holds most of the bins -- so a SUM over it wins
-# on count alone and every parameter reads ~99% there, which is what made the
-# first version of this table unreadable.
-DB_BANDS = [(0, 20), (20, 40), (40, 60), (60, 80), (80, 100), (100, 120), (120, 400)]
-EPS = 1e-7
+# decompose, stft_mag and the bands now live in src/analysis, so the plate and
+# diffsynth drivers share ONE implementation. Two copies of a metric is how the
+# same number comes to mean two things in two systems, which is the failure this
+# project's whole "one metric, both systems" discipline exists to prevent.
+from src.analysis.band_sensitivity import DB_BANDS, EPS, decompose, stft_mag
 
 
 def _mode_grid(text: str):
