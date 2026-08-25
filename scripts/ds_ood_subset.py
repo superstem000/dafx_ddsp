@@ -107,6 +107,16 @@ def main() -> None:
                    help="Skip groups with fewer clips than this. A mean over "
                         "three files is not a measurement and printing it as "
                         "one invites reading it as one.")
+    p.add_argument("--active-db", type=float, default=40.0, metavar="DB",
+                   help="Score only frames whose energy is within this many dB "
+                        "of the target's loudest frame. A silent frame is "
+                        "silent in both target and resynthesis and clamps to "
+                        "the same floor, so it contributes nothing to the sum "
+                        "while still counting in the mean -- which divides a "
+                        "mostly-finished clip's score down. mallet_acoustic is "
+                        "active in 32% of frames and vocal_acoustic in 85%, so "
+                        "the raw column ranked partly by note length. 0 scores "
+                        "whole clips.")
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
@@ -164,8 +174,20 @@ def main() -> None:
                 print(f"  {k:<14}{len(groups[k]):>6}")
             print()
 
-        scores = defaultdict(lambda: defaultdict(float))
-        counts = defaultdict(int)
+        # NORMALISED BY AN UNRELATED PAIR OF THE SAME FAMILY. A raw L1 on
+        # MFCCs is on whatever scale that family's MFCCs happen to occupy, so
+        # a family with more spectral variation scores worse at equal relative
+        # fit and the column cannot be read across rows. Dividing by the same
+        # distance between two UNRELATED clips of the same group gives
+        # "fraction of the distance between two clips of this kind": 0 is
+        # exact, 1 is no better than picking another clip at random. Same
+        # denominator the plate work uses as `saturation`.
+        #
+        # It also cancels most of the silence dilution -- a family whose clips
+        # are two-thirds over deflates numerator and denominator together --
+        # though not exactly, since note lengths vary within a family too,
+        # which is what --active-db cleans up.
+        scores = defaultdict(lambda: defaultdict(lambda: [0.0, 0.0, 0.0]))
         for gname, idxs in groups.items():
             loader = DataLoader(Subset(vset, idxs), batch_size=args.batch_size,
                                 num_workers=0)
@@ -175,16 +197,48 @@ def main() -> None:
                 with torch.no_grad():
                     out, _ = model(batch)
                 tgt = batch["audio"]
-                n = tgt.shape[0]
+                if tgt.shape[0] < 2:
+                    continue          # no partner for the denominator
+                # The unrelated partner is the batch rolled by one. Group
+                # members are contiguous in the Subset, so a roll pairs clips
+                # of the SAME family -- which is the point: the denominator has
+                # to be that family's own spread, not the whole set's.
+                oth = tgt.roll(1, dims=0)
+
+                m = None
+                if args.active_db > 0:
+                    # Mask from the TARGET only. Taking it from each arm's
+                    # output would grade an arm that under-synthesises on
+                    # fewer frames, biasing the comparison in the direction
+                    # under dispute.
+                    fe = _linmag(tgt).sum(dim=1)
+                    m = fe >= fe.amax(dim=1, keepdim=True) * 10.0 ** (
+                        -args.active_db / 20.0)
+
                 for mname, fn in metrics.items():
-                    # sum, then divide by n -- a mean of per-batch means would
-                    # weight a short final batch equally with a full one.
-                    # No .cpu(): make_mfcc builds its window on `dev`, and
-                    # torch.stft requires signal and window on the same device.
-                    scores[gname][mname] += float(
-                        F.l1_loss(fn(tgt), fn(out))) * n
-                counts[gname] += n
-        per_arm[arm] = {g: {m: s / counts[g] for m, s in ms.items()}
+                    a, b, c = fn(tgt), fn(out), fn(oth)
+                    mm = m
+                    if mm is not None and mm.shape[-1] != a.shape[-1]:
+                        # MFCC and the raw spectrogram can differ by a frame
+                        # of padding; index rather than assume they match.
+                        j = (torch.arange(a.shape[-1], device=dev)
+                             * mm.shape[-1] // a.shape[-1])
+                        mm = mm[:, j]
+                    if mm is None:
+                        num = float((a - b).abs().sum())
+                        den = float((a - c).abs().sum())
+                        k = a.numel()
+                    else:
+                        w = mm[:, None, :].expand_as(a)
+                        num = float(((a - b).abs() * w).sum())
+                        den = float(((a - c).abs() * w).sum())
+                        k = float(w.sum())
+                    e = scores[gname][mname]
+                    e[0] += num
+                    e[1] += den
+                    e[2] += k
+        per_arm[arm] = {g: {m: (e[0] / e[1] if e[1] else float("nan"))
+                            for m, e in ms.items()}
                         for g, ms in scores.items()}
         print(f"{arm:<24} {note}")
 
@@ -193,8 +247,9 @@ def main() -> None:
 
     arms = list(per_arm)
     for mname in metrics:
-        print(f"\n=== {args.domain} {args.split} / {mname}   (lower is better; "
-              f"BEST per row in the last column)")
+        print(f"\n=== {args.domain} {args.split} / {mname}   "
+              f"(fraction of the distance to an unrelated clip of the SAME "
+              f"group; 0 exact, 1 no better than random)")
         w = max(14, max(len(g) for g in groups) + 2)
         print(f"{'group':<{w}}{'n':>6}" + "".join(f"{a:>22}" for a in arms)
               + f"{'winner':>22}")
@@ -205,7 +260,13 @@ def main() -> None:
                   + "".join(f"{vals[a]:>22.4f}" for a in arms)
                   + f"{best:>22}")
 
-    print("\n  A ranking that flips between ALL and a subgroup is a fact about "
+    print("\n  Read DOWN a column to rank how representable each group is by "
+          "this\n  synthesizer, and ACROSS a row to rank the losses on it. Both "
+          "are now\n  on one scale -- each number is a fraction of the distance "
+          "between two\n  unrelated clips of that same group -- so 0.30 for "
+          "mallet and 0.30 for\n  vocal mean the same thing, which the raw L1 "
+          "column did not.")
+    print("  A ranking that flips between ALL and a subgroup is a fact about "
           "the\n  evaluation set, not about the losses. Read the group sizes: a "
           "flip on\n  a group of 30 against a set of 2000 is noise until shown "
           "otherwise.")
