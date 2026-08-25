@@ -156,6 +156,30 @@ def main() -> None:
         print(f"{g:<24}{len(groups[g]):>6}"
               + "".join(f"{v:>10.3f}" for v in r))
 
+    print(f"\n=== RATIO / its own 0-20 dB column   (the loud band divided out)")
+    print(f"{'group':<24}{'n':>6}{hdr}")
+    for g in sorted(groups, key=lambda k: -len(groups[k])):
+        r = per_arm["log"][g] / per_arm["lin"][g].clamp(min=1e-30)
+        print(f"{g:<24}{len(groups[g]):>6}"
+              + "".join(f"{v:>10.3f}" for v in r / r[0].clamp(min=1e-30)))
+
+    print("\n  THE RAW RATIO ABOVE IS CONFOUNDED and the normalised table is the")
+    print("  one to read. The log arm is worse in EVERY band including 0-20,")
+    print("  where the ratio is already 1.57 on ALL -- so the raw column mostly")
+    print("  measures that it is a worse model overall, not anything about the")
+    print("  quiet region. Dividing each band by its own 0-20 entry asks the")
+    print("  question that was intended: relative to how much worse this arm is")
+    print("  everywhere, how does it do HERE.")
+    print("  On ALL that comes out 1.78 / 2.52 / 2.07 through 40-100 dB and 0.65")
+    print("  in the deepest band -- so compression's weighting buys relative")
+    print("  advantage only below -100 dB and costs a factor of two across the")
+    print("  region where most non-loud content actually lives.")
+    print("  As a per-group SELECTION rule it is weak: the four groups where")
+    print("  linear wins on mfcc sit at 2.4-3.3 and the largest hybrid wins sit")
+    print("  at 1.0-1.7, which is the right direction, but vocal_synthetic and")
+    print("  flute_acoustic are high AND hybrid wins there. Do not pick a family")
+    print("  on this column alone.")
+
     print("\n  Read the 40-100 dB columns. A ratio near or above 1.0 there means")
     print("  the log-trained arm weighted that band heavily and did not fit it")
     print("  any better -- the quiet region is UNINFORMATIVE, compression's")
