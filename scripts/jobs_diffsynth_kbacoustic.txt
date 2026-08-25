@@ -1,0 +1,65 @@
+# keyboard_acoustic: the strongest linear-wins class in NSynth.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_kbacoustic.txt
+#
+# WHY THIS CLASS. Evaluating the existing all-NSynth arms per instrument class,
+# normalised by each class's own spread, keyboard_acoustic gave the largest
+# linear margin of any of the nineteen:
+#
+#             magx     hybridx    logx
+#   mfcc     0.4710    0.5063    0.5426     linear by 0.0353
+#   mfcc03   0.2950    0.4569    0.5041
+#   linmag   0.3895    0.5220    0.6557
+#
+# six times brass_acoustic's 0.0059, and it is also where the mechanism is
+# clearest. Its residual-by-band ratio between the log-trained and linear-trained
+# arms, divided by its own 0-20 dB entry, reads 4.15 in the 60-80 band -- the
+# highest normalised penalty of any class. The log arm weights that band and
+# fits it four times worse relative to how much worse it is everywhere. And its
+# spectral flatness is 0.0172, the peakiest of all nineteen cells, against
+# string_acoustic at 0.100 which is the largest hybrid win.
+#
+# THE HONEST STATUS OF THAT. Ten audio statistics were scored against the
+# nineteen-class margin; the best was flatness at r = +0.473, p = 0.027 against
+# a Bonferroni threshold of 0.005, Spearman only +0.307. Nothing predicts the
+# outcome from the audio at the level a paper can lean on. So the class was
+# chosen because linear wins there in the joint-trained table, and these runs
+# are a TEST of whether that sign survives class-specific training. The
+# joint-trained margin is the hypothesis; it cannot also be the evidence.
+#
+# AND THE CONCEPTUAL OBJECTION, recorded because it goes the other way.
+# keyboard_acoustic is largely acoustic piano: inharmonic from string stiffness,
+# a percussive attack, a long decay. Three things a harmonic oscillator through
+# a lowpass cannot produce. brass_acoustic is the reverse -- sustained, strongly
+# harmonic, no strike transient -- and had the weakest margin of the four
+# linear-wins classes. No class scores well on both legs. This one takes the
+# effect over the story, and its measured fit (0.471 mfcc, 0.390 linmag, both
+# better than brass) says the inharmonicity costs less in practice than in
+# principle.
+#
+# SETUP. All three arms branch from their own pre_* at latest.ckpt, epoch 199 /
+# step 50000, verified identical -- the same branch point the existing real_*
+# arms used, so these drop beside them. train_type is ood, so val_ood is the
+# held-out 10% of keyboard_acoustic and val_id is the h2of set nothing trains
+# on here.
+#
+# ID_DIR must hold NO MORE files than the ood set: data.py:92 draws
+# len(id_dat) samples from the ood set without replacement, and 20000 from
+# ~8000 raises. Build it with the sizing step in the run block; it feeds only
+# val_id metrics, which are therefore not comparable to the existing table.
+#
+# log_grad=false. Gradient histograms every step are what filled the disk --
+# 9 GB of event files across the earlier runs. scalars.csv carries everything
+# monitor_diffsynth reads.
+
+ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_magx_halfw scripts/ds_run.sh real_kb_magx_halfw resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_hybridx    scripts/ds_run.sh real_kb_hybridx    resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_logx_halfw scripts/ds_run.sh real_kb_logx_halfw resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# Monitor:   python -m src.ddsp.monitor_diffsynth --only '_kb_'
+# Read val_ood, not val_id. Use latest.ckpt, not last.ckpt -- ModelCheckpoint
+# monitors val_ood/lsd, so last.ckpt is selected on the validation set.
+#
+# No comment line here may begin with the word "stage": gpu_queue matches
+# ^#\s*STAGE[:\s] case-insensitively. These three are independent and want no
+# barrier.
