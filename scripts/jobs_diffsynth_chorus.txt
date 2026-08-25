@@ -35,13 +35,23 @@
 # pairs than it fixes. h1ofcf says the opposite, and it is the only one that
 # does:
 #
-#   task                        transform  reweight   fix    break
-#   plate/quiet7                   -0.006    -0.160   9.6%   28.7%
-#   h2of, all 8                    +0.040    -0.023  11.9%   12.3%
-#   h2of, filter only              +0.000    -0.018   3.1%    5.3%
-#   h1ofcfrev, reverb only         +0.000    +0.004   1.5%    1.1%
-#   h1ofcf, chorus only            +0.062    -0.058  14.9%    9.7%
-#   h1ofcf, all 8                  +0.062    -0.058  10.8%    7.2%
+#   task                             transform  reweight   fix    break   net
+#   plate/quiet7                        -0.006    -0.160   9.6%   28.7%  -19.1
+#   h2of, all 8                         +0.040    -0.023  11.9%   12.3%   -0.4
+#   h2of, filter only                   +0.000    -0.018   3.1%    5.3%   -2.2
+#   h2of_cf, modulation only            +0.043    -0.091   8.3%   10.3%   -2.0
+#   h1of, all 5                         +0.041    -0.032  13.2%   12.8%   +0.4
+#   h1ofcfrev, reverb only              +0.000    +0.004   1.5%    1.1%   +0.4
+#   h1ofcf_f0, chorus only (BFRQ 220)   +0.062    -0.058  14.9%    9.7%   +5.2
+#   h1ofcf, ALL 9, BFRQ SEARCHED        +0.032    -0.031  11.4%    8.7%   +2.7
+#
+# THE LAST ROW IS THIS TASK. Searching BFRQ instead of pinning it at 220 halves
+# the transform gain, +0.062 to +0.032, and halves the net, +5.2% to +2.7%. That
+# was the predicted direction -- BFRQ's signature is loud and harmonic, which is
+# the kind of column that helps a LINEAR loss -- and it is the price of not
+# needing an f0 extraction pass. It is still the largest positive number of any
+# full task measured, and the only one where a log term clearly fixes more than
+# it breaks, but the margin is half what the pinned version promised.
 #
 # The mechanism is comb filtering. ChorusFlanger sums dry with a modulated
 # delayed copy, so the transfer magnitude is |1-mix + mix*e^{-jwT}| -- notches
@@ -71,10 +81,13 @@
 # is the kind that helps a LINEAR loss. Re-run the probe on h1ofcf.yaml before
 # trusting the prediction below.
 #
-# THE PREDICTION, stated before the runs so it can be wrong. The decomposition
-# says the transform gains +0.062 while the reweighting costs -0.058, and a
-# hybrid keeps linear's weighting on the loud bands while adding the log term's
-# within-band comparison. So: hybridx > logx_halfw > magx_halfw.
+# THE PREDICTION, stated before the runs so it can be wrong. The transform gains
+# +0.032 while the reweighting costs -0.031, and a hybrid keeps linear's
+# weighting on the loud bands while adding the log term's within-band
+# comparison. So: hybridx > logx_halfw > magx_halfw -- but THINLY. The plate's
+# -19.1% produced a total collapse; +2.7% may sit below what a training run can
+# resolve. A tie is a plausible outcome and would be worth reporting as the
+# instrument's resolution limit rather than as a contradiction of it.
 #
 # And the caveat that goes with it: at --max-rel 0.05 the whole effect collapses
 # (transform +0.010, fix-break +0.1%). The mechanism is about GLOBAL search, not
