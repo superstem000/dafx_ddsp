@@ -29,6 +29,7 @@ metric is still moving, judged against its own recent scatter.
 from __future__ import annotations
 
 import argparse
+import bisect
 import glob
 import json
 import os
@@ -103,7 +104,7 @@ SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 # Bumped whenever load() extracts a different set of series. The cache is
 # keyed on TAGS, and val_id/param_group/* is not in TAGS -- without this a
 # cache written before those were read would silently keep hiding them.
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 
 
 def load(run_dir: str) -> dict | None:
@@ -146,8 +147,10 @@ def load(run_dir: str) -> dict | None:
     have = set(ea.Tags().get("scalars", []))
     series = {k: {e.step: e.value for e in ea.Scalars(t)}
               for k, t in TAGS.items() if t in have}
-    for k, t in (("param_w", "lw/param_w"), ("sw_w", "lw/sw_w"),
-                 ("train", "train/total")):
+    # Lightning's own step -> epoch record. Underscore-prefixed so the per-key
+    # tables, which iterate an explicit list, never treat it as a metric.
+    for k, t in (("_epoch", "epoch"), ("param_w", "lw/param_w"),
+                 ("sw_w", "lw/sw_w"), ("train", "train/total")):
         if t in have:
             series[k] = {e.step: e.value for e in ea.Scalars(t)}
     # Per-parameter Param, logged from model.py's validation_step. Absent from
@@ -191,9 +194,41 @@ def load(run_dir: str) -> dict | None:
 
 
 
+def epoch_of(r: dict, step: int, spe: int) -> int:
+    """Epoch for a global step, from Lightning's own `epoch` scalar.
+
+    DIVIDING BY A CONSTANT IS WRONG THE MOMENT A FAMILY CHANGES DATASET SIZE,
+    and it fails silently -- as a plausible smaller number, not an error. The
+    keyboard runs are the case that exposed it: 16000 train clips at batch 64
+    is 250 steps an epoch, which is what --steps-per-epoch assumes, but they
+    train on ~6400 keyboard clips, which is 100. Resuming at step 50000 and
+    running 200 more epochs ends at 70000, and 70000 // 250 = 280. The table
+    said 280, the run said `max_epochs=400 reached`, and 280 was read as an
+    early exit that never happened.
+
+    Lightning logs `epoch` as a scalar to TensorBoard, so the mapping is
+    recorded rather than inferred. --steps-per-epoch remains the fallback for
+    event files that predate it or lack the tag.
+    """
+    m = r["series"].get("_epoch")
+    if not m:
+        return step // spe
+    if step in m:
+        return int(round(m[step]))
+    ks = sorted(m)
+    i = bisect.bisect_left(ks, step)
+    if i <= 0:
+        return int(round(m[ks[0]]))
+    if i >= len(ks):
+        return int(round(m[ks[-1]]))
+    lo, hi = ks[i - 1], ks[i]
+    return int(round(m[lo] if step - lo <= hi - step else m[hi]))
+
+
 def pairs(r: dict, key: str, spe: int):
     """(epoch, value) sorted, for one metric of one run."""
-    return sorted((st // spe, v) for st, v in r["series"].get(key, {}).items())
+    return sorted((epoch_of(r, st, spe), v)
+                  for st, v in r["series"].get(key, {}).items())
 
 
 def around(pts, ep, half=2):
@@ -280,7 +315,14 @@ def main() -> None:
                         "mistake -- they cover different epoch ranges, so a "
                         "milestone row means different things in each column.")
     p.add_argument("--steps-per-epoch", type=int, default=250,
-                   help="16000 train / batch 64; only used to label epochs")
+                   help="FALLBACK ONLY, for event files with no `epoch` tag. "
+                        "The epoch axis normally comes from Lightning's own "
+                        "`epoch` scalar. This constant -- 16000 train clips at "
+                        "batch 64 -- is right for the full-NSynth families and "
+                        "wrong for any run on a smaller set, silently, as a "
+                        "plausible smaller number: the keyboard runs do ~100 "
+                        "steps an epoch, so their finished 400 read as 280 and "
+                        "was mistaken for an early exit.")
     args = p.parse_args()
 
     runs = {}
@@ -338,7 +380,7 @@ def main() -> None:
                 continue
             best_step = min(sel, key=lambda s: sel[s])
             for tag, step in (("best", best_step), ("final", max(r["steps"]))):
-                ep = step // args.steps_per_epoch
+                ep = epoch_of(r, step, args.steps_per_epoch)
                 print(f"{name:<18}{tag:>6}{ep:>7}"
                       f"{at(r, step, 'param'):>9.4f}"
                       f"{at(r, step, 'id_multi'):>10.4f}{at(r, step, 'id_mfcc'):>9.4f}"
@@ -352,7 +394,7 @@ def main() -> None:
           f"{'ID LSD':>9}{'OOD LSD':>9}{'Param':>9}")
     for name, r in runs.items():
         last = max(r["steps"])
-        ep = last // args.steps_per_epoch
+        ep = epoch_of(r, last, args.steps_per_epoch)
         eph = (r["n_ev"] / (r["elapsed"] / 3600)) if r["elapsed"] > 0 else float("nan")
         tot = r["max_epochs"]
         eta = ((tot - ep) / eph) if (tot and eph and eph == eph and eph > 0) else float("nan")
