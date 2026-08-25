@@ -85,6 +85,13 @@ def main() -> None:
     p.add_argument("--arms", nargs="+", required=True)
     p.add_argument("--ckpt", default="latest.ckpt")
     p.add_argument("--split", default="valid", choices=("valid", "test", "train"))
+    p.add_argument("--domain", default="ood", choices=("ood", "id"),
+                   help="id scores the in-domain split, where the grouping is "
+                        "meaningless but the METRICS are the point: linear's "
+                        "established win is on val_id/param, a ground-truth "
+                        "parameter metric, and whether it also wins on in-domain "
+                        "AUDIO metrics has never been checked. If it does not, "
+                        "the OOD ranking needs no domain explanation at all.")
     p.add_argument("--group-by", default="both",
                    choices=("family", "source", "both"))
     p.add_argument("--only", nargs="+", default=None, metavar="GROUP",
@@ -98,7 +105,21 @@ def main() -> None:
     args = p.parse_args()
 
     dev = args.device if torch.cuda.is_available() else "cpu"
+    # A LINEAR audio metric alongside the compressed ones, and it is the
+    # control the first version lacked. mfcc is log-mel at top_db 80 and mfcc03
+    # is gamma 0.3, so both REWARD a log-domain loss for optimizing something
+    # structurally like what they measure -- metric-loss alignment, which has
+    # nothing to do with whether the target is a synth lead or a bowed string.
+    # Without a metric on plain magnitude there is no way to tell that apart
+    # from a real difference in fit.
+    win = torch.hann_window(1024, device=dev)
+
+    def _linmag(x):
+        return torch.stft(x, 1024, hop_length=256, window=win, center=True,
+                          return_complex=True).abs()
+
     metrics = {
+        "linmag": lambda a, ref=None: _linmag(a),
         "mfcc": mc.make_mfcc(dev, window="hann", log="db", top_db=80.0,
                              mel_norm="slaney", mel_scale="slaney"),
         "mfcc03": mc.make_mfcc(dev, window="hann", log="pow", gamma=0.3,
@@ -113,7 +134,8 @@ def main() -> None:
         if model is None:
             print(f"{arm:<24} skipped: {note}")
             continue
-        vset = dm.ood_datasets[args.split]
+        vset = (dm.ood_datasets if args.domain == "ood"
+                else dm.id_datasets)[args.split]
         files = source_files(vset)
 
         if groups is None:
@@ -128,7 +150,7 @@ def main() -> None:
             groups = {k: v for k, v in groups.items()
                       if len(v) >= args.min_n and (not args.only or k in args.only
                                                    or k == "ALL")}
-            print(f"ood {args.split}: {len(files)} clips")
+            print(f"{args.domain} {args.split}: {len(files)} clips")
             for k in sorted(groups, key=lambda k: -len(groups[k])):
                 print(f"  {k:<14}{len(groups[k]):>6}")
             print()
@@ -162,7 +184,7 @@ def main() -> None:
 
     arms = list(per_arm)
     for mname in metrics:
-        print(f"\n=== ood {args.split} / {mname}   (lower is better; "
+        print(f"\n=== {args.domain} {args.split} / {mname}   (lower is better; "
               f"BEST per row in the last column)")
         w = max(14, max(len(g) for g in groups) + 2)
         print(f"{'group':<{w}}{'n':>6}" + "".join(f"{a:>22}" for a in arms)
