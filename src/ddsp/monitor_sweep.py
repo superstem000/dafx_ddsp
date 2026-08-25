@@ -139,7 +139,14 @@ def load(root, prefix: str = ""):
                 "val": r.get("val_loss", float("nan")),
                 "nmse": r["val_nmse_6d"],
                 "nmse_geo": r.get("val_nmse_6d_geo", float("nan")),
-                "train_sat": r["train_loss"] / d["saturation"],
+                # .get, not ['saturation']: a history.json recovered from a
+                # truncation carries its rows but not necessarily the
+                # top-level fields written after them, and a monitor
+                # that dies on a partial file is useless exactly when
+                # it is most needed. train_sat goes nan; nothing else
+                # in the table depends on it.
+                "train_sat": (r["train_loss"] / d["saturation"]
+                              if d.get("saturation") else float("nan")),
                 "ratio": r["val_nmse_6d"] / d["const_nmse_6d"],
                 "spread": sum(sp) / len(sp) if sp else float("nan"),
                 "sat": r.get("sat_frac", float("nan")),
