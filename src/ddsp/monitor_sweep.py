@@ -116,7 +116,16 @@ def load(root, prefix: str = ""):
         name = prefix + Path(hp).parent.name
         try:
             d = json.load(open(hp))
-        except Exception:
+        except Exception as e:
+            # SAY SO. This used to `continue` silently, and when a full disk
+            # truncated two arms' history.json mid-record they simply stopped
+            # appearing in the table -- indistinguishable from never having been
+            # run, and read as "did we delete them". An arm whose data cannot be
+            # loaded is a different situation from an arm that does not exist,
+            # and the two must not look the same.
+            print(f"  SKIPPED {name}: history.json unreadable ({e}). The "
+                  f"checkpoints are probably fine -- recover the rows by "
+                  f"decoding records up to the truncation, then resume.")
             continue
         rows = {}
         for r in d["history"]:
