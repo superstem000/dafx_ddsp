@@ -84,6 +84,22 @@ def main() -> None:
     p.add_argument("--root", default="results/diffsynth")
     p.add_argument("--arms", nargs="+", required=True)
     p.add_argument("--ckpt", default="latest.ckpt")
+    p.add_argument("--delta", action="store_true",
+                   help="Treat --arms as BASELINES followed by FINALS, in the "
+                        "same order, and add a table of baseline minus final: "
+                        "how much each arm IMPROVED on that group. Requires an "
+                        "even count.\n"
+                        "This is the measure that controls for the starting "
+                        "point, and the starting points are not equal. At epoch "
+                        "199, before any real audio, pre_magx_halfw is worse "
+                        "than both compressed bases on 33 of 34 classes -- so an "
+                        "endpoint table mixes inherited pretraining differences "
+                        "with what the resume actually did. On keyboard_acoustic "
+                        "magx starts 0.33 behind and finishes 0.30 ahead, a "
+                        "swing only the delta shows; on string_acoustic magx "
+                        "improves 1.34 against hybrid's 3.38.\n"
+                        "All arms must share an ood_dir, since the grouping is "
+                        "built once from the first arm's split.")
     p.add_argument("--split", default="valid", choices=("valid", "test", "train"))
     p.add_argument("--domain", default="ood", choices=("ood", "id"),
                    help="id scores the in-domain split, where the grouping is "
@@ -255,6 +271,10 @@ def main() -> None:
         raise SystemExit("no arm produced results")
 
     arms = list(per_arm)
+    if args.delta and len(arms) % 2:
+        raise SystemExit(f"--delta needs an even number of arms, got {len(arms)}")
+
+    arms = list(per_arm)
     for mname in metrics:
         cap = ("fraction of the distance to an unrelated clip of the SAME "
                "group; 0 exact, 1 no better than random" if args.norm == "sat"
@@ -270,6 +290,32 @@ def main() -> None:
             print(f"{g:<{w}}{len(groups[g]):>6}"
                   + "".join(f"{vals[a]:>22.4f}" for a in arms)
                   + f"{best:>22}")
+
+    if args.delta:
+        h = len(arms) // 2
+        pairs = list(zip(arms[:h], arms[h:]))
+        for mname in metrics:
+            print(f"\n=== IMPROVEMENT on {mname}: baseline minus final, so "
+                  f"POSITIVE is better")
+            w = max(14, max(len(g) for g in groups) + 2)
+            lbl = [f"{b.split('_')[0]}->{f}" for b, f in pairs]
+            print(f"{'group':<{w}}{'n':>6}" + "".join(f"{l:>26}" for l in lbl)
+                  + f"{'most improved':>26}")
+            for g in sorted(groups, key=lambda k: -len(groups[k])):
+                d = {f: per_arm[b][g][mname] - per_arm[f][g][mname]
+                     for b, f in pairs if g in per_arm[b] and g in per_arm[f]}
+                if not d:
+                    continue
+                best = max(d, key=d.get)
+                print(f"{g:<{w}}{len(groups[g]):>6}"
+                      + "".join(f"{d[f]:>26.4f}" for _, f in pairs)
+                      + f"{best:>26}")
+        print("\n  The endpoint tables and this one answer different questions.")
+        print("  An endpoint says which model is better on that class; this says")
+        print("  which LOSS learned more from the real data there, with the")
+        print("  unequal starting points divided out. They disagree: magx has the")
+        print("  best endpoint on four classes but the largest improvement on")
+        print("  more than that, because it starts behind on nearly all of them.")
 
     print("\n  Read DOWN a column to rank how representable each group is by "
           "this\n  synthesizer, and ACROSS a row to rank the losses on it. Both "
