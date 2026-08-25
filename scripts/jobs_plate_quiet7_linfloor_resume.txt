@@ -1,0 +1,29 @@
+# Finish lin_db40 and lin_db80 after the disk filled underneath them.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_plate_quiet7_linfloor_resume.txt
+#
+# WHAT HAPPENED. The filesystem hit 100% while these two were training. The
+# checkpoints survived intact -- encoder_last.pt is byte-identical in size to
+# every other arm's -- but history.json was truncated mid-record at a 228 KiB
+# block boundary and the per-arm .log was cut mid-line. monitor_sweep drops an
+# arm whose history.json will not parse, silently, which is why the two columns
+# vanished from the table rather than showing an error.
+#
+# The files were repaired by decoding records until the truncation and
+# rewriting: 318 rows to step 36800 for db40, 312 to 36200 for db80. The raw
+# truncated bytes are kept beside them as history.json.trunc.
+#
+# THE REPAIR HAD TO COME FIRST. train_encoder reads history.json on resume
+# inside a bare `except Exception: pass` (train_encoder.py:1021), so resuming
+# against the corrupt file would have caught the JSONDecodeError, started the
+# history empty, and thrown away every row before 36800 -- quietly, with the
+# run looking healthy.
+#
+# FORCE=1 because eps_ladder refuses a directory that already holds results,
+# which is exactly what these are. Resuming from each arm's OWN encoder_last.pt,
+# not from quiet7_pre.
+FORCE=1 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_lin_db40" EXTRA="--resume results/ddsp/quiet7_floor/L1_STFT_lin_db40/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+FORCE=1 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7_floor ARMS="L1_STFT_lin_db80" EXTRA="--resume results/ddsp/quiet7_floor/L1_STFT_lin_db80/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# No comment line here may begin with the word "stage": gpu_queue matches
+# ^#\s*STAGE[:\s] case-insensitively and would insert a barrier.
