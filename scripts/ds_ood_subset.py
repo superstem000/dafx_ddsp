@@ -93,7 +93,14 @@ def main() -> None:
                         "AUDIO metrics has never been checked. If it does not, "
                         "the OOD ranking needs no domain explanation at all.")
     p.add_argument("--group-by", default="both",
-                   choices=("family", "source", "both"))
+                   choices=("family", "source", "both", "cross"),
+                   help="cross adds family_source intersections -- "
+                        "organ_electronic, bass_synthetic -- alongside the "
+                        "marginals. The marginals can mislead: a family's "
+                        "number is a mix of however its sources happen to be "
+                        "distributed, and 'electronic organ' is a different "
+                        "instrument from 'acoustic organ' in every way that "
+                        "matters to a harmonic-oscillator model.")
     p.add_argument("--only", nargs="+", default=None, metavar="GROUP",
                    help="Score only these groups, e.g. --only synth_lead")
     p.add_argument("--min-n", type=int, default=8,
@@ -142,10 +149,12 @@ def main() -> None:
             groups = defaultdict(list)
             for i, f in enumerate(files):
                 fam, src = categorize(f)
-                if args.group_by in ("family", "both"):
+                if args.group_by in ("family", "both", "cross"):
                     groups[fam].append(i)
-                if args.group_by in ("source", "both"):
+                if args.group_by in ("source", "both", "cross"):
                     groups[src].append(i)
+                if args.group_by == "cross":
+                    groups[f"{fam}_{src}"].append(i)
                 groups["ALL"].append(i)
             groups = {k: v for k, v in groups.items()
                       if len(v) >= args.min_n and (not args.only or k in args.only
