@@ -165,9 +165,34 @@ def main() -> None:
                         "window HTK cepstrum and reads 1.6-2.6 where this "
                         "column reads 7-14; runs started before mfccdb existed "
                         "have no logged curve comparable to this table.")
+    p.add_argument("--top-db", default="80", metavar="DB",
+                   help="The mfcc column's dynamic-range bound, in dB below "
+                        "each clip's own loudest mel band. 'none' removes it.\n"
+                        "IT DECIDES WHAT THE COLUMN CAN SEE. At the default 80 "
+                        "anything quieter is clamped flat in BOTH target and "
+                        "resynthesis, so it contributes exactly zero -- which "
+                        "means a class whose quiet region is empty and deep is "
+                        "invisible to the metric no matter what a log loss did "
+                        "with it. bass_electronic has 64% of its bins 80-120 dB "
+                        "down; none of that reaches the default column. Removing "
+                        "the bound is how to ask whether a linear arm's "
+                        "advantage lives down there.\n"
+                        "'none' is not unbounded, and the difference matters: "
+                        "--mfcc-eps still sits inside the log, at 1e-10, which "
+                        "is an ABSOLUTE floor near -100 dB rather than a "
+                        "peak-relative one. So a quiet recording is bounded "
+                        "sooner than a loud one, and the column stops being "
+                        "comparable across clips of different level in a way "
+                        "the top_db version is not.")
+    p.add_argument("--mfcc-eps", type=float, default=None, metavar="E",
+                   help="Additive eps inside the log, default 1e-10. With "
+                        "--top-db none this is the only thing bounding the "
+                        "column, so it is the knob that sets how deep it looks.")
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
+
+    top_db = None if str(args.top_db).lower() in ("none", "off") else float(args.top_db)
 
     dev = args.device if torch.cuda.is_available() else "cpu"
     # A LINEAR audio metric alongside the compressed ones, and it is the
@@ -183,10 +208,16 @@ def main() -> None:
         return torch.stft(x, 1024, hop_length=256, window=win, center=True,
                           return_complex=True).abs()
 
+    # The column NAMES the bound it was computed under, so a table pasted into
+    # a document cannot be read as the default one when it is not. "mfcc" means
+    # top_db 80 and nothing else.
+    mfcc_key = ("mfcc" if top_db == 80.0 else
+                "mfcc_nofl" if top_db is None else f"mfcc_db{top_db:g}")
     metrics = {
         "linmag": lambda a, ref=None: _linmag(a),
-        "mfcc": mc.make_mfcc(dev, window="hann", log="db", top_db=80.0,
-                             mel_norm="slaney", mel_scale="slaney"),
+        mfcc_key: mc.make_mfcc(dev, window="hann", log="db", top_db=top_db,
+                               eps=args.mfcc_eps,
+                               mel_norm="slaney", mel_scale="slaney"),
         "mfcc03": mc.make_mfcc(dev, window="hann", log="pow", gamma=0.3,
                                mel_norm="slaney", mel_scale="slaney"),
     }
