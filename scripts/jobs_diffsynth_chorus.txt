@@ -9,7 +9,7 @@
 #   cd external/diffsynth
 #   python gen_dataset.py data/chorus_smoke configs/synth/dataset/h1ofcf.yaml \
 #       --data_size 64 --save_param --device cuda
-#   python train.py experiment=pretrain synth=h1ofcf_f0 \
+#   python train.py experiment=pretrain synth=h1ofcf \
 #       data.id_dir=$PWD/data/chorus_smoke/h1ofcf trainer.max_epochs=1 \
 #       trainer.accelerator=gpu trainer.devices=1
 #
@@ -57,9 +57,19 @@
 # gain +0.000 at all three base frequencies tried. Additive tail versus
 # multiplicative notch is the distinction, and it is measured on both sides.
 #
-# Nothing here is constructed for the purpose. h1ofcf_f0.yaml, the h1ofcf
-# dataset config and the ChorusFlanger module are all from the vendoring commit
-# de41fc8 and have never been touched since.
+# PROVENANCE, stated exactly. The ChorusFlanger module and the h1ofcf dataset
+# config are upstream, untouched since the vendoring commit de41fc8, and the
+# effect measured is a property of that module and that data. The MODEL config
+# is not upstream: configs/synth/h1ofcf.yaml is h1ofcf_f0.yaml with BFRQ
+# searched rather than conditioned, which is the same relationship h1of.yaml
+# already has to h1of_f0.yaml. The task was not built to produce the result;
+# one config was written to make the upstream task runnable without an f0
+# extraction pass over NSynth.
+#
+# That change is not free for the measurement: the probe measured h1ofcf_f0
+# with BFRQ pinned at 220, and searching it adds a loud harmonic column, which
+# is the kind that helps a LINEAR loss. Re-run the probe on h1ofcf.yaml before
+# trusting the prediction below.
 #
 # THE PREDICTION, stated before the runs so it can be wrong. The decomposition
 # says the transform gains +0.062 while the reweighting costs -0.058, and a
@@ -82,23 +92,23 @@
 #   hybridx      hybrid    both terms
 #   logx_halfw   log       mag_w=0
 #
-# synth=h1ofcf_f0 selects the model synth; the experiment configs default it to
+# synth=h1ofcf selects the model synth; the experiment configs default it to
 # h2of. ID_DIR overrides the dataset ds_run.sh otherwise pins.
 
 # STAGE base
 # Epochs 0-200. Three arms, three cards, branching later from a shared
 # checkpoint the way every other family here does.
-ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_magx_halfw pretrain "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
-ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_hybridx    pretrain "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
-ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_logx_halfw pretrain "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_magx_halfw pretrain "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_hybridx    pretrain "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_logx_halfw pretrain "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
 
 # STAGE resumes
 # Epochs 200-400, in domain. The measurement is about in-domain parameter
 # recovery, so resume_synth is the branch that answers it; resume_real can
 # follow if the in-domain result is worth extending.
-ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_magx_halfw scripts/ds_run.sh synth_ch_magx_halfw resume_synth "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
-ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_hybridx    scripts/ds_run.sh synth_ch_hybridx    resume_synth "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
-ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_logx_halfw scripts/ds_run.sh synth_ch_logx_halfw resume_synth "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_magx_halfw scripts/ds_run.sh synth_ch_magx_halfw resume_synth "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_hybridx    scripts/ds_run.sh synth_ch_hybridx    resume_synth "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_logx_halfw scripts/ds_run.sh synth_ch_logx_halfw resume_synth "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
 
 # The two `# STAGE` lines above are real barriers and are wanted here: the
 # resumes read a checkpoint the bases write, so starting them together would

@@ -1,0 +1,52 @@
+# h1ofcf_f0 with BFRQ SEARCHED instead of conditioned. Not upstream.
+#
+# The upstream pair for the h1ofcf dataset is h1ofcf_f0.yaml, which declares
+#   fixed_params: {BFRQ: null}
+# so fill_params reads conditioning['BFRQ'] -- and data.py writes that key only
+# under data.f0=true, which in turn asserts a precomputed <dir>/f0/*.pt for BOTH
+# the id and the ood dataset. Without it the run dies at synthesizer.py:81 with
+# KeyError: 'BFRQ' during the first sanity check.
+#
+# This is the same relationship h1of.yaml already has to h1of_f0.yaml: identical
+# dag, BFRQ moved out of fixed_params and into the searched set, listed in
+# static_params because one f0 per clip is what the h1ofcf generator produces.
+# So the estimator predicts nine columns rather than eight, with f0 estimated
+# rather than supplied.
+#
+# WHAT THIS CHANGES FOR THE MEASUREMENT. diag/ds_band_identifiability measured
+# h1ofcf_f0 with BFRQ pinned at 220 Hz. Searching it adds a column whose
+# signature is loud and harmonic -- which is the kind of parameter that
+# STRENGTHENS a linear loss, so the chorus advantage should be read again here
+# before the training arms are trusted:
+#
+#   python scripts/ds_band_identifiability.py \
+#       --conf external/diffsynth/configs/synth/h1ofcf.yaml --n 24 --k 32
+#
+# There is no --cond to pass now; nothing is left null.
+name: harmor_1oscfree_cf
+dag:
+  harmor:
+    config:
+      _target_: diffsynth.modules.harmor.Harmor
+      sample_rate: ${data.sample_rate}
+      sep_amp: true
+      n_oscs: 1
+    connections:
+      amplitudes: AMP
+      osc_mix: M_OSC
+      f0_hz: BFRQ
+      f0_mult: MULT
+      cutoff: CUTOFF
+      q: Q_FILT
+  chorus:
+    config:
+      _target_: diffsynth.modules.delay.ChorusFlanger
+      sample_rate: ${data.sample_rate}
+    connections:
+      audio: harmor
+      delay_ms: CF_DELAY
+      rate: CF_RATE
+      depth: CF_DEPTH
+      mix: CF_MIX
+fixed_params:
+static_params: [BFRQ, M_OSC, MULT, Q_FILT, CF_DELAY, CF_RATE, CF_DEPTH, CF_MIX]
