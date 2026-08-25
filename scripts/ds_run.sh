@@ -42,10 +42,19 @@ ID_DIR=${ID_DIR:-$DS/data/diffsynth_5-6/harmor_2oscfree}
 OOD_DIR=${OOD_DIR:-$DS/data/nsynth-train}
 if [[ ! -d "$ID_DIR" ]]; then
   echo "ERROR: ID_DIR does not exist: $ID_DIR"
+  echo "  (resolved from $PWD)"
   echo "Generate it first -- see scripts/jobs_diffsynth_chorus.txt for the"
   echo "gen_dataset.py command and the smoke test that goes before it."
   exit 1
 fi
+# RESOLVE TO ABSOLUTE, both of them. This script cds into $DS below and hydra
+# changes the working directory again on top of that, so a relative path that
+# was valid where the job line ran is looked up somewhere else entirely by the
+# time the datamodule opens it -- and the existence check above passes, because
+# it runs before the cd. That combination cost a queue: all three chorus jobs
+# reached hydra and died on a directory that was right there.
+ID_DIR=$(cd "$ID_DIR" && pwd)
+[[ -d "$OOD_DIR" ]] && OOD_DIR=$(cd "$OOD_DIR" && pwd)
 RUNDIR="$ROOT/results/diffsynth/$NAME"
 
 EXTRA=()
