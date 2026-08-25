@@ -104,6 +104,19 @@ def main() -> None:
     p.add_argument("--group-by", default="cross",
                    choices=("family", "source", "both", "cross"))
     p.add_argument("--min-n", type=int, default=10)
+    p.add_argument("--corr-on", default="disjoint",
+                   choices=("disjoint", "all"),
+                   help="Which rows enter the correlation. disjoint uses only "
+                        "the family_source CELLS. The marginals are unions of "
+                        "them and several are literally the same clips -- "
+                        "string and string_acoustic are one 127-clip set with "
+                        "identical numbers in every column, as are organ / "
+                        "organ_electronic and synth_lead / synth_lead_synthetic "
+                        "-- so including them duplicates points and inflates "
+                        "significance directly. 33 rows became 19 real ones, "
+                        "and at n=19 an r of 0.517 gives p about 0.023 rather "
+                        "than 0.0008, which does not survive correcting for ten "
+                        "tests. all reproduces the invalid version.")
     p.add_argument("--active-db", type=float, default=40.0)
     p.add_argument("--thresholds", type=float, nargs="+",
                    default=[40.0, 60.0, 80.0, 100.0])
@@ -215,6 +228,12 @@ def main() -> None:
     names = sorted(next(iter(stats.values())).keys())
     order = sorted((g for g in groups if g != "ALL"),
                    key=lambda g: score["lin"][g] - score["hyb"][g])
+    if args.corr_on == "disjoint" and args.group_by == "cross":
+        cells = {f"{f}_{s_}" for f, s_ in
+                 (categorize(x) for x in source_files(vset))}
+        corr_on = [g for g in order if g in cells]
+    else:
+        corr_on = list(order)
     print(f"\n=== per group   (margin = {args.metric} lin - hyb; "
           f"POSITIVE means hybrid wins)")
     print(f"{'group':<24}{'n':>6}{'margin':>9}" + "".join(f"{n:>11}" for n in names))
@@ -223,12 +242,17 @@ def main() -> None:
         print(f"{g:<24}{len(groups[g]):>6}{m:>9.4f}"
               + "".join(f"{stats[g][n]:>11.4f}" for n in names))
 
-    y = [score["lin"][g] - score["hyb"][g] for g in order]
-    print(f"\n=== correlation with the margin, n = {len(order)} groups")
+    y = [score["lin"][g] - score["hyb"][g] for g in corr_on]
+    print(f"\n=== correlation with the margin, n = {len(corr_on)} "
+          f"{args.corr_on} groups")
+    if args.corr_on == "disjoint":
+        print(f"    ({len(order)} rows shown above, {len(corr_on)} of them "
+              f"disjoint family_source cells; the rest are unions or "
+              f"duplicates)")
     print(f"{'statistic':<14}{'pearson':>10}{'p':>10}{'spearman':>11}{'p':>10}")
     res = []
     for n in names:
-        x = [stats[g][n] for g in order]
+        x = [stats[g][n] for g in corr_on]
         r, pv = _pearson(x, y)
         rs, ps = _pearson(_rank(x), _rank(y))
         res.append((n, r, pv, rs, ps))
@@ -240,6 +264,12 @@ def main() -> None:
           f"p < {0.05 / k:.4f}, not 0.05.")
     print(f"  Strongest: {best[0]} at r = {best[1]:+.3f}, p = {best[2]:.4f} -- "
           f"{'SURVIVES' if best[2] < 0.05 / k else 'does NOT survive'} it.")
+    sp = [t for t in res if t[0] == best[0]][0]
+    if abs(best[1]) - abs(sp[3]) > 0.15:
+        print(f"  Pearson {best[1]:+.3f} against Spearman {sp[3]:+.3f}: the "
+              f"linear\n  correlation is carried by leverage at the extremes "
+              f"rather than by a\n  monotone trend. Check the scatter before "
+              f"believing it.")
     print("  A statistic that only clears the uncorrected 0.05 after eight were")
     print("  tried is what picking the best of eight looks like when nothing is")
     print("  there. If none survives, no audio statistic here predicts which")
