@@ -186,6 +186,21 @@ def make_mfcc(device, window="rect", log="nat", top_db=None, gamma=0.3,
                            n_mels=n_mels, n_mfcc=n_mfcc, sample_rate=sr,
                            f_min=f_min, f_max=f_max).to(device)
         return lambda audio, ref=None: gc(audio)
+    if (log == "db" and window == "hann" and mel_norm == "slaney"
+            and mel_scale == "slaney" and mask is None and not pre_mel
+            and not shared_peak and eps is None):
+        # The plain headline configuration, which model.py now logs live as
+        # mfccdb. Same delegation the log == "pow" branch above does, for the
+        # same reason: the logged curve and this column have to be one
+        # implementation or the table mixes two quantities under one name --
+        # which is exactly the bug that made val_ood/mfcc unreadable against
+        # it. The masked / pre_mel / shared_peak variants fall through to the
+        # general path below; DbCepstrum deliberately has none of those knobs.
+        from diffsynth.spectral import DbCepstrum
+        dc = DbCepstrum(top_db=top_db, n_fft=n_fft, hop_length=hop,
+                        n_mels=n_mels, n_mfcc=n_mfcc, sample_rate=sr,
+                        f_min=f_min, f_max=f_max).to(device)
+        return lambda audio, ref=None: dc(audio)
     win = None if window == "rect" else torch.hann_window(n_fft, device=device)
     ms = MelScale(n_mels, sr, f_min, f_max, n_fft // 2 + 1, mel_norm,
                   mel_scale).to(device)

@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import diffsynth.util as util
-from diffsynth.spectral import compute_lsd, loudness_loss, Mfcc, GammaCepstrum
+from diffsynth.spectral import compute_lsd, loudness_loss, Mfcc, GammaCepstrum, DbCepstrum
 import pytorch_lightning as pl
 from diffsynth.modelutils import construct_synth_from_conf
 from diffsynth.schedules import ParamSchedule
@@ -65,6 +65,16 @@ class EstimatorSynth(pl.LightningModule):
         # how every earlier run gets it. All its buffers are persistent=False,
         # so it adds nothing to state_dict and earlier checkpoints still load.
         self.mfcc03 = GammaCepstrum(gamma=0.3)
+        # THE HEADLINE METRIC, and the reason it exists separately from
+        # self.mfcc. self.mfcc is torchaudio-style with a rectangular window,
+        # an HTK filterbank and no floor; every analysis table in this repo
+        # instead reports Hann + Slaney + dB at top_db 80, which is 7-14 where
+        # the logged one reads 1.6-2.6. Reading a training curve as a preview
+        # of the table was therefore reading a different quantity. This logs
+        # the table's number, so val_ood/mfccdb IS the reported column.
+        # self.mfcc stays exactly as it was: renaming it would silently change
+        # what val_ood/mfcc means for every run already on disk.
+        self.mfccdb = DbCepstrum(top_db=80.0)
         self.save_hyperparameters()
 
     def param_group_losses(self, synth_output, param_dict):
@@ -204,6 +214,7 @@ class EstimatorSynth(pl.LightningModule):
         mon_losses['loud'] = loudness_loss(resyn_audio, target_audio)
         mon_losses['mfcc'] = F.l1_loss(self.mfcc(target_audio), self.mfcc(resyn_audio))
         mon_losses['mfcc03'] = F.l1_loss(self.mfcc03(target_audio), self.mfcc03(resyn_audio))
+        mon_losses['mfccdb'] = F.l1_loss(self.mfccdb(target_audio), self.mfccdb(resyn_audio))
         return mon_losses
 
     def training_step(self, batch_dict, batch_idx):

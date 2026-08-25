@@ -137,9 +137,13 @@ def main() -> None:
                    help="sat divides by the distance between two unrelated "
                         "clips of the same group, making rows comparable "
                         "across groups. none reports the plain L1 -- the "
-                        "number val_ood/mfcc actually logs, on the scale it is "
-                        "read at. Use none when the question is about an arm's "
-                        "own trajectory rather than about ranking groups.")
+                        "number val_ood/mfccdb logs, on the scale it is read "
+                        "at. Use none when the question is about an arm's own "
+                        "trajectory rather than about ranking groups. NOT "
+                        "val_ood/mfcc, which is torchaudio's rectangular-"
+                        "window HTK cepstrum and reads 1.6-2.6 where this "
+                        "column reads 7-14; runs started before mfccdb existed "
+                        "have no logged curve comparable to this table.")
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--device", default="cuda")
     args = p.parse_args()

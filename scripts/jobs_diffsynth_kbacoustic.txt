@@ -51,6 +51,16 @@
 # log_grad=false. Gradient histograms every step are what filled the disk --
 # 9 GB of event files across the earlier runs. scalars.csv carries everything
 # monitor_diffsynth reads.
+#
+# READ val_ood/mfccdb, NOT val_ood/mfcc. This is the second attempt at these
+# three arms and the reason for the restart. val_ood/mfcc is torchaudio's
+# cepstrum: rectangular window, unnormalised HTK filterbank, log(mel + 1e-6),
+# no floor. Every table in this repo -- including the one above that picked
+# this class -- reports Hann + Slaney + dB at top_db 80. The two disagree in
+# scale, 1.6-2.6 against 7-14, so the first run's curve could not be read as a
+# preview of its own endpoint table. model.py now logs both; mfccdb is the
+# table's number and mfcc is kept only so earlier runs keep meaning what they
+# meant. Nothing else about these arms changed.
 
 ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_magx_halfw scripts/ds_run.sh real_kb_magx_halfw resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
 ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_hybridx    scripts/ds_run.sh real_kb_hybridx    resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
