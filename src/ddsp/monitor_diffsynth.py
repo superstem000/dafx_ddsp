@@ -71,6 +71,21 @@ TAGS = {
     # loud is A-weighted loudness, one number per frame: coarse, and blind to
     # spectral detail, but it catches gross level errors neither of the others
     # penalises much.
+    # THE HEADLINE CEPSTRUM, and the one to read. mfcc below is torchaudio's:
+    # a RECTANGULAR window, an unnormalised HTK filterbank, log(mel + 1e-6) and
+    # no floor. Every analysis table in this repo -- ds_ood_subset, the
+    # per-class tables, ds_mfcc_check -- instead reports Hann, the Slaney mel
+    # scale with Slaney filterbank normalisation, and dB floored 80 below the
+    # signal's own peak. The two disagree in SCALE, 1.6-2.6 against 7-14 on the
+    # same checkpoints, so reading val_ood/mfcc as a preview of the endpoint
+    # table was reading a different quantity. mfccdb is the table's number,
+    # computed by the same DbCepstrum make_mfcc delegates to.
+    #
+    # ABSENT FROM EVERY RUN STARTED BEFORE IT EXISTED, which is most of them --
+    # the column simply will not appear for those. ds_mfcc_check is how they get
+    # it, offline from a checkpoint.
+    "id_mfccdb": "val_id/mfccdb",
+    "ood_mfccdb": "val_ood/mfccdb",
     "id_mfcc": "val_id/mfcc",
     "ood_mfcc": "val_ood/mfcc",
     # The same cepstral distance at Stevens' exponent, mel^0.3 in place of the
@@ -88,7 +103,7 @@ SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 # Bumped whenever load() extracts a different set of series. The cache is
 # keyed on TAGS, and val_id/param_group/* is not in TAGS -- without this a
 # cache written before those were read would silently keep hiding them.
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 
 
 def load(run_dir: str) -> dict | None:
@@ -354,8 +369,16 @@ def main() -> None:
                        # audio metrics and reporting it out-of-domain only
                        # invites the reading that it was chosen for where it
                        # happened to be favourable.
-                       ("ood_mfcc", "val_ood/mfcc  (log of mel BAND energies -- "
-                                    "perceptual, but not bin-wise log like LSD)"),
+                       # First because it is the reported one: Hann + Slaney +
+                       # dB at top_db 80, identical to what every analysis
+                       # table computes offline. Only runs started after it was
+                       # added have it.
+                       ("ood_mfccdb", "val_ood/mfccdb  (THE TABLE'S MFCC -- "
+                                      "Hann, Slaney, dB at top_db 80)"),
+                       ("id_mfccdb", "val_id/mfccdb"),
+                       ("ood_mfcc", "val_ood/mfcc  (torchaudio's: RECTANGULAR "
+                                    "window, HTK, log(mel+1e-6), no floor -- "
+                                    "NOT the table's number, ~5x smaller)"),
                        ("id_mfcc", "val_id/mfcc"),
                        # The same distance at Stevens' exponent. Read it against
                        # ood_mfcc directly above: if the arms order the same way
