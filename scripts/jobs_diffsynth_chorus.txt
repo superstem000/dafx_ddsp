@@ -109,25 +109,38 @@
 # h2of. ID_DIR overrides the dataset ds_run.sh otherwise pins.
 
 # STAGE base
-# Epochs 0-200. Three arms, three cards, branching later from a shared
-# checkpoint the way every other family here does.
-ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_magx_halfw pretrain "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
-ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_hybridx    pretrain "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
-ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_logx_halfw pretrain "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+# Epochs 0-50, ONCE. sw_w is 0.0 until step 12500 (schedule/switch.yaml) and
+# 250 steps is an epoch at 16000 train clips / batch 64, so the loss in this
+# phase is 10 x the parameter L1 in every arm and the term that distinguishes
+# them is multiplied by zero. Training it per-arm is not merely wasteful, it
+# INJECTS NOISE: the first attempt ran three independent bases and they had
+# already diverged by epoch 32 -- train/total 0.5125 / 0.4955 / 0.5420 and
+# val_id/param 0.0823 / 0.0833 / 0.0838, a ~2% spread on the reported metric in
+# a phase where the arms cannot differ by design. That spread is the same order
+# as the effect being measured (+2.7% fix-break), so three separate bases would
+# have put the noise floor on top of the signal.
+#
+# One base, three branches from ep0049.ckpt, which is what every other family in
+# this repo does and what should have been done here.
+ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_base pretrain "{gpu}" synth=h1ofcf trainer.max_epochs=50 trainer.checkpoint_every_n_epochs=50
+
+# STAGE arms
+# Epochs 50-200, the crossfade. param_w 10 -> 0 and sw_w 0 -> 1 over 37500
+# steps, so this is where the three losses first differ at all.
+ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_base CKPT=ep0049.ckpt scripts/ds_run.sh pre_ch_magx_halfw pretrain "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_base CKPT=ep0049.ckpt scripts/ds_run.sh pre_ch_hybridx    pretrain "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_base CKPT=ep0049.ckpt scripts/ds_run.sh pre_ch_logx_halfw pretrain "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
 
 # STAGE resumes
-# Epochs 200-400, in domain. The measurement is about in-domain parameter
-# recovery, so resume_synth is the branch that answers it; resume_real can
-# follow if the in-domain result is worth extending.
+# Epochs 200-400, in domain, spectral only. The measurement is about in-domain
+# parameter recovery, so resume_synth is the branch that answers it.
 ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_magx_halfw scripts/ds_run.sh synth_ch_magx_halfw resume_synth "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
 ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_hybridx    scripts/ds_run.sh synth_ch_hybridx    resume_synth "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
 ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_logx_halfw scripts/ds_run.sh synth_ch_logx_halfw resume_synth "{gpu}" synth=h1ofcf trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
 
-# The two `# STAGE` lines above are real barriers and are wanted here: the
-# resumes read a checkpoint the bases write, so starting them together would
-# have all three exit 1 on a missing file. This is the case stages exist for --
-# unlike the plate floor ladder, where four independent arms were accidentally
-# held behind two resumes by a comment that merely started with the word.
+# The three `# STAGE` lines above are real barriers and all three are wanted:
+# the arms read a checkpoint the base writes, and the resumes read one the arms
+# write. Starting any of them early means exit 1 on a missing file.
 #
 # Any OTHER comment line beginning with "stage" would add a barrier nobody
 # intended: gpu_queue matches ^#\s*STAGE[:\s] case-insensitively.
