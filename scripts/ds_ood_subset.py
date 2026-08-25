@@ -117,6 +117,13 @@ def main() -> None:
                         "active in 32% of frames and vocal_acoustic in 85%, so "
                         "the raw column ranked partly by note length. 0 scores "
                         "whole clips.")
+    p.add_argument("--norm", default="sat", choices=("sat", "none"),
+                   help="sat divides by the distance between two unrelated "
+                        "clips of the same group, making rows comparable "
+                        "across groups. none reports the plain L1 -- the "
+                        "number val_ood/mfcc actually logs, on the scale it is "
+                        "read at. Use none when the question is about an arm's "
+                        "own trajectory rather than about ranking groups.")
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
@@ -237,7 +244,9 @@ def main() -> None:
                     e[0] += num
                     e[1] += den
                     e[2] += k
-        per_arm[arm] = {g: {m: (e[0] / e[1] if e[1] else float("nan"))
+        per_arm[arm] = {g: {m: ((e[0] / e[1] if e[1] else float("nan"))
+                                if args.norm == "sat"
+                                else (e[0] / e[2] if e[2] else float("nan")))
                             for m, e in ms.items()}
                         for g, ms in scores.items()}
         print(f"{arm:<24} {note}")
@@ -247,9 +256,11 @@ def main() -> None:
 
     arms = list(per_arm)
     for mname in metrics:
-        print(f"\n=== {args.domain} {args.split} / {mname}   "
-              f"(fraction of the distance to an unrelated clip of the SAME "
-              f"group; 0 exact, 1 no better than random)")
+        cap = ("fraction of the distance to an unrelated clip of the SAME "
+               "group; 0 exact, 1 no better than random" if args.norm == "sat"
+               else "plain L1, the scale val_ood logs at; NOT comparable "
+                    "across groups")
+        print(f"\n=== {args.domain} {args.split} / {mname}   ({cap})")
         w = max(14, max(len(g) for g in groups) + 2)
         print(f"{'group':<{w}}{'n':>6}" + "".join(f"{a:>22}" for a in arms)
               + f"{'winner':>22}")
