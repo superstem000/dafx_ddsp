@@ -217,6 +217,59 @@ class EstimatorSynth(pl.LightningModule):
         mon_losses['mfccdb'] = F.l1_loss(self.mfccdb(target_audio), self.mfccdb(resyn_audio))
         return mon_losses
 
+    def on_train_start(self):
+        """Make model.lr / model.decay_rate win over a resumed scheduler state.
+
+        WITHOUT THIS THE LR SCHEDULE CANNOT BE CHANGED AT A BRANCH POINT, and
+        it fails silently. torch's LRScheduler.state_dict() serialises every
+        attribute except `optimizer` -- `gamma` and `base_lrs` included -- and
+        Lightning restores it when ds_run.sh resumes from a checkpoint. So
+        `model.decay_rate=0.998` on the command line is overwritten by the
+        0.99 the checkpoint carries, configure_optimizers' value is discarded,
+        and the run comes back looking identical for no visible reason.
+        Verified on a real checkpoint:
+
+            [{'gamma': 0.99, 'base_lrs': [0.001], 'last_epoch': 390, ...}]
+
+        Every branch in this repo resumes -- the arms from pre_base at 50, the
+        real and synth phases from the arms at 200 -- so this affects all of
+        them, not just one experiment.
+
+        It is a no-op when the config matches the checkpoint, which is the
+        normal case; it only fires when someone deliberately asked for a
+        different schedule, and it says so on stdout when it does. The lr is
+        recomputed and applied immediately so the first epoch after the branch
+        already runs at the new value rather than one epoch late.
+
+        Note what this does NOT do: last_epoch keeps counting from the start of
+        pretraining, so ExponentialLR still evaluates base_lr * gamma^epoch
+        with epoch ~200 at a branch. Changing gamma therefore moves the
+        STARTING lr as well as the decay -- scale model.lr to compensate if the
+        phase should begin where the previous one ended.
+        """
+        import torch.optim.lr_scheduler as _sched
+        for cfg in getattr(self.trainer, "lr_scheduler_configs", []):
+            s = cfg.scheduler
+            if not isinstance(s, _sched.ExponentialLR):
+                continue
+            changed = []
+            if s.gamma != self.decay_rate:
+                changed.append(f"gamma {s.gamma:g} -> {self.decay_rate:g}")
+                s.gamma = self.decay_rate
+            if any(b != self.lr for b in s.base_lrs):
+                changed.append(f"base_lr {s.base_lrs[0]:g} -> {self.lr:g}")
+                s.base_lrs = [self.lr for _ in s.base_lrs]
+                for g in s.optimizer.param_groups:
+                    g['initial_lr'] = self.lr
+            if not changed:
+                continue
+            new = [b * s.gamma ** s.last_epoch for b in s.base_lrs]
+            for g, lr in zip(s.optimizer.param_groups, new):
+                g['lr'] = lr
+            s._last_lr = new
+            print(f"[lr] restored scheduler overridden at epoch {s.last_epoch}: "
+                  f"{'; '.join(changed)}; lr now {new[0]:.3e}", flush=True)
+
     def training_step(self, batch_dict, batch_idx):
         # get loss weights
         loss_weights = self.loss_w_sched.get_parameters(self.global_step)

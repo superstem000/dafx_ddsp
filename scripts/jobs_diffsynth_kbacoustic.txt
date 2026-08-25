@@ -1,75 +1,121 @@
-# keyboard_acoustic: the strongest linear-wins class in NSynth.
+# keyboard_acoustic, second attempt: same LR range as the joint run, 2x the steps.
 #
 #   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_kbacoustic.txt
 #
-# WHY THIS CLASS. Evaluating the existing all-NSynth arms per instrument class,
-# normalised by each class's own spread, keyboard_acoustic gave the largest
-# linear margin of any of the nineteen:
+# BUILD THE DATASET FIRST, under tmux -- 22 GB stream, no resume:
 #
-#             magx     hybridx    logx
-#   mfcc     0.4710    0.5063    0.5426     linear by 0.0353
-#   mfcc03   0.2950    0.4569    0.5041
-#   linmag   0.3895    0.5220    0.6557
+#   OUT=nsynth-kbacoustic CLASS=keyboard_acoustic scripts/get_nsynth.sh
 #
-# six times brass_acoustic's 0.0059, and it is also where the mechanism is
-# clearest. Its residual-by-band ratio between the log-trained and linear-trained
-# arms, divided by its own 0-20 dB entry, reads 4.15 in the 60-80 band -- the
-# highest normalised penalty of any class. The log arm weights that band and
-# fits it four times worse relative to how much worse it is everywhere. And its
-# spectral flatness is 0.0172, the peakiest of all nineteen cells, against
-# string_acoustic at 0.100 which is the largest hybrid win.
+# OUT pins the directory name this file already refers to; CLASS alone would
+# write nsynth-keyboardacoustic. ~8068 files, ~1 GB.
 #
-# THE HONEST STATUS OF THAT. Ten audio statistics were scored against the
-# nineteen-class margin; the best was flatness at r = +0.473, p = 0.027 against
-# a Bonferroni threshold of 0.005, Spearman only +0.307. Nothing predicts the
-# outcome from the audio at the level a paper can lean on. So the class was
-# chosen because linear wins there in the joint-trained table, and these runs
-# are a TEST of whether that sign survives class-specific training. The
-# joint-trained margin is the hypothesis; it cannot also be the evidence.
+# WHY THE FIRST ATTEMPT DOES NOT ANSWER THE QUESTION. It ran epochs 200-400 at
+# 101 steps/epoch, which is 20,200 optimizer steps against the joint run's
+# 250 x 200 = 50,000 on the same LR curve. An epoch is a pass over the data and
+# the class set is 2.5x smaller, so holding max_epochs fixed silently cut the
+# optimisation to 40% -- in the phase where the losses first differ at all.
 #
-# AND THE CONCEPTUAL OBJECTION, recorded because it goes the other way.
-# keyboard_acoustic is largely acoustic piano: inharmonic from string stiffness,
-# a percussive attack, a long decay. Three things a harmonic oscillator through
-# a lowpass cannot produce. brass_acoustic is the reverse -- sustained, strongly
-# harmonic, no strike transient -- and had the weakest margin of the four
-# linear-wins classes. No class scores well on both legs. This one takes the
-# effect over the story, and its measured fit (0.471 mfcc, 0.390 linmag, both
-# better than brass) says the inharmonicity costs less in practice than in
-# principle.
+# And the curve says that mattered. magx minus logx on val_ood/mfccdb, against
+# the LR at each point:
 #
-# SETUP. All three arms branch from their own pre_* at latest.ckpt, epoch 199 /
-# step 50000, verified identical -- the same branch point the existing real_*
-# arms used, so these drop beside them. train_type is ood, so val_ood is the
-# held-out 10% of keyboard_acoustic and val_id is the h2of set nothing trains
-# on here.
+#   epoch   magx-logx    lr
+#     200      3.874    1.34e-4
+#     239      1.458    9.1e-5     <- almost all the catching up happens here
+#     279      1.493    6.1e-5
+#     319      1.651    4.1e-5     <- slightly worse
+#     359      1.589    2.7e-5
+#     399      1.590    1.8e-5     <- flat
 #
-# ID_DIR must hold NO MORE files than the ood set: data.py:92 draws
-# len(id_dat) samples from the ood set without replacement, and 20000 from
-# ~8000 raises. Build it with the sizing step in the run block; it feeds only
-# val_id metrics, which are therefore not comparable to the existing table.
+# Linear closed 2.4 of the gap while the LR was above ~9e-5 and stopped once it
+# fell below. Not convergence -- the schedule ended it.
 #
-# log_grad=false. Gradient histograms every step are what filled the disk --
-# 9 GB of event files across the earlier runs. scalars.csv carries everything
-# monitor_diffsynth reads.
+# The per-band residual trace on the reed arms says the same thing from the
+# other side. real_rd_magx_halfw, residual / target energy, active frames:
 #
-# READ val_ood/mfccdb, NOT val_ood/mfcc. This is the second attempt at these
-# three arms and the reason for the restart. val_ood/mfcc is torchaudio's
-# cepstrum: rectangular window, unnormalised HTK filterbank, log(mel + 1e-6),
-# no floor. Every table in this repo -- including the one above that picked
-# this class -- reports Hann + Slaney + dB at top_db 80. The two disagree in
-# scale, 1.6-2.6 against 7-14, so the first run's curve could not be read as a
-# preview of its own endpoint table. model.py now logs both; mfccdb is the
-# table's number and mfcc is kept only so earlier runs keep meaning what they
-# meant. Nothing else about these arms changed.
+#   band       0-20   20-40   40-60   60-80  80-100
+#   ep0249    0.555   0.954   1.382   1.513   2.217
+#   ep0299    0.522   0.910   1.259   1.395   2.097
+#   ep0349    0.495   0.886   1.232   1.336   1.889
+#
+# NOTHING HAS PLATEAUED, including the loud band: 0-20 is still falling 5-6%
+# per 50 epochs with 50 epochs left. The linear arm had not finished the loud
+# region, let alone moved past it, and the mild gradient across the row (-14.8%
+# at 80-100 against -10.8% at 0-20) is the descent still in progress.
+#
+# THE SCHEDULE, and what makes it defensible. Same LR RANGE as the joint run,
+# twice the STEPS:
+#
+#                        steps    lr start -> end     cumulative lr*steps
+#   joint, all NSynth   50,000   1.340e-4 -> 1.813e-5      2.901
+#   attempt 1 (g .99)   20,200   1.340e-4 -> 1.813e-5      1.172  (0.40x)
+#   this (g .998)       99,990   1.340e-4 -> 1.850e-5      5.834  (2.01x)
+#
+# model.lr=2e-4 is NOT a higher learning rate. ExponentialLR evaluates
+# base_lr * gamma^epoch and last_epoch is ~200 at the branch, so with gamma
+# 0.998 a base of 2e-4 lands at 2e-4 * 0.998^200 = 1.340e-4 -- exactly where
+# the pretrain ended and exactly where the joint run's real phase started.
+# Leaving base at 1e-3 would start this phase at 6.7e-4, a 5x jump, and the
+# comparison would be about the warm restart rather than about the budget.
+#
+# THREE POINTS TO READ, and they answer different questions:
+#
+#   ep0499   cumulative lr*steps equals the joint run's (reached at epoch 480)
+#   ep0699   STEP COUNT equals the joint run's, 50,000 (reached at 696)
+#   ep1189   the full 2x -- the mechanism probe
+#
+# ep0699 is the one to quote. It is the honest joint-vs-specialised comparison:
+# same number of updates, same LR range, only the training set differs. ep1189
+# is NOT quotable as a headline -- a specialised run given twice the budget of
+# the baseline it is compared against is unfair in the other direction -- but
+# its TRAJECTORY is the evidence for or against the mechanism. If linear keeps
+# closing while the compressed arms flatten, coarse-to-fine is real. If all
+# three flatten together, the order is what it is and attempt 1 was right for
+# the wrong reason.
+#
+# THE OVERRIDE THIS DEPENDS ON. model.decay_rate and model.lr were IGNORED on a
+# resume until model.py's on_train_start was added: torch serialises gamma and
+# base_lrs into the scheduler state_dict and Lightning restores it, so a
+# checkpoint carrying gamma 0.99 silently won. Confirmed on a real file:
+#
+#   [{'gamma': 0.99, 'base_lrs': [0.001], 'last_epoch': 390, ...}]
+#
+# The job log must show, once per arm, a line like
+#
+#   [lr] restored scheduler overridden at epoch 199: gamma 0.99 -> 0.998;
+#        base_lr 0.001 -> 0.0002; lr now 1.340e-04
+#
+# If that line is absent the override did not fire and the run is attempt 1
+# again with more epochs of a dead LR. Check it before walking away.
+#
+# ID_DIR is h2of_kb: data.py:92 draws len(id_dat) indices from the ood set, so
+# its size fixes the training set at 6451 clips -- the same number attempt 1
+# used, so the only thing that changed is the schedule.
+#
+# checkpoint_every_n_epochs=100 rather than 50: 990 epochs at 50 would be 20
+# checkpoints per arm, 2 GB across three arms, on a disk that has been full
+# twice. The metric trajectory comes from scalars.csv at every epoch anyway;
+# checkpoints are only needed for the per-band residual trace.
+#
+# Runtime ~14 h for 990 epochs at the ~70 epochs/h attempt 1 managed.
 
-ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_magx_halfw scripts/ds_run.sh real_kb_magx_halfw resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
-ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_hybridx    scripts/ds_run.sh real_kb_hybridx    resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
-ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_logx_halfw scripts/ds_run.sh real_kb_logx_halfw resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_magx_halfw scripts/ds_run.sh real_kb_magx_halfw resume_real "{gpu}" trainer.max_epochs=1190 trainer.checkpoint_every_n_epochs=100 model.lr=2e-4 model.decay_rate=0.998 model.log_grad=false model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_hybridx    scripts/ds_run.sh real_kb_hybridx    resume_real "{gpu}" trainer.max_epochs=1190 trainer.checkpoint_every_n_epochs=100 model.lr=2e-4 model.decay_rate=0.998 model.log_grad=false model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-kbacoustic RESUME=pre_logx_halfw scripts/ds_run.sh real_kb_logx_halfw resume_real "{gpu}" trainer.max_epochs=1190 trainer.checkpoint_every_n_epochs=100 model.lr=2e-4 model.decay_rate=0.998 model.log_grad=false model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
 
-# Monitor:   python -m src.ddsp.monitor_diffsynth --only '_kb_'
-# Read val_ood, not val_id. Use latest.ckpt, not last.ckpt -- ModelCheckpoint
-# monitors val_ood/lsd, so last.ckpt is selected on the validation set.
+# Monitor:  python -m src.ddsp.monitor_diffsynth --only '_kb_'
+# Read val_ood/mfccdb. The epoch axis comes from Lightning's own `epoch` scalar
+# now, so ~101 steps per epoch no longer prints 1190 as some smaller number.
+#
+# Per-band trace once checkpoints land, which is the mechanism test:
+#
+#   for C in ep0299 ep0499 ep0699 ep0899 ep1099; do
+#     python scripts/ds_quiet_reducible.py --lin real_kb_magx_halfw \
+#         --log real_kb_logx_halfw --ckpt $C.ckpt --group-by family --min-n 10
+#   done
+#
+# Read the magx table's 0-20 column down the checkpoints. Flattening there
+# while 40-100 keeps falling is coarse-to-fine confirmed. Everything still
+# falling at ep1099 means even 2x is not enough to converge this.
 #
 # No comment line here may begin with the word "stage": gpu_queue matches
-# ^#\s*STAGE[:\s] case-insensitively. These three are independent and want no
-# barrier.
+# ^#\s*STAGE[:\s] case-insensitively. These three are independent.
