@@ -116,7 +116,8 @@ def baseline_l1(targets):
     return (x - x.mean(dim=(0, 1), keepdim=True)).abs().mean().item()
 
 
-def load_arm(run_dir: str, ckpt_name: str, device: str, batch_size: int):
+def load_arm(run_dir: str, ckpt_name: str, device: str, batch_size: int,
+             data_override: dict | None = None):
     """Model and datamodule, built in train.py's order.
 
     The order is the point. train.py seeds, constructs EstimatorSynth, and only
@@ -125,6 +126,25 @@ def load_arm(run_dir: str, ckpt_name: str, device: str, batch_size: int):
     permutation. Seeding and setting up immediately gives a different validation
     split, which is exactly what the manifest check caught the first time this
     ran.
+
+    data_override replaces keys of cfg.data before the datamodule is built --
+    id_dir and ood_dir in practice. It is what lets an arm be scored on a
+    validation set it never saw: point ood_dir at another run's data and the
+    same weights are evaluated on those clips instead of their own.
+
+    THE SPLIT IS REPRODUCED, NOT COPIED, and that only works because setup()'s
+    RNG consumption depends on the dirs and on nothing else here. It draws
+    len(id_dat) indices from the ood set, splits the id set, then splits the
+    ood subset -- so an override that supplies BOTH dirs from the run whose
+    split is wanted lands on exactly that run's clips, provided the estimator
+    architecture matches so the preceding weight init consumes the same draws.
+    Overriding ood_dir alone gives a DIFFERENT subsample than the run that owns
+    that directory, because len(id_dat) differs. Verify with split_sha1 rather
+    than assuming; ds_ood_subset prints it whenever an override is in play.
+
+    id_dir is not optional to think about for a second reason: data.py:92 draws
+    len(id_dat) samples from the ood set without replacement, so an id set
+    larger than the ood set raises there.
     """
     cfg_path = os.path.join(run_dir, ".hydra", "config.yaml")
     ck_path = os.path.join(run_dir, "tb_logs", "checkpoints", ckpt_name)
@@ -146,6 +166,8 @@ def load_arm(run_dir: str, ckpt_name: str, device: str, batch_size: int):
     dcfg = OmegaConf.to_container(cfg.data, resolve=True)
     dcfg["batch_size"] = batch_size
     dcfg["num_workers"] = 0
+    if data_override:
+        dcfg.update(data_override)
     dm = hydra.utils.instantiate(dcfg)
     dm.setup(None)
     return model, cfg, dm, f"epoch {ck.get('epoch', '?')}"

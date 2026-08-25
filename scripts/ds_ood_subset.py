@@ -100,6 +100,27 @@ def main() -> None:
                         "improves 1.34 against hybrid's 3.38.\n"
                         "All arms must share an ood_dir, since the grouping is "
                         "built once from the first arm's split.")
+    p.add_argument("--ood-dir", default=None, metavar="DIR",
+                   help="Score the arms on THIS out-of-domain set instead of "
+                        "the one they were configured with -- e.g. the "
+                        "keyboard-only split, for arms trained on all of "
+                        "NSynth. Pass --id-dir from the same run too: the ood "
+                        "subsample is len(id_dat) indices drawn from the ood "
+                        "directory (data.py:92), so id_dir decides WHICH clips "
+                        "and how many, and an id set larger than the ood set "
+                        "raises there outright.\n"
+                        "LEAKAGE IS CHECKED, NOT ASSUMED. An arm trained on "
+                        "all of NSynth may have trained on the very clips a "
+                        "class-specific run holds out, and scoring it on those "
+                        "would be train error dressed as validation. Whenever "
+                        "this is set, each arm's own training split is "
+                        "reproduced and the overlap is reported before any "
+                        "table is printed.")
+    p.add_argument("--id-dir", default=None, metavar="DIR",
+                   help="In-domain directory to pair with --ood-dir. Only its "
+                        "SIZE matters for an ood table, but the size is what "
+                        "selects the ood subsample, so it has to match the run "
+                        "whose split is being borrowed.")
     p.add_argument("--split", default="valid", choices=("valid", "test", "train"))
     p.add_argument("--domain", default="ood", choices=("ood", "id"),
                    help="id scores the in-domain split, where the grouping is "
@@ -170,17 +191,64 @@ def main() -> None:
                                mel_norm="slaney", mel_scale="slaney"),
     }
 
+    override = {}
+    if args.ood_dir:
+        override["ood_dir"] = args.ood_dir
+    if args.id_dir:
+        override["id_dir"] = args.id_dir
+
+    def trained_on(arm: str) -> set[str] | None:
+        """Basenames in an arm's OWN training split, reproduced from its config.
+
+        A separate load_arm call, which re-seeds, so it reconstructs the split
+        the run actually trained on rather than whatever the override produced.
+        Built on cpu: only the file lists are wanted, no audio is read and no
+        forward pass runs.
+        """
+        m, c, dm_, _ = pb.load_arm(os.path.join(args.root, arm), args.ckpt,
+                                   "cpu", args.batch_size)
+        if m is None:
+            return None
+        tt = c.data.get("train_type", "ood")
+        sets = []
+        if tt in ("ood", "mixed"):
+            sets.append(dm_.ood_datasets["train"])
+        if tt in ("id", "mixed"):
+            sets.append(dm_.id_datasets["train"])
+        return {os.path.basename(f) for s in sets for f in source_files(s)}
+
     per_arm = {}
     groups = None
     for arm in args.arms:
         d = os.path.join(args.root, arm)
-        model, cfg, dm, note = pb.load_arm(d, args.ckpt, dev, args.batch_size)
+        model, cfg, dm, note = pb.load_arm(d, args.ckpt, dev, args.batch_size,
+                                           data_override=override or None)
         if model is None:
             print(f"{arm:<24} skipped: {note}")
             continue
         vset = (dm.ood_datasets if args.domain == "ood"
                 else dm.id_datasets)[args.split]
         files = source_files(vset)
+
+        if override:
+            # WITHOUT THIS THE TABLE CAN BE TRAIN ERROR. These weights were
+            # fitted on some set of clips; the override points them at another
+            # one, and nothing guarantees the two are disjoint -- an arm
+            # trained on all of NSynth has seen keyboard clips, and a
+            # class-specific holdout drawn from the same archive can be made of
+            # exactly those. The overlap is a property of the two directories
+            # and the two splits, so it is computed rather than reasoned about.
+            tr = trained_on(arm)
+            ev = {os.path.basename(f) for f in files}
+            sha = pb.split_sha1(vset)
+            if tr is None:
+                print(f"{arm:<24} eval {len(ev)} clips  split {sha[:12]}  "
+                      f"(training split unavailable, overlap unknown)")
+            else:
+                n = len(ev & tr)
+                print(f"{arm:<24} eval {len(ev)} clips  split {sha[:12]}  "
+                      f"seen in training: {n} ({100.0 * n / max(len(ev), 1):.1f}%)"
+                      + ("   <-- NOT A HELD-OUT SET" if n else ""))
 
         if groups is None:
             groups = defaultdict(list)
