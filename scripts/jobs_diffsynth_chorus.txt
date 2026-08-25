@@ -1,0 +1,110 @@
+# The chorus task: the one system measured where a log term is worth adding.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_chorus.txt
+#
+# GENERATE THE DATASET FIRST. This file will refuse to start without it --
+# ds_run.sh checks ID_DIR exists rather than letting hydra fail forty seconds
+# into a job. Smoke test on 64 clips before committing to 20000:
+#
+#   cd external/diffsynth
+#   python gen_dataset.py data/chorus_smoke configs/synth/dataset/h1ofcf.yaml \
+#       --data_size 64 --save_param --device cuda
+#   python train.py experiment=pretrain synth=h1ofcf_f0 \
+#       data.id_dir=$PWD/data/chorus_smoke/h1ofcf trainer.max_epochs=1 \
+#       trainer.accelerator=gpu trainer.devices=1
+#
+# The smoke test is not optional and it is not paranoia. Two things in this
+# pairing are unverified. h1ofcf's save_params includes harmor_f0_mult, but the
+# model synth h1ofcf_f0 has n_oscs=1, so f0_mult has size n_oscs-1 = 0 -- a
+# zero-width column that may or may not survive the round trip. And h1ofcf
+# leaves NOTE_OFF as a sampled parameter where h2of pins it to 0.75, so the
+# note length varies per clip. Neither shows up until a batch is loaded, and
+# both would waste a 20000-clip generation. The equivalent mistake has already
+# been made once here: h2of's dataset config was missing save_params entirely
+# and training died at model.py:36 with KeyError on an ADSR control.
+#
+#   cd external/diffsynth
+#   python gen_dataset.py data/chorus configs/synth/dataset/h1ofcf.yaml \
+#       --data_size 20000 --save_param --device cuda
+#
+# writes data/chorus/h1ofcf/{audio,param}. --save_param is load-bearing: without
+# it gen_dataset saves every external parameter of the GENERATOR dag, including
+# the ADSR controls, and the model synth has no envelopes to consume them.
+#
+# WHY THIS TASK. Every other system in this project says a log term breaks more
+# pairs than it fixes. h1ofcf says the opposite, and it is the only one that
+# does:
+#
+#   task                        transform  reweight   fix    break
+#   plate/quiet7                   -0.006    -0.160   9.6%   28.7%
+#   h2of, all 8                    +0.040    -0.023  11.9%   12.3%
+#   h2of, filter only              +0.000    -0.018   3.1%    5.3%
+#   h1ofcfrev, reverb only         +0.000    +0.004   1.5%    1.1%
+#   h1ofcf, chorus only            +0.062    -0.058  14.9%    9.7%
+#   h1ofcf, all 8                  +0.062    -0.058  10.8%    7.2%
+#
+# The mechanism is comb filtering. ChorusFlanger sums dry with a modulated
+# delayed copy, so the transfer magnitude is |1-mix + mix*e^{-jwT}| -- notches
+# every 1/T, spaced 25 Hz to 1 kHz over the delay range. CF_MIX sets notch
+# DEPTH, which is a ratio: a notch moving from -20 dB to -40 dB is a factor of
+# 100 that a linear magnitude loss scores as nearly nothing because both values
+# are small in absolute terms. That is what the log transform is for, and it is
+# why the gain sits in the 40-120 dB bands (id_log over id_lin by +0.06 to
+# +0.10, 78% of the bins) rather than at the floor.
+#
+# It is also why reverb FAILED and chorus worked: reverb spreads energy
+# additively, no nulls, flat id profile at 0.83-0.85 in every band, transform
+# gain +0.000 at all three base frequencies tried. Additive tail versus
+# multiplicative notch is the distinction, and it is measured on both sides.
+#
+# Nothing here is constructed for the purpose. h1ofcf_f0.yaml, the h1ofcf
+# dataset config and the ChorusFlanger module are all from the vendoring commit
+# de41fc8 and have never been touched since.
+#
+# THE PREDICTION, stated before the runs so it can be wrong. The decomposition
+# says the transform gains +0.062 while the reweighting costs -0.058, and a
+# hybrid keeps linear's weighting on the loud bands while adding the log term's
+# within-band comparison. So: hybridx > logx_halfw > magx_halfw.
+#
+# And the caveat that goes with it: at --max-rel 0.05 the whole effect collapses
+# (transform +0.010, fix-break +0.1%). The mechanism is about GLOBAL search, not
+# final precision. Expect hybrid to reach a better basin earlier and linear to
+# close some of the gap late. If linear catches up entirely by epoch 400 that is
+# consistent with the measurement rather than a contradiction of it.
+#
+# ARMS. The same three the MUSHRA used, on magnitude rather than power -- on
+# power the L1 is |a^2 - t^2| whose derivative vanishes at silence, and
+# spec_mag froze there permanently. _halfw on the single-term arms is what makes
+# each term carry the same weight it carries inside hybrid; without it deleting
+# a term doubles the survivor and the three arms are not comparable.
+#
+#   magx_halfw   linear    log_mag_w=0
+#   hybridx      hybrid    both terms
+#   logx_halfw   log       mag_w=0
+#
+# synth=h1ofcf_f0 selects the model synth; the experiment configs default it to
+# h2of. ID_DIR overrides the dataset ds_run.sh otherwise pins.
+
+# STAGE base
+# Epochs 0-200. Three arms, three cards, branching later from a shared
+# checkpoint the way every other family here does.
+ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_magx_halfw pretrain "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_hybridx    pretrain "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=external/diffsynth/data/chorus/h1ofcf scripts/ds_run.sh pre_ch_logx_halfw pretrain "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# STAGE resumes
+# Epochs 200-400, in domain. The measurement is about in-domain parameter
+# recovery, so resume_synth is the branch that answers it; resume_real can
+# follow if the in-domain result is worth extending.
+ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_magx_halfw scripts/ds_run.sh synth_ch_magx_halfw resume_synth "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_hybridx    scripts/ds_run.sh synth_ch_hybridx    resume_synth "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=external/diffsynth/data/chorus/h1ofcf RESUME=pre_ch_logx_halfw scripts/ds_run.sh synth_ch_logx_halfw resume_synth "{gpu}" synth=h1ofcf_f0 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# The two `# STAGE` lines above are real barriers and are wanted here: the
+# resumes read a checkpoint the bases write, so starting them together would
+# have all three exit 1 on a missing file. This is the case stages exist for --
+# unlike the plate floor ladder, where four independent arms were accidentally
+# held behind two resumes by a comment that merely started with the word.
+#
+# Any OTHER comment line beginning with "stage" would add a barrier nobody
+# intended: gpu_queue matches ^#\s*STAGE[:\s] case-insensitively.

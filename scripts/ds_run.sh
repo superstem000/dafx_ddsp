@@ -32,6 +32,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAME=$1; EXP=$2; GPU=$3; shift 3
 
 DS="$ROOT/external/diffsynth"
+
+# WHICH DATASET. Pinned to the paper's h2of set by default, overridable for a
+# different task -- the chorus chain has its own generated data and its own
+# model synth. Passed here rather than as a plain hydra override on the job
+# line because this script already sets data.id_dir, and hydra rejects the same
+# key twice rather than taking the last one.
+ID_DIR=${ID_DIR:-$DS/data/diffsynth_5-6/harmor_2oscfree}
+OOD_DIR=${OOD_DIR:-$DS/data/nsynth-train}
+if [[ ! -d "$ID_DIR" ]]; then
+  echo "ERROR: ID_DIR does not exist: $ID_DIR"
+  echo "Generate it first -- see scripts/jobs_diffsynth_chorus.txt for the"
+  echo "gen_dataset.py command and the smoke test that goes before it."
+  exit 1
+fi
 RUNDIR="$ROOT/results/diffsynth/$NAME"
 
 EXTRA=()
@@ -79,8 +93,8 @@ export CUBLAS_WORKSPACE_CONFIG=:4096:8
 
 CUDA_VISIBLE_DEVICES="$GPU" python train.py \
   experiment="$EXP" \
-  data.id_dir="$DS/data/diffsynth_5-6/harmor_2oscfree" \
-  data.ood_dir="$DS/data/nsynth-train" \
+  data.id_dir="$ID_DIR" \
+  data.ood_dir="$OOD_DIR" \
   trainer.accelerator=gpu \
   trainer.devices=1 \
   hydra.run.dir="$RUNDIR" \
