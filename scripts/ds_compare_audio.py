@@ -60,6 +60,7 @@ from torch.utils.data import DataLoader                  # noqa: E402
 
 import ds_param_breakdown as pb                          # noqa: E402
 import ds_mfcc_check as mc                               # noqa: E402
+from ds_ood_subset import source_files, categorize       # noqa: E402
 
 
 def main() -> None:
@@ -78,6 +79,23 @@ def main() -> None:
              "the SAME clips -- which is the one property this comparison "
              "cannot lose. --skip 5, 10, 15 walk through the split five at a "
              "time.")
+    p.add_argument("--only", default=None, metavar="GROUP",
+                   help="Take clips of one NSynth class: a family "
+                        "(keyboard), a source (acoustic), or the intersection "
+                        "(keyboard_acoustic). Applied BEFORE --skip, so --skip "
+                        "walks through that class rather than the whole split.\n"
+                        "The tables rank classes; a class is what there is to "
+                        "listen to. Without this the first --n clips of the "
+                        "split are whatever the shuffle put there, which is "
+                        "mostly bass_synthetic on the full NSynth set.")
+    p.add_argument("--ood-dir", default=None, metavar="DIR",
+                   help="Score and render against another run's out-of-domain "
+                        "set. Pass --id-dir from the same run too -- id_dir's "
+                        "SIZE selects the ood subsample (data.py:92), so "
+                        "overriding one alone lands on different clips than "
+                        "the run that owns the directory.")
+    p.add_argument("--id-dir", default=None, metavar="DIR",
+                   help="In-domain directory to pair with --ood-dir.")
     p.add_argument("--metrics", nargs="+", default=["g0.3", "db70"],
                    help="Per-clip distance columns. Both by default, because "
                         "they are the two rungs that rank the arms DIFFERENTLY "
@@ -109,12 +127,20 @@ def main() -> None:
                          f"available: {', '.join(_AVAILABLE)}")
     metrics = {m: _AVAILABLE[m]() for m in args.metrics}
 
+    override = {}
+    if args.ood_dir:
+        override["ood_dir"] = args.ood_dir
+    if args.id_dir:
+        override["id_dir"] = args.id_dir
+
     target = None
     resyn = {}
     scores = {}
+    picked = None
     for arm in args.arms:
         d = os.path.join(args.root, arm)
-        model, cfg, dm, note = pb.load_arm(d, args.ckpt, args.device, args.n)
+        model, cfg, dm, note = pb.load_arm(d, args.ckpt, args.device, args.n,
+                                           data_override=override or None)
         if model is None:
             print(f"{arm:<20} skipped: {note}")
             continue
@@ -125,13 +151,29 @@ def main() -> None:
         if vset is None:
             print(f"{arm:<20} skipped: {how}")
             continue
+        from torch.utils.data import Subset
+        if args.only:
+            # Before --skip on purpose: --skip should walk through the CLASS,
+            # not through the split. Matches a family, a source, or the
+            # family_source intersection, the same three groupings
+            # ds_ood_subset tabulates.
+            keep = [i for i, f in enumerate(source_files(vset))
+                    if args.only in categorize(f)
+                    or args.only == "_".join(categorize(f))]
+            if not keep:
+                raise SystemExit(
+                    f"--only {args.only}: no clips of that class in the "
+                    f"{len(vset)}-clip {args.domain} split")
+            how += f", {len(keep)} of {len(vset)} are {args.only}"
+            vset = Subset(vset, keep)
         if args.skip:
-            from torch.utils.data import Subset
             hi = min(args.skip + args.n, len(vset))
             if args.skip >= len(vset):
                 raise SystemExit(f"--skip {args.skip} is past the end of the "
-                                 f"{len(vset)}-clip split")
+                                 f"{len(vset)}-clip selection")
             vset = Subset(vset, range(args.skip, hi))
+        if picked is None:
+            picked = source_files(vset)[: args.n]
         loader = DataLoader(vset, batch_size=args.n, num_workers=0)
         batch = next(iter(loader))
         batch = {k: (v.to(args.device) if torch.is_tensor(v) else
@@ -197,6 +239,20 @@ def main() -> None:
         fig.tight_layout()
         fig.savefig(os.path.join(args.out, f"clip{c}.png"), dpi=110)
         plt.close(fig)
+
+    # clipN is a position in a split, which says nothing on a laptop three days
+    # later. The NSynth filename carries the instrument, pitch and velocity, so
+    # it travels with the audio rather than staying in this terminal.
+    man = os.path.join(args.out, "manifest.txt")
+    with open(man, "w") as fh:
+        fh.write(f"arms: {' '.join(arms)}\nckpt: {args.ckpt}\n"
+                 f"domain: {args.domain}   only: {args.only or '-'}   "
+                 f"skip: {args.skip}\n"
+                 f"ood_dir: {override.get('ood_dir') or 'each arm own'}\n\n")
+        for i, f in enumerate(picked or []):
+            fh.write(f"clip{args.skip + i:<6} {os.path.basename(f)}\n")
+    for i, f in enumerate(picked or []):
+        print(f"clip{args.skip + i:<6} {os.path.basename(f)}")
 
     print(f"\nwrote {args.out}: target + {len(arms)} arm(s) per clip, "
           f"levels unnormalised")
