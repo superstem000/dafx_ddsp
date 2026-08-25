@@ -148,8 +148,10 @@ def main() -> None:
                 for mname, fn in metrics.items():
                     # sum, then divide by n -- a mean of per-batch means would
                     # weight a short final batch equally with a full one.
+                    # No .cpu(): make_mfcc builds its window on `dev`, and
+                    # torch.stft requires signal and window on the same device.
                     scores[gname][mname] += float(
-                        F.l1_loss(fn(tgt.cpu()), fn(out.cpu()))) * n
+                        F.l1_loss(fn(tgt), fn(out))) * n
                 counts[gname] += n
         per_arm[arm] = {g: {m: s / counts[g] for m, s in ms.items()}
                         for g, ms in scores.items()}
