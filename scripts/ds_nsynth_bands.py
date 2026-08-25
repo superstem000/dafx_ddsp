@@ -25,8 +25,23 @@ TWO KINDS OF QUIET, and the floor column is what tells them apart:
 
 (b) is the worse case for a compressed loss, and it shows up as a floor that
 stops well above the arithmetic -- around -60 to -70 dB for a room recording
-against -100 and below for a clean render. floor_db is the median level of the
-quietest 5% of bins, per clip, referenced to that clip's own peak.
+against -100 and below for a clean render. floor_db is the 5th percentile of
+bin level, per clip, referenced to that clip's own peak.
+
+MEASURED OVER ACTIVE FRAMES ONLY, and that is not a detail. NSynth notes are
+4 s with note-off at 3 s, so a struck or plucked note is over long before the
+file is, and a statistic across all frames measures how much of the clip has
+ended rather than anything about its spectrum -- the first version of this
+script reported floor_dB between -220 and -400 for every single category
+because the 5th percentile landed in the silent tail every time.
+
+The distinction matters because trailing silence and a noise floor pull in
+OPPOSITE directions for a log loss. Silence clamps on both sides: target and
+resynthesis both reach log(eps), the difference is exactly zero, the bin
+contributes nothing -- the same reason a hard floor rescued the plate's
+compressed arms. A noise floor is content the synth cannot produce at any
+parameter setting, so it is a permanent residual weighted by 1/(x+eps). Counted
+together they cannot be told apart. --active-db 0 measures whole clips.
 
 WHAT THE COLUMNS MEAN.
   bins%   share of bins in each dB band, peak-referenced per clip. A log term's
@@ -71,6 +86,17 @@ def main() -> None:
     p.add_argument("--sr", type=int, default=16000)
     p.add_argument("--thresholds", type=float, nargs="+",
                    default=[40.0, 60.0, 80.0, 100.0])
+    p.add_argument("--active-db", type=float, default=40.0, metavar="DB",
+                   help="Keep only frames whose energy is within this many dB "
+                        "of the clip's loudest frame. WITHOUT IT THE TABLE IS "
+                        "ABOUT NOTE LENGTH, NOT SPECTRUM: NSynth notes are 4 s "
+                        "with note-off at 3 s, and a struck or plucked note "
+                        "decays to exact zeros long before the end, so a "
+                        "statistic over all frames is dominated by how much of "
+                        "the file is over. That is also why floor_dB read -220 "
+                        "to -400 for every category on the first run -- the "
+                        "5th percentile landed in the silent tail every time. "
+                        "Set 0 to disable and measure whole clips.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cpu")
     args = p.parse_args()
@@ -100,15 +126,29 @@ def main() -> None:
         cnt = torch.zeros(len(DB_BANDS), dtype=torch.float64)
         eng = torch.zeros(len(DB_BANDS), dtype=torch.float64)
         below = torch.zeros(len(args.thresholds), dtype=torch.float64)
-        floors, used = [], 0
+        floors, used, frames_kept = [], 0, 0.0
         for path in take:
             x, sr = sf.read(path, dtype="float32")
             if x.ndim > 1:
                 x = x.mean(axis=-1)
             if sr != args.sr:
                 continue
-            a = stft_mag(torch.from_numpy(x)[None, :].to(dev),
-                         args.n_fft, args.hop, True)[0].flatten().double()
+            A = stft_mag(torch.from_numpy(x)[None, :].to(dev),
+                          args.n_fft, args.hop, True)[0].double()
+            if args.active_db > 0:
+                # Frame energy against the loudest frame. Trailing silence and
+                # a noise floor have OPPOSITE consequences for a log loss --
+                # silence clamps on both sides and contributes exactly nothing,
+                # while a noise floor is content the synth cannot produce and
+                # so is a permanent weighted residual. A statistic that mixes
+                # them cannot say which a category has.
+                fe = A.sum(dim=0)
+                keep = fe >= fe.max() * 10.0 ** (-args.active_db / 20.0)
+                if int(keep.sum()) < 2:
+                    continue
+                A = A[:, keep]
+                frames_kept += float(keep.sum()) / keep.numel()
+            a = A.flatten()
             peak = a.max().clamp(min=1e-30)
             # Referenced to the clip's own peak, so level differences between
             # recordings do not masquerade as differences in how quiet a
@@ -128,9 +168,11 @@ def main() -> None:
         if not used:
             continue
         rows[name] = dict(n=len(fs), used=used, cnt=cnt / used, eng=eng / used,
-                          below=below / used,
+                          below=below / used, act=frames_kept / used,
                           floor=sum(floors) / len(floors))
-        print(f"  {name:<24}{used:>5} of {len(fs)}")
+        print(f"  {name:<24}{used:>5} of {len(fs)}"
+              + (f"   {100*frames_kept/used:.0f}% of frames active"
+                 if args.active_db > 0 else ""))
 
     print(f"\n=== bins% by dB below peak   (where a LOG term's weight goes)")
     hdr = "".join(f"{f'{lo}-{hi}':>10}" for lo, hi in DB_BANDS)
