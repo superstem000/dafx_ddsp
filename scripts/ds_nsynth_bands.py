@@ -97,6 +97,19 @@ def main() -> None:
                         "to -400 for every category on the first run -- the "
                         "5th percentile landed in the silent tail every time. "
                         "Set 0 to disable and measure whole clips.")
+    p.add_argument("--ref", default="frame", choices=("frame", "clip"),
+                   help="What each bin's dB is measured against. clip uses the "
+                        "whole clip's peak, which COUPLES THE COUNT TO DECAY: "
+                        "active frames span --active-db of level, so a frame "
+                        "sitting 35 dB down has every one of its bins shifted "
+                        "35 dB before being counted and lands most of them in "
+                        "the deep bands with no change in spectral shape. The "
+                        "groups that scored highest under clip referencing were "
+                        "the two most decaying ones -- mallet_acoustic active "
+                        "in 32% of frames, guitar_synthetic in 44% -- which is "
+                        "what the coupling predicts. frame measures each "
+                        "frame against its own peak, so the answer is about "
+                        "spectral shape rather than envelope position.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cpu")
     args = p.parse_args()
@@ -111,7 +124,8 @@ def main() -> None:
         if m:
             by_group[f"{m.group('family')}_{m.group('source')}"].append(f)
     by_group = {k: v for k, v in by_group.items() if len(v) >= args.min_n}
-    print(f"{len(files)} files, {len(by_group)} groups with >= {args.min_n}\n")
+    print(f"{len(files)} files, {len(by_group)} groups with >= {args.min_n}   "
+          f"ref={args.ref}, active-db={args.active_db:g}\n")
 
     dev = torch.device(args.device)
     g = torch.Generator().manual_seed(args.seed)
@@ -148,13 +162,18 @@ def main() -> None:
                     continue
                 A = A[:, keep]
                 frames_kept += float(keep.sum()) / keep.numel()
+            if args.ref == "frame":
+                # Per-frame peak, broadcast back over frequency.
+                ref = A.amax(dim=0, keepdim=True).clamp(min=1e-30)
+            else:
+                ref = A.max().clamp(min=1e-30)
+            rel = (A / ref).flatten()
             a = A.flatten()
-            peak = a.max().clamp(min=1e-30)
-            # Referenced to the clip's own peak, so level differences between
-            # recordings do not masquerade as differences in how quiet a
-            # category is. Exact zeros clamp just inside the deepest band
-            # rather than falling out of the accounting at -inf.
-            db = (20.0 * torch.log10((a / peak).clamp(min=1e-300))
+            # Referenced per --ref, so level differences between recordings do
+            # not masquerade as differences in how quiet a category is. Exact
+            # zeros clamp just inside the deepest band rather than falling out
+            # of the accounting at -inf.
+            db = (20.0 * torch.log10(rel.clamp(min=1e-300))
                   ).clamp(min=-(float(DB_BANDS[-1][1]) - 1e-3))
             n = db.numel()
             for i, (lo, hi) in enumerate(DB_BANDS):
