@@ -1,0 +1,28 @@
+# Finish quiet7's linear control at 40000, on whatever card frees up next.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_plate_quiet7_lin.txt
+#
+# One job, its own queue, so it can be launched independently of the floored
+# ladder and the lin_db40/lin_db80 controls already running.
+#
+# TWO QUEUES ON ONE POOL. gpu_queue's free-memory poll is a heuristic, not a
+# lock: two queues watching the same cards can both see one go idle and both
+# claim it, and the result is a mid-run OOM rather than a clean refusal. With
+# one job here and cards genuinely spare that is unlikely, but --gpus N pins it
+# beyond doubt if the other queue is still waiting on something.
+#
+# WHY. linear stopped at ~33500 when a pkill on the queue driver took its
+# children with it. Every floored arm runs to 40000, and a control read at a
+# different step count from the arms it controls for is not a control -- the
+# claim is about where each loss ENDS UP, not how fast it gets there.
+#
+# FORCE=1 because eps_ladder refuses a directory that already holds results,
+# and writing into it is the intent: --resume restores step, optimizer,
+# loss_scale and the LR schedule, and continues history.json rather than
+# replacing it. eps_ladder does still rewrite OUT/sweep_command.txt and truncate
+# OUT/L1_STFT.log; the originals are in results/ddsp/quiet7/_pre_resume.
+FORCE=1 PLATE_PARAM_SPACE=quiet7 TRAIN=data/train-quiet7 VAL=data/val-quiet7 N_TRAIN=98304 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 60,185" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/quiet7 ARMS="L1_STFT" EXTRA="--resume results/ddsp/quiet7/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# No comment line in this file may begin with the word "stage": gpu_queue
+# matches ^#\s*STAGE[:\s] case-insensitively, so prose starting that way
+# silently becomes a barrier.
