@@ -28,13 +28,27 @@ TOTALS = {"nsynth-train": 289205, "nsynth-valid": 12678, "nsynth-test": 4096}
 
 
 def main() -> None:
-    name = sys.argv[1]
-    want = int(sys.argv[2])
-    full = len(sys.argv) > 3 and sys.argv[3] == "1"
+    argv = sys.argv[1:]
+    only = out = None
+    cap = 0
+    rest = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--only":
+            only = argv[i + 1]; i += 2
+        elif argv[i] == "--max":
+            cap = int(argv[i + 1]); i += 2
+        elif argv[i] == "--out":
+            out = argv[i + 1]; i += 2
+        else:
+            rest.append(argv[i]); i += 1
+    name = rest[0]
+    want = int(rest[1])
+    full = len(rest) > 2 and rest[2] == "1"
     random.seed(0)
 
     total = TOTALS.get(name, 289205)
-    out_dir = os.path.join(name, "audio")
+    out_dir = os.path.join(out or name, "audio")
     os.makedirs(out_dir, exist_ok=True)
 
     # 'r|gz' is the streaming reader: forward-only, no seeking, so it works on a
@@ -46,7 +60,17 @@ def main() -> None:
         if not (m.isfile() and m.name.endswith(".wav")):
             continue
         seen += 1
-        if not full:
+        if only is not None:
+            # ALL of one class, not a sample of it. The sampling arithmetic
+            # below needs the eligible population up front -- it takes the next
+            # file with probability (want - kept) / (total - seen) -- and the
+            # per-class count is not knowable from a forward-only stream. A
+            # class is small enough to take whole anyway: keyboard_acoustic is
+            # 8068 of 289205, about 1 GB. --max prunes afterwards for the few
+            # classes that are not (bass_synthetic is ~57k, ~7 GB).
+            if not os.path.basename(m.name).startswith(only):
+                continue
+        elif not full:
             if kept >= want:
                 continue
             remaining = max(total - seen + 1, 1)
@@ -60,10 +84,29 @@ def main() -> None:
         kept += 1
         if kept % 500 == 0:
             pct = 100.0 * seen / total
-            print(f"  kept {kept}/{want}   streamed {seen}/{total} (~{pct:.1f}%)",
+            tgt = only if only is not None else want
+            print(f"  kept {kept}/{tgt}   streamed {seen}/{total} (~{pct:.1f}%)",
                   flush=True)
 
     print(f"  done: kept {kept} of {seen} wav entries seen", flush=True)
+    if only is not None:
+        if not kept:
+            print(f"  ERROR: nothing matched '{only}'. NSynth basenames are "
+                  f"<family>_<source>_<instr>-<pitch>-<velocity>.wav, so the "
+                  f"prefix wants both halves, e.g. reed_acoustic",
+                  file=sys.stderr)
+            raise SystemExit(1)
+        if cap and kept > cap:
+            # Prune after writing rather than reservoir-sampling during it: a
+            # reservoir would have to hold the file BYTES for an unknown
+            # population, ~128 KB each, which is gigabytes of RAM. Disk is the
+            # cheaper place to buffer.
+            names = sorted(os.listdir(out_dir))
+            drop = random.sample(names, len(names) - cap)
+            for d in drop:
+                os.remove(os.path.join(out_dir, d))
+            print(f"  pruned to --max {cap} (removed {len(drop)})", flush=True)
+        return
     if kept < want and not full:
         # Only reachable if the archive held fewer entries than TOTALS claims.
         print(f"  NOTE: archive was shorter than expected ({seen} < {total})",

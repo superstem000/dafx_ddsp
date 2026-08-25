@@ -1,0 +1,100 @@
+# reed_acoustic: the class where linear should KEEP its win when specialised.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_reedacoustic.txt
+#
+# BUILD THE DATASET FIRST, under tmux -- the stream is 22 GB and cannot resume:
+#
+#   CLASS=reed_acoustic scripts/get_nsynth.sh
+#
+# writes external/diffsynth/data/nsynth-reedacoustic/audio, every reed_acoustic
+# file in nsynth-train (~12-13k, ~1.6 GB).
+#
+# THE PREDICTION, written before the run so it can be wrong. On val_ood/mfccdb
+# over this class's held-out split:
+#
+#   magx < hybridx and magx < logx        the linear win survives specialisation
+#
+# and specifically that the joint-to-specialised change goes the OTHER way than
+# keyboard's did. Keyboard, same metric, same 806 clips:
+#
+#                          joint (all NSynth)   keyboard-only     change
+#   magx                         8.7609            9.3265         +0.56  worse
+#   hybridx                      8.9418            7.8791         -1.06  better
+#   logx                         8.9428            7.7288         -1.21  better
+#
+# Linear led by 0.18 jointly and trailed by 1.60 alone. If reed does the same
+# thing, "linear wins on this class" was never about the class and the joint
+# table cannot be used to pick one.
+#
+# WHY REED SHOULD DIFFER. keyboard_acoustic is the peakiest class measured
+# (spectral flatness 0.0172, lowest of nineteen): almost nothing in it that
+# harmor cannot represent. Its linear win came from the JOINT task -- eighteen
+# other classes forcing capacity onto harmonics -- so removing them removed the
+# thing that separated the losses.
+#
+# reed_acoustic is the opposite construction: strong harmonics PLUS continuous
+# breath noise, which harmor cannot produce at any parameter setting (it has no
+# noise source). The log term weights a residual that can never be removed while
+# the linear term ignores it and fits the harmonics. That distraction is
+# intrinsic to the class, so training on the class alone should preserve the
+# separation rather than dissolve it. Supporting numbers, all pre-existing:
+#
+#   joint mfcc, this class     magx 10.0796  hyb 10.0992  log 11.3074  magx wins
+#   at epoch 199, no real audio     13.8307      13.7228      13.9054  magx > log
+#   paired residual ratio, 60-80 / 80-100 dB, normalised: 3.92 / 3.79, 3rd of 19
+#     -- raw, the log arm is 6.9x and 6.6x worse than linear in exactly the
+#     bands the breath noise occupies (1.236 -> 8.482, 1.710 -> 11.359)
+#   floor_dB -90.7: a real noise floor, not digital silence
+#
+# reed_acoustic is one of only three classes where magx beats BOTH compressed
+# arms in the joint table, and the only one of those three that also beats log
+# at epoch 199. keyboard_acoustic and guitar_acoustic are the others; keyboard
+# has now been run and lost.
+#
+# AND THE HONEST CAVEAT. The reducibility ratio does not predict the outcome
+# across classes -- r = -0.10 against the margin over nineteen cells, Spearman
+# -0.15. It is a description of what these two arms do on this audio, not an
+# independent predictor of what a reed-only run will produce. That is the reason
+# to run it, not a substitute for running it.
+#
+# ID_DIR IS h2of_kb ON PURPOSE, and it is the control that makes this
+# comparable. data.py:92 draws len(id_dat) indices from the ood set without
+# replacement, so id_dir's SIZE fixes the training-set size: 8064 files -> 6451
+# training clips, the same number the keyboard run trained on. Point it at a
+# bigger id set and reed gets more data than keyboard did, and the two class
+# runs stop being comparable. The name says kb because that is where it was
+# sized; it is a plain h2of set and feeds only val_id, which is not what this
+# measures.
+#
+# All three arms branch from their own pre_* at latest.ckpt, epoch 199 / step
+# 50000 -- the same branch point keyboard used. train_type is ood.
+#
+# log_grad=false: gradient histograms every step are what filled the disk.
+
+ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-reedacoustic RESUME=pre_magx_halfw scripts/ds_run.sh real_rd_magx_halfw resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-reedacoustic RESUME=pre_hybridx    scripts/ds_run.sh real_rd_hybridx    resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=external/diffsynth/data/h2of_kb OOD_DIR=external/diffsynth/data/nsynth-reedacoustic RESUME=pre_logx_halfw scripts/ds_run.sh real_rd_logx_halfw resume_real "{gpu}" trainer.checkpoint_every_n_epochs=50 model.log_grad=false model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# Monitor:  python -m src.ddsp.monitor_diffsynth --only '_rd_'
+# Read val_ood/mfccdb -- NOT val_ood/mfcc, which is torchaudio's rectangular-
+# window HTK cepstrum and reads about 5x smaller. The epoch axis now comes from
+# Lightning's own `epoch` scalar, so a class run's ~100 steps per epoch no
+# longer prints 400 as 280.
+#
+# Score against the joint arms on these same clips when it finishes:
+#
+#   python scripts/ds_ood_subset.py \
+#     --arms real_magx_halfw real_hybridx real_logx_halfw \
+#            real_rd_magx_halfw real_rd_hybridx real_rd_logx_halfw \
+#     --ood-dir external/diffsynth/data/nsynth-reedacoustic \
+#     --id-dir external/diffsynth/data/h2of_kb \
+#     --group-by family --norm none --active-db 0
+#
+# That prints the leakage line per arm. The joint arms trained on 16000 clips of
+# nsynth-train, which contains reed_acoustic, so some of the held-out clips will
+# have been seen -- keyboard came back 46 of 806, 5.7%. Read it before quoting
+# the joint column.
+#
+# No comment line here may begin with the word "stage": gpu_queue matches
+# ^#\s*STAGE[:\s] case-insensitively. These three are independent and want no
+# barrier.

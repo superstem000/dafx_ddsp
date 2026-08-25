@@ -4,6 +4,19 @@
 #   scripts/get_nsynth.sh                # sample 25000 of the train split
 #   SAMPLE=40000 scripts/get_nsynth.sh   # a bigger pool
 #   FULL=1 scripts/get_nsynth.sh         # every file; needs ~60 GB free
+#   CLASS=reed_acoustic scripts/get_nsynth.sh          # one instrument class
+#   CLASS=bass_synthetic MAX=12000 scripts/get_nsynth.sh
+#
+# CLASS takes EVERY file of one <family>_<source> and ignores SAMPLE. That is
+# what a class-specific training set is, and the per-class counts are small
+# enough to take whole -- keyboard_acoustic is 8068 files, ~1 GB. MAX prunes
+# afterwards for the few that are not; bass_synthetic is ~57k, ~7 GB. The
+# stream is the same 22 GB either way: the archive is ordered by family, but
+# there is no seeking in a pipe, so the whole thing still goes past.
+#
+# Output lands in data/nsynth-<class with underscores removed>, e.g.
+# nsynth-reedacoustic, unless OUT names it. The archive itself is still the
+# split named by SPLIT.
 #
 # Why sample rather than extract everything. nsynth-train is 289205 files of 4 s
 # at 16 kHz, ~128 KB each, so a full extraction is ~37 GB on top of a 22 GB
@@ -43,16 +56,21 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SPLIT=${SPLIT:-train}
 SAMPLE=${SAMPLE:-25000}
 FULL=${FULL:-0}
+CLASS=${CLASS:-}
+MAX=${MAX:-0}
 DEST=${DEST:-"$(cd "$(dirname "$0")/.." && pwd)/external/diffsynth/data"}
 
 NAME="nsynth-${SPLIT}"
 URL=${URL:-"http://download.magenta.tensorflow.org/datasets/nsynth/${NAME}.jsonwav.tar.gz"}
+# The archive to stream and the directory to write are the same thing only when
+# no class is selected. NAME stays the archive; OUT is where files land.
+OUT=${OUT:-$([[ -n "$CLASS" ]] && echo "nsynth-${CLASS//_/}" || echo "$NAME")}
 
 mkdir -p "$DEST"
 cd "$DEST"
 
-if [[ -d "$NAME/audio" ]] && (( $(ls "$NAME/audio" 2>/dev/null | wc -l) > 0 )); then
-  echo "$DEST/$NAME/audio already has $(ls "$NAME/audio" | wc -l) wavs -- nothing to do"
+if [[ -d "$OUT/audio" ]] && (( $(ls "$OUT/audio" 2>/dev/null | wc -l) > 0 )); then
+  echo "$DEST/$OUT/audio already has $(ls "$OUT/audio" | wc -l) wavs -- nothing to do"
   echo "(delete it to re-fetch, or set SAMPLE higher and re-run into a fresh DEST)"
   exit 0
 fi
@@ -69,7 +87,13 @@ if ! curl -sIL --max-time 30 "$URL" | grep -qiE '^HTTP/[0-9.]+ 200'; then
 fi
 
 FREE_GB=$(df -BG --output=avail "$DEST" | tail -1 | tr -dc '0-9')
-if [[ "$FULL" == "1" ]]; then
+if [[ -n "$CLASS" ]]; then
+  # Unknown until the stream ends, so budget from the largest class that is not
+  # capped. 15000 files is ~2 GB and covers every family_source except
+  # bass_synthetic and keyboard_electronic, which want MAX.
+  NEED_GB=$(( ( MAX > 0 ? MAX : 15000 ) * 140 / 1000000 + 2 ))
+  echo "class $CLASS -> $OUT: need ~${NEED_GB} GB, have ${FREE_GB} GB"
+elif [[ "$FULL" == "1" ]]; then
   NEED_GB=60
   echo "FULL extraction: need ~${NEED_GB} GB, have ${FREE_GB} GB"
 else
@@ -88,11 +112,23 @@ echo "streaming (no resume -- run under tmux; ~22 GB over the wire either way)"
 # program from there and silently discards the pipe. That failed instantly with
 # an exhausted stream and, under `tmux new -d`, took the session down with it
 # before anything could be read.
-curl -sL "$URL" | python3 "$HERE/nsynth_sample.py" "$NAME" "$SAMPLE" "$FULL"
+EXTRA=()
+[[ -n "$CLASS" ]] && EXTRA+=(--only "$CLASS" --out "$OUT")
+(( MAX > 0 )) && EXTRA+=(--max "$MAX")
+curl -sL "$URL" | python3 "$HERE/nsynth_sample.py" "$NAME" "$SAMPLE" "$FULL" "${EXTRA[@]}"
 
-N=$(ls "$NAME/audio" | wc -l)
+N=$(ls "$OUT/audio" | wc -l)
 echo
-echo "$DEST/$NAME/audio contains $N wav files"
+echo "$DEST/$OUT/audio contains $N wav files"
+if [[ -n "$CLASS" ]]; then
+  echo
+  echo "A class set is an ood_dir for a class-specific run, not a drop-in for"
+  echo "nsynth-train. IdOodDataModule draws len(id_dat) indices from it without"
+  echo "replacement (data.py:92), so the ID_DIR paired with it must hold NO MORE"
+  echo "files than $N -- and using the SAME id_dir across classes is what makes"
+  echo "two class runs comparable, since it fixes the training-set size."
+  exit 0
+fi
 if (( N < 20000 )); then
   echo "WARNING: fewer than the 20000 the in-domain set needs."
   echo "IdOodDataModule will raise in np.random.choice. Re-run with a larger"
