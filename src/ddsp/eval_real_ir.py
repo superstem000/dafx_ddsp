@@ -96,9 +96,12 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 from src.ddsp.train_encoder import (                       # noqa: E402
-    Encoder, CompositeConditioner, two_stage_forward, synth_dataset,
+    Encoder, CompositeConditioner, two_stage_forward,
 )
-from src.gd.graddescent import SAMPLE_RATE, Raw7Space      # noqa: E402
+from src.gd.graddescent import (                           # noqa: E402
+    SAMPLE_RATE, Raw7Space, norm_to_physical_torch, physical_to_plate14_torch,
+)
+from src.plate.SevenParamPlate import SevenParamPlate       # noqa: E402
 from src.cmaes.fit_7param_norm_es import PARAM_KEYS        # noqa: E402
 # The PLATE's own mel filterbank and DCT, not ds_mfcc_check's. That module
 # imports torchaudio, which dsenv has and dafxenv does not -- and there is no
@@ -109,6 +112,43 @@ from src.cmaes.fit_7param_norm_es import PARAM_KEYS        # noqa: E402
 from src.loss.losses import (                              # noqa: E402
     _get_dct, _get_mel_fb, _stft_mag, configure_loss_runtime,
 )
+
+
+P14 = list(SevenParamPlate.PARAM_ORDER)
+
+
+def parse_fix(items):
+    """--fix k=v pairs into {column index: value}, validated against PARAM_ORDER."""
+    out = {}
+    for it in items or []:
+        if "=" not in it:
+            raise SystemExit(f"--fix wants key=value, got {it!r}")
+        k, v = it.split("=", 1)
+        k = k.strip()
+        if k not in P14:
+            raise SystemExit(f"--fix {k!r} is not a plate parameter. The 14 are: "
+                             + ", ".join(P14))
+        out[P14.index(k)] = float(v)
+    return out
+
+
+def render(space, z, duration, fixes):
+    """Render z, overriding named plate columns after packing.
+
+    Applied to the packed 14-vector rather than to FIXED_PLATE_PARAMS, because
+    that dict is consulted only for columns the space does NOT search --
+    physical_to_plate14_torch takes `named[k] if k in named else FIXED[k]` -- so
+    an override of a searched parameter (Ly, E, rho, h, T0, op_x, op_y in raw7)
+    would be silently ignored there. Here every one of the fourteen can be
+    pinned the same way.
+    """
+    phys = norm_to_physical_torch(z, space._lo, space._hi)
+    p14 = physical_to_plate14_torch(phys)
+    if fixes:
+        p14 = p14.clone()
+        for i, v in fixes.items():
+            p14[:, i] = v
+    return space.plate(p14, duration=duration, normalize=space.normalize)
 
 
 class _Args:
@@ -269,6 +309,18 @@ def main() -> None:
                         "encoder something it was never trained on -- and the "
                         "first 0.25 s of a real plate IR is mostly the strike, "
                         "which is the part the model has least to say about.")
+    p.add_argument("--fix", nargs="+", default=None, metavar="KEY=VALUE",
+                   help="Pin plate parameters to these values for every render, "
+                        "searched or not. Any of the fourteen: "
+                        "Lx Ly h T0 rho E nu T60_DC T60_F1 loss_F1 fp_x fp_y "
+                        "op_x op_y.\n"
+                        "Applied to the packed 14-vector, so it overrides a "
+                        "SEARCHED parameter too -- setting FIXED_PLATE_PARAMS "
+                        "would not, since that dict is only read for columns "
+                        "the space does not search.\n"
+                        "Pinning a searched parameter makes the encoder's "
+                        "prediction for it inert; with --prior it simply "
+                        "narrows what is drawn.")
     p.add_argument("--prior", type=int, default=0, metavar="N",
                    help="Also write N IRs drawn from the synthetic PRIOR -- no "
                         "encoder, no real audio, just the parameter space the "
@@ -373,9 +425,21 @@ def main() -> None:
         print(f"render/score duration {rdur}s -- parameters predicted from the "
               f"first {dur}s, rendered out to {rdur}s")
 
+    fixes = parse_fix(args.fix)
+    if fixes:
+        print("  pinned: " + ", ".join(f"{P14[i]}={v:g}"
+                                       for i, v in sorted(fixes.items())))
+
     if args.prior:
         _m, _r, space, _c, _a, _s, _st = next(iter(loaded.values()))
-        z, x = synth_dataset(space, args.prior, rdur, 0, min(args.prior, 8), dev)
+        # synth_dataset's own sampling, so the draws are the training
+        # distribution, but rendered through the override path.
+        g = torch.Generator(device="cpu").manual_seed(args.prior_seed)
+        z = (torch.rand((args.prior, len(PARAM_KEYS)), generator=g)
+             * 2.0 - 1.0).to(dev)
+        with torch.no_grad():
+            x = torch.cat([render(space, z[i:i + 8], rdur, fixes).float()
+                           for i in range(0, args.prior, 8)], dim=0)
         for i in range(x.shape[0]):
             sf.write(os.path.join(args.out, f"prior_{i:02d}.wav"),
                      peak_norm(x[i:i + 1])[0].cpu().numpy(), SAMPLE_RATE)
@@ -407,8 +471,8 @@ def main() -> None:
                 # rather than reusing two_stage_forward's own render, which is
                 # fixed at the encoder's training duration.
                 z = z1 if two else z0
-                pred = space.forward(z, None, rdur) if rdur != dur else (
-                    _x1 if two else x0)
+                pred = (render(space, z, rdur, fixes)
+                        if (fixes or rdur != dur) else (_x1 if two else x0))
             tn, pn = tgts[stem], peak_norm(pred).float()
             l1 = torch.nn.functional.l1_loss
             m = {"linmag": l1(linmag(tn), linmag(pn)).item(),
