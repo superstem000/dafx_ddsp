@@ -1,18 +1,20 @@
 """Run trained plate encoders on REAL impulse responses and score the fit.
 
+    python -m src.ddsp.eval_real_ir --list results/ddsp
     python -m src.ddsp.eval_real_ir --wav-dir data/EMT-140 \
-        --arms results/ddsp/quiet7/L1_STFT_hyb1e4 \
-               results/ddsp/quiet7/L1_STFT_eps1e4 \
-               results/ddsp/quiet7/L1_STFT
-    python -m src.ddsp.eval_real_ir --wav-dir data/EMT-140 --arms ... --limit 8
+        --arms results/ddsp/gamma_ppre/L1_STFT \
+               results/ddsp/gamma_ppre/L1_STFT_hyb1e2 \
+               results/ddsp/gamma_ppre/L1_STFT_eps1e7 \
+        --render-duration 4.0 --prior 10
 
-The quiet7 family is the pretrained one: quiet7_pre/L1_STFT branches into
-quiet7/<arm>, so hyb1e4 / eps1e4 / L1_STFT are hybrid / log / linear off a
-shared base -- the plate's counterpart to diffsynth's pre_base -> hybridx /
-logx_halfw / magx_halfw. The plate's linear has always been on MAGNITUDE
-(losses.py: torch.abs(torch.stft(...))), so L1_STFT is the magx equivalent
-rather than a power loss. quiet7_floor/ holds the same three at a -40 dB hard
-floor.
+gamma_ppre is the pretrained family in the original parameter space
+(train-p99): L1_STFT / hyb1e2 / eps1e7 are linear / hybrid / log off a shared
+parameter-only base, the plate's counterpart to diffsynth's pre_base ->
+magx_halfw / hybridx / logx_halfw. The plate's linear has always been on
+MAGNITUDE (losses.py: torch.abs(torch.stft(...))), so L1_STFT is the magx
+equivalent rather than a power loss, and g1 is the power one. Use --list to
+find the rest; an arm called L1_STFT exists in six sweeps across two parameter
+spaces and the name records neither.
 
 Every plate number so far is against a SYNTHETIC target drawn from the same
 seven-parameter model the encoder inverts, so the target is reachable by
@@ -27,12 +29,23 @@ as-is. A CMA-ES fit against the same audio would be a different and much
 stronger test of the MODEL; this is a test of the ENCODERS, which is what the
 losses under dispute produced.
 
-ONLY THE FIRST --duration SECONDS ARE SCORED, and that is the model's limit,
-not a choice made here. The encoders were trained at 0.25 s, so the renderer
-produces 0.25 s and the comparison covers the onset and the first part of the
-decay of a 2-6 s recording -- not the tail, which is where a plate's character
-largely lives. The default reads the value out of the checkpoint so it cannot
-silently disagree with what the encoder expects.
+ENCODE LENGTH AND RENDER LENGTH ARE SEPARATE, and only the first is fixed by
+the model. The encoders were trained at 0.25 s and their conv stack expects
+that many frames, so --duration defaults to the checkpoint's own value and
+should stay there. But the seven parameters describe modes and decay rates,
+so the RENDERER can produce any length from them: --render-duration 4.0
+predicts from the first 0.25 s and renders four seconds.
+
+That matters for listening more than for scoring. The first 0.25 s of a real
+plate IR is mostly the strike -- a broadband crash the model has least to say
+about -- while the modal ring the seven parameters actually describe is in the
+tail. Judging the fit on 0.25 s judges it on the part it was never going to
+get.
+
+--prior N is the control for "it sounds nothing like a plate": N draws from the
+synthetic prior, rendered, with no encoder and no real audio involved. If those
+do not sound like a plate either, the encoders are not what is being heard and
+neither are the losses.
 
 TWO THINGS TO EXPECT, so they are not read as bugs:
 
@@ -83,7 +96,7 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 from src.ddsp.train_encoder import (                       # noqa: E402
-    Encoder, CompositeConditioner, two_stage_forward,
+    Encoder, CompositeConditioner, two_stage_forward, synth_dataset,
 )
 from src.gd.graddescent import SAMPLE_RATE, Raw7Space      # noqa: E402
 from src.cmaes.fit_7param_norm_es import PARAM_KEYS        # noqa: E402
@@ -241,9 +254,29 @@ def main() -> None:
                         "training. Useful as a cross-check, misleading as a "
                         "default.")
     p.add_argument("--duration", type=float, default=None,
-                   help="Seconds of IR to model. Defaults to whatever the "
-                        "checkpoint was trained at, which is what the encoder "
-                        "and the renderer both assume.")
+                   help="Seconds of IR the ENCODER sees. Defaults to the "
+                        "checkpoint's own training duration and should stay "
+                        "there: the conv stack was trained on that many frames "
+                        "and its input statistics change with the length.")
+    p.add_argument("--render-duration", type=float, default=None,
+                   help="Seconds to RENDER and score, from the parameters the "
+                        "encoder predicted. Defaults to --duration.\n"
+                        "These are separable because only the encoder is length-"
+                        "bound: the seven parameters describe modes and decay "
+                        "rates, so the renderer can produce any length from "
+                        "them. Predicting from 0.25 s and rendering 4 s is the "
+                        "honest way to hear the tail without feeding the "
+                        "encoder something it was never trained on -- and the "
+                        "first 0.25 s of a real plate IR is mostly the strike, "
+                        "which is the part the model has least to say about.")
+    p.add_argument("--prior", type=int, default=0, metavar="N",
+                   help="Also write N IRs drawn from the synthetic PRIOR -- no "
+                        "encoder, no real audio, just the parameter space the "
+                        "encoders invert, rendered.\n"
+                        "This is the control for 'the output sounds nothing "
+                        "like a plate'. If the prior itself does not sound like "
+                        "one, no encoder can, and the losses are not what is "
+                        "being heard. Written as prior_NN.wav.")
     p.add_argument("--resample", default="soxr_hq",
                    help="Resampler for files not already at the model's rate; "
                         "'none' skips them instead. A bandlimited resample "
@@ -334,27 +367,49 @@ def main() -> None:
     dur = args.duration
     if dur is None:
         dur = float(next(iter(loaded.values()))[4].duration)
-        print(f"duration {dur}s (from the checkpoint)")
+        print(f"encode duration {dur}s (from the checkpoint)")
+    rdur = args.render_duration if args.render_duration else dur
+    if rdur != dur:
+        print(f"render/score duration {rdur}s -- parameters predicted from the "
+              f"first {dur}s, rendered out to {rdur}s")
+
+    if args.prior:
+        _m, _r, space, _c, _a, _s, _st = next(iter(loaded.values()))
+        z, x = synth_dataset(space, args.prior, rdur, 0, min(args.prior, 8), dev)
+        for i in range(x.shape[0]):
+            sf.write(os.path.join(args.out, f"prior_{i:02d}.wav"),
+                     peak_norm(x[i:i + 1])[0].cpu().numpy(), SAMPLE_RATE)
+        print(f"wrote {args.prior} prior draws (no encoder, no real audio) "
+              f"to {args.out}/prior_*.wav")
 
     rows, names, tgts = {}, [], {}
     for wi, w in enumerate(wavs):
-        x = load_wav(w, dur, SAMPLE_RATE,
-                     None if args.resample.lower() == "none" else args.resample)
+        rt = None if args.resample.lower() == "none" else args.resample
+        x = load_wav(w, dur, SAMPLE_RATE, rt)
         if x is None:
             continue
+        # The window the encoder reads and the window everything is scored and
+        # written over are the same array only when the two durations agree.
+        xr = x if rdur == dur else load_wav(w, rdur, SAMPLE_RATE, rt)
         stem = Path(w).stem
         names.append(stem)
-        tgt = torch.from_numpy(x)[None, :].to(dev)
-        tgts[stem] = peak_norm(tgt).float()
+        tgt = torch.from_numpy(x)[None, :].to(dev)          # encoder input
+        tgt_r = torch.from_numpy(xr)[None, :].to(dev)       # scored + written
+        tgts[stem] = peak_norm(tgt_r).float()
         sf.write(os.path.join(args.out, f"{stem}__target.wav"),
                  tgts[stem][0].cpu().numpy(), SAMPLE_RATE)
         for name, (model, refiner, space, cond, a, scale, _s) in loaded.items():
             with torch.no_grad():
                 two = refiner is not None
-                _z0, x0, z1, x1 = two_stage_forward(
+                z0, x0, z1, _x1 = two_stage_forward(
                     model, refiner, cond, space, tgt, scale, a, two)
-                pred = x1 if two else x0
-            tn, pn = peak_norm(tgt).float(), peak_norm(pred).float()
+                # Render from the PREDICTED PARAMETERS at the scoring length,
+                # rather than reusing two_stage_forward's own render, which is
+                # fixed at the encoder's training duration.
+                z = z1 if two else z0
+                pred = space.forward(z, None, rdur) if rdur != dur else (
+                    _x1 if two else x0)
+            tn, pn = tgts[stem], peak_norm(pred).float()
             l1 = torch.nn.functional.l1_loss
             m = {"linmag": l1(linmag(tn), linmag(pn)).item(),
                  "mfcc": l1(mfcc(tn), mfcc(pn)).item(),
