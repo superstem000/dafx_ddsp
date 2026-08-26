@@ -105,18 +105,29 @@ class _Args:
         self.__dict__.update(d)
 
 
-def load_wav(path: str, duration: float, sr: int) -> np.ndarray | None:
-    """Mono, native rate only, first `duration` seconds, zero-padded.
+def load_wav(path: str, duration: float, sr: int,
+             res_type: str | None) -> np.ndarray | None:
+    """Mono, resampled to `sr`, first `duration` seconds, zero-padded.
 
-    Deliberately refuses to resample. An EMT-140 IR set is normally 44.1 kHz
-    already, and silently resampling a file that is not would change the mode
-    frequencies -- which are the entire signal the encoder reads.
+    RESAMPLING IS SAFE HERE AND REINTERPRETING THE RATE IS NOT, which is the
+    distinction an earlier version of this got wrong by refusing both. A
+    bandlimited resampler preserves every partial's frequency in Hz -- a
+    440 Hz mode is still at 440 Hz afterwards -- and mode POSITION is the whole
+    signal the encoder reads. Simply relabelling 48 kHz samples as 44.1 kHz
+    would shift every mode by 8.8%, which is what must never happen.
+
+    --resample none restores the refusal, for checking that a rate conversion
+    is not doing something to a result.
     """
     x, file_sr = sf.read(path, dtype="float32", always_2d=True)
-    if file_sr != sr:
-        print(f"  SKIP {os.path.basename(path)}: {file_sr} Hz, expected {sr}")
-        return None
     x = x.mean(axis=1)
+    if file_sr != sr:
+        if not res_type:
+            print(f"  SKIP {os.path.basename(path)}: {file_sr} Hz, expected {sr}")
+            return None
+        import librosa
+        x = librosa.resample(x, orig_sr=file_sr, target_sr=sr,
+                             res_type=res_type).astype(np.float32)
     want = int(round(duration * sr))
     if x.shape[0] < want:
         x = np.pad(x, (0, want - x.shape[0]))
@@ -170,6 +181,12 @@ def main() -> None:
                    help="Seconds of IR to model. Defaults to whatever the "
                         "checkpoint was trained at, which is what the encoder "
                         "and the renderer both assume.")
+    p.add_argument("--resample", default="soxr_hq",
+                   help="Resampler for files not already at the model's rate; "
+                        "'none' skips them instead. A bandlimited resample "
+                        "preserves mode frequencies in Hz, so it is safe; "
+                        "relabelling the rate would shift every mode by 8.8% "
+                        "for 48k -> 44.1k and is what this must never do.")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--out", default="real_ir_eval")
     p.add_argument("--device", default="cuda")
@@ -231,6 +248,16 @@ def main() -> None:
             continue
         loaded[Path(arm).name] = got
         print(f"{Path(arm).name:<26} step {got[6]}   input scale {got[5]:.4g}")
+    steps = {n: g[6] for n, g in loaded.items()}
+    if len(set(steps.values())) > 1:
+        print(f"\n  NOTE: the arms are at different steps -- "
+              f"{', '.join(f'{n} {s}' for n, s in steps.items())}.")
+        print("  encoder_best.pt is selected on VALIDATION, so an arm whose best")
+        print("  is early is one that peaked and then got worse. That is a real")
+        print("  property of the arm and the right checkpoint to compare, but it")
+        print("  is not 'the same amount of training'. --ckpt encoder_last.pt")
+        print("  compares equal steps instead, and the two answering differently")
+        print("  is itself worth knowing.\n")
     if not loaded:
         raise SystemExit("no arm loaded")
 
@@ -241,7 +268,8 @@ def main() -> None:
 
     rows, names = {}, []
     for wi, w in enumerate(wavs):
-        x = load_wav(w, dur, SAMPLE_RATE)
+        x = load_wav(w, dur, SAMPLE_RATE,
+                     None if args.resample.lower() == "none" else args.resample)
         if x is None:
             continue
         stem = Path(w).stem
@@ -266,7 +294,8 @@ def main() -> None:
         print(f"  [{wi + 1}/{len(wavs)}] {stem}")
 
     if not names:
-        raise SystemExit("nothing scored -- check the sample rate line above")
+        raise SystemExit("nothing scored -- check the sample rate lines above; "
+                         "--resample none refuses files at another rate")
 
     for key in ("mfcc", "mfcc_db80", "linmag"):
         print(f"\n=== {key}   (peak-normalised both sides; lower is better)")
