@@ -32,7 +32,14 @@ N_VAL=${N_VAL:-991}
 SEED=${SEED:-0}
 DEVICE=${DEVICE:-cuda}
 OUT=${OUT:-data}
-NUMERICS=${NUMERICS:-"--batched-plate --chunk-elems 50000000 --mode-bucket 1024"}
+# MUST match scripts/jobs_emt7.txt, and not only for correctness -- these two
+# numbers are most of the wall clock. The modal sum walks modes in chunks of
+# chunk_elems // (B * n_pad): at 50M and a 1.0 s pad that is ~17 modes a pass,
+# so 46,854 modes is ~2,700 launches per batch of 32 with the GPU idle between
+# them. 400M gives ~141 a pass, ~330 launches. The 0.25 s spaces never felt this
+# because a shorter pad bought 4x the chunk from the same budget. 400M is
+# 1.6 GB per tensor, three live at once.
+NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024"}
 
 echo "emt7: fmax=$FMAX  grid=$GRID  duration=${DUR}s"
 echo "      train $N_TRAIN -> $OUT/train-emt7   val $N_VAL -> $OUT/val-emt7"
