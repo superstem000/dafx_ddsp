@@ -13,12 +13,18 @@ TWO CRITERIA, in the order they matter.
 A. RANK. Is magx the lowest of the three at the final epoch. That is the whole
    question; everything else is a consolation prize.
 
-B. TREND, and only over the last --window epochs. The first epochs after the
+B. TREND, and only over the last stretch of the run. The first epochs after the
    branch are a regime change -- param_w reaches 0 and the training set becomes
    real audio at the same step -- and the arms move by whole units there. On
    keyboard, magx-logx went 3.87 at epoch 200 to 1.46 at 239: reading a slope
    through that measures the discontinuity, not the trend. The default window
-   is the last 10 epochs of a 30-epoch phase.
+   is the last third, which on a 30-epoch phase is your last 10.
+
+   THE WINDOW IS A FRACTION, NOT A COUNT, because the sweep equalises STEPS
+   rather than epochs: a small class runs the same ~3030 optimizer steps spread
+   over 159 epochs where a large one takes 30. Ten epochs would be a third of
+   one run and a sixteenth of another, so the slopes would not be comparable.
+   --window still forces an absolute count when that is what is wanted.
 
    The trend reported is of the GAP, magx minus the better of the other two,
    fitted by least squares over that window. Negative means magx is closing.
@@ -92,10 +98,16 @@ def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--dir", default="results/class_sweep")
-    p.add_argument("--window", type=int, default=10,
-                   help="Epochs at the END of the run used for the trend. The "
-                        "epochs right after the branch are a regime change, "
-                        "not a trend -- see the module docstring.")
+    p.add_argument("--window-frac", type=float, default=1.0 / 3.0,
+                   help="Fraction of each run's real phase, at its END, used "
+                        "for the trend. A fraction rather than a count because "
+                        "the sweep equalises steps, not epochs -- a small class "
+                        "runs 159 epochs where a large one runs 30, and a fixed "
+                        "10 would mean quite different amounts of training.")
+    p.add_argument("--window", type=int, default=None,
+                   help="Force an absolute epoch count instead of "
+                        "--window-frac. The epochs right after the branch are a "
+                        "regime change, not a trend -- see the docstring.")
     p.add_argument("--metric", default=METRIC,
                    help="Left open for checking, but the sweep exists to "
                         "answer one question and it is about this column.")
@@ -122,12 +134,15 @@ def main() -> None:
                   f"(a run predating the metric, or it died before validating)")
             continue
         last = min(max(e for e, _ in s[a]) for a in ARMS)
+        first = max(min(e for e, _ in s[a]) for a in ARMS)
         fin = {a: dict(s[a])[last] for a in ARMS}
         best_other = min(fin["hyb"], fin["log"])
         gap = fin["magx"] - best_other
         # The gap's own trajectory, so a class where every arm is improving
         # together is not mistaken for one where magx is catching up.
-        lo = last - args.window + 1
+        win = (args.window if args.window
+               else max(3, int(round((last - first + 1) * args.window_frac))))
+        lo = last - win + 1
         common = sorted(set(dict(s["magx"])) & set(dict(s["hyb"]))
                         & set(dict(s["log"])))
         d = {a: dict(s[a]) for a in ARMS}
@@ -137,26 +152,30 @@ def main() -> None:
         tz = (-gap / slope) if (slope == slope and slope < 0 and gap > 0) \
             else float("inf") if gap > 0 else 0.0
         rows.append(dict(cls=cls, last=last, gap=gap, slope=slope, tz=tz,
-                         n=len(gpts), **{f"f_{a}": fin[a] for a in ARMS}))
+                         n=len(gpts), win=win,
+                         **{f"f_{a}": fin[a] for a in ARMS}))
 
     if not rows:
         raise SystemExit("nothing complete yet")
 
+    wdesc = (f"last {args.window} epochs" if args.window
+             else f"last {100 * args.window_frac:.0f}% of each phase")
     print(f"\n=== {args.metric} at the final epoch   (lower is better; "
-          f"trend over the last {args.window} epochs)")
-    print(f"{'class':<22}{'ep':>5}{'magx':>9}{'hyb':>9}{'log':>9}"
+          f"trend over the {wdesc})")
+    print(f"{'class':<22}{'ep':>5}{'win':>5}{'magx':>9}{'hyb':>9}{'log':>9}"
           f"{'gap':>9}{'slope/ep':>11}{'to_zero':>9}  verdict")
     for r in sorted(rows, key=lambda r: r["gap"]):
         if r["gap"] < 0:
             verdict = "MAGX FIRST"
-        elif r["tz"] != float("inf") and r["tz"] <= 10 * args.window:
+        elif r["tz"] != float("inf") and r["tz"] <= 10 * r["win"]:
             verdict = f"closing"
         elif r["slope"] == r["slope"] and r["slope"] < 0:
             verdict = "closing slowly"
         else:
             verdict = "no"
         tz = "-" if r["tz"] == float("inf") else f"{r['tz']:.0f}"
-        print(f"{r['cls']:<22}{r['last']:>5}{r['f_magx']:>9.4f}{r['f_hyb']:>9.4f}"
+        print(f"{r['cls']:<22}{r['last']:>5}{r['win']:>5}"
+              f"{r['f_magx']:>9.4f}{r['f_hyb']:>9.4f}"
               f"{r['f_log']:>9.4f}{r['gap']:>9.4f}{r['slope']:>11.4f}{tz:>9}"
               f"  {verdict}")
 
@@ -165,7 +184,7 @@ def main() -> None:
           f"{', '.join(r['cls'] for r in won) if won else 'none'}")
     print(f"\n  gap is magx minus the BETTER of hybridx and logx, so it is the")
     print(f"  distance to first place, not to a chosen rival. slope is fitted")
-    print(f"  over the last {args.window} epochs only: the epochs right after")
+    print(f"  over the {wdesc} only: the epochs right after")
     print(f"  the branch are a regime change -- param_w hits 0 and the data")
     print(f"  becomes real audio at the same step -- and on keyboard magx-logx")
     print(f"  fell from 3.87 to 1.46 across epochs 200-239 before flattening at")
@@ -173,7 +192,11 @@ def main() -> None:
     print(f"  to_zero extrapolates a DECAYING process: ExponentialLR keeps")
     print(f"  cutting the step size, so the real number is larger, often much.")
     print(f"  Use it to rank classes against each other, never as a forecast.")
-    print(f"  30 epochs is 3030 steps against the joint run's 50,000. Nothing")
+    print(f"  slope is per EPOCH, and an epoch is not the same amount of")
+    print(f"  training in every row -- the sweep equalises steps, so a small")
+    print(f"  class's epoch is a fraction of a large one's. Compare to_zero,")
+    print(f"  which is in the same units as its own row's window, not slope.")
+    print(f"  Every row is ~3030 steps against the joint run's 50,000. Nothing")
     print(f"  here has converged and no row is a result -- this says which")
     print(f"  class, if any, is worth a full run, and 'none' is a valid answer.")
 
