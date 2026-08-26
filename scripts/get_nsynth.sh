@@ -6,6 +6,15 @@
 #   FULL=1 scripts/get_nsynth.sh         # every file; needs ~60 GB free
 #   CLASS=reed_acoustic scripts/get_nsynth.sh          # one instrument class
 #   CLASS=bass_synthetic MAX=12000 scripts/get_nsynth.sh
+#   CLASS="reed_acoustic string_acoustic brass_acoustic" MAX=8500 \
+#       scripts/get_nsynth.sh                           # several, ONE stream
+#
+# CLASS may name SEVERAL classes, and one stream then fills all of them. The
+# archive is 22 GB and forward-only, so a per-class fetch pays that stream every
+# time -- eleven classes one at a time is hours of re-reading the same bytes.
+# Disk is what bounds a batch, which is what MAX is for: 8500 files is ~1.1 GB
+# per class. With more than one class, OUT is ignored and each lands in its own
+# data/nsynth-<class> directory.
 #
 # CLASS takes EVERY file of one <family>_<source> and ignores SAMPLE. That is
 # what a class-specific training set is, and the per-class counts are small
@@ -64,12 +73,35 @@ NAME="nsynth-${SPLIT}"
 URL=${URL:-"http://download.magenta.tensorflow.org/datasets/nsynth/${NAME}.jsonwav.tar.gz"}
 # The archive to stream and the directory to write are the same thing only when
 # no class is selected. NAME stays the archive; OUT is where files land.
-OUT=${OUT:-$([[ -n "$CLASS" ]] && echo "nsynth-${CLASS//_/}" || echo "$NAME")}
+read -r -a CLASS_ARR <<< "${CLASS// /
+}"
+if (( ${#CLASS_ARR[@]} > 1 )); then
+  OUT=""                       # per-class directories, named by nsynth_sample
+else
+  OUT=${OUT:-$([[ -n "$CLASS" ]] && echo "nsynth-${CLASS//_/}" || echo "$NAME")}
+fi
 
 mkdir -p "$DEST"
 cd "$DEST"
 
-if [[ -d "$OUT/audio" ]] && (( $(ls "$OUT/audio" 2>/dev/null | wc -l) > 0 )); then
+# Skip classes already on disk, and drop out entirely if none is left to fetch
+# -- a sweep re-runs this per batch and must not pay 22 GB for nothing.
+if (( ${#CLASS_ARR[@]} > 1 )); then
+  TODO=()
+  for c in "${CLASS_ARR[@]}"; do
+    d="nsynth-${c//_/}"
+    if [[ -d "$d/audio" ]] && (( $(ls "$d/audio" 2>/dev/null | wc -l) > 0 )); then
+      echo "$DEST/$d/audio already has $(ls "$d/audio" | wc -l) wavs -- skipping $c"
+    else
+      TODO+=("$c")
+    fi
+  done
+  if (( ${#TODO[@]} == 0 )); then
+    echo "every requested class is already on disk -- nothing to do"
+    exit 0
+  fi
+  CLASS_ARR=("${TODO[@]}")
+elif [[ -n "$OUT" && -d "$OUT/audio" ]] && (( $(ls "$OUT/audio" 2>/dev/null | wc -l) > 0 )); then
   echo "$DEST/$OUT/audio already has $(ls "$OUT/audio" | wc -l) wavs -- nothing to do"
   echo "(delete it to re-fetch, or set SAMPLE higher and re-run into a fresh DEST)"
   exit 0
@@ -91,8 +123,8 @@ if [[ -n "$CLASS" ]]; then
   # Unknown until the stream ends, so budget from the largest class that is not
   # capped. 15000 files is ~2 GB and covers every family_source except
   # bass_synthetic and keyboard_electronic, which want MAX.
-  NEED_GB=$(( ( MAX > 0 ? MAX : 15000 ) * 140 / 1000000 + 2 ))
-  echo "class $CLASS -> $OUT: need ~${NEED_GB} GB, have ${FREE_GB} GB"
+  NEED_GB=$(( ( MAX > 0 ? MAX : 15000 ) * 140 * ${#CLASS_ARR[@]} / 1000000 + 2 ))
+  echo "classes ${CLASS_ARR[*]} (${#CLASS_ARR[@]}): need ~${NEED_GB} GB, have ${FREE_GB} GB"
 elif [[ "$FULL" == "1" ]]; then
   NEED_GB=60
   echo "FULL extraction: need ~${NEED_GB} GB, have ${FREE_GB} GB"
@@ -113,10 +145,19 @@ echo "streaming (no resume -- run under tmux; ~22 GB over the wire either way)"
 # an exhausted stream and, under `tmux new -d`, took the session down with it
 # before anything could be read.
 EXTRA=()
-[[ -n "$CLASS" ]] && EXTRA+=(--only "$CLASS" --out "$OUT")
+for c in "${CLASS_ARR[@]}"; do EXTRA+=(--only "$c"); done
+[[ -n "$CLASS" && -n "$OUT" ]] && EXTRA+=(--out "$OUT")
 (( MAX > 0 )) && EXTRA+=(--max "$MAX")
 curl -sL "$URL" | python3 "$HERE/nsynth_sample.py" "$NAME" "$SAMPLE" "$FULL" "${EXTRA[@]}"
 
+if (( ${#CLASS_ARR[@]} > 1 )); then
+  echo
+  for c in "${CLASS_ARR[@]}"; do
+    d="nsynth-${c//_/}"
+    echo "  $DEST/$d/audio  $(ls "$d/audio" 2>/dev/null | wc -l) wav files"
+  done
+  exit 0
+fi
 N=$(ls "$OUT/audio" | wc -l)
 echo
 echo "$DEST/$OUT/audio contains $N wav files"
