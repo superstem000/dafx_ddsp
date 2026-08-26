@@ -217,7 +217,7 @@ def main() -> None:
                        f"checkpoints; {len(nums)} numbers file(s) stay")
             elif r.endswith("data") or "listen" in rel or rel.endswith(".tar.gz"):
                 cat, act = "REGENERABLE", "regenerate from its seed/script"
-            elif not nums and not ref:
+            elif not nums and not why:
                 cat, act = "ORPHAN", "nothing references it and it holds no numbers"
             else:
                 cat, act = "KEEP", "holds numbers, nothing obvious to strip"
