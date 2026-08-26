@@ -185,8 +185,8 @@ def list_runs(root: str) -> None:
     for q in ck_paths:
         seen.setdefault(str(q.parent), []).append(q.name)
     print(f"{len(seen)} run dir(s) with checkpoints under {root}\n")
-    print(f"{'step':>7}{'train data':>20}{'loss':>18}{'ppre':>6}"
-          f"{'ckpts':>26}  dir")
+    print(f"{'step':>8}  {'train data':<22}{'loss':<18}{'ppre':<6}"
+          f"{'ckpt':<6}  dir")
     rows = []
     for d, names in seen.items():
         pick = "encoder_last.pt" if "encoder_last.pt" in names else names[0]
@@ -194,8 +194,8 @@ def list_runs(root: str) -> None:
             ck = torch.load(os.path.join(d, pick), map_location="cpu",
                             weights_only=False)
         except Exception as e:
-            print(f"{'?':>7}{'?':>20}{'unreadable':>18}{'?':>6}"
-                  f"{','.join(names):>26}  {d}   ({type(e).__name__})")
+            print(f"{'?':>8}  {'?':<22}{'unreadable':<18}{'?':<6}{'?':<6}"
+                  f"  {d}   ({type(e).__name__})")
             continue
         a = ck.get("args", {})
         # param_w > 0 with a hold fraction is the parameter pretraining; the
@@ -204,9 +204,10 @@ def list_runs(root: str) -> None:
         dd = a.get("data_dir")
         rows.append((int(ck.get("step", -1)),
                      os.path.basename(str(dd)) if dd else "synthetic",
-                     str(a.get("loss", "?")), ppre, ",".join(sorted(names)), d))
+                     str(a.get("loss", "?")), ppre,
+                     ("last" if "encoder_last.pt" in names else "best"), d))
     for r in sorted(rows, key=lambda r: r[5]):
-        print(f"{r[0]:>7}{r[1]:>20}{r[2]:>18}{r[3]:>6}{r[4]:>26}  {r[5]}")
+        print(f"{r[0]:>8}  {r[1]:<22}{r[2]:<18}{r[3]:<6}{r[4]:<6}  {r[5]}")
 
 
 def main() -> None:
