@@ -37,14 +37,6 @@ METRICS = {
     "val": ("val_loss", "{:.4g}"),
     "nmse": ("val_nmse_6d", "{:.4f}"),
     "nmse_geo": ("val_nmse_6d_geo", "{:.4f}"),
-    # The only AUDIO metric train_encoder logs, and the only one comparable
-    # across arms: mel cepstral distance at Stevens' gamma 0.3, peak-normalised
-    # against the target. val_loss cannot be read across arms -- each loss has
-    # its own scale -- and val_nmse_6d is about parameters, not sound. There is
-    # no logged log-domain cepstrum on this side; that column exists only
-    # offline, which is why a "linear won mfcc in-domain" claim has to name
-    # which mfcc it means.
-    "g03": ("val_g03", "{:.4f}"),
     # Train loss is not comparable across arms -- each loss has its own scale --
     # so these two put every arm on one axis when that is what is wanted.
     "train_sat": ("train_loss / saturation; ~1 = gradient uninformative", "{:.3f}"),
