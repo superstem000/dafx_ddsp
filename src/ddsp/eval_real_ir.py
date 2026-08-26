@@ -226,8 +226,9 @@ def main() -> None:
                         "data/train-quiet7 is the quiet7 space, anything else "
                         "is the original.")
     p.add_argument("--wav-dir", help="a directory of .wav IRs")
-    p.add_argument("--arms", nargs="+", required=True,
-                   help="run directories holding the checkpoints")
+    p.add_argument("--arms", nargs="+", default=None,
+                   help="run directories holding the checkpoints. Required "
+                        "unless --list, which only enumerates them.")
     p.add_argument("--ckpt", default="encoder_last.pt",
                    help="encoder_last.pt is this project's checkpoint: every "
                         "--resume in the jobs files reads it, so it is the "
@@ -266,8 +267,10 @@ def main() -> None:
     if args.list:
         list_runs(args.list)
         return
-    if not args.wav_dir:
-        p.error("--wav-dir is required (or use --list)")
+    missing = [f for f, v in (("--wav-dir", args.wav_dir), ("--arms", args.arms))
+               if not v]
+    if missing:
+        p.error(f"{' and '.join(missing)} required (or use --list alone)")
 
     dev = args.device if torch.cuda.is_available() else "cpu"
     os.makedirs(args.out, exist_ok=True)
