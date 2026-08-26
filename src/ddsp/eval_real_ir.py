@@ -101,7 +101,11 @@ from src.ddsp.train_encoder import (                       # noqa: E402
 from src.gd.graddescent import (                           # noqa: E402
     SAMPLE_RATE, Raw7Space, norm_to_physical_torch, physical_to_plate14_torch,
 )
-from src.plate.SevenParamPlate import SevenParamPlate       # noqa: E402
+# The class is BatchedModalPlateTorch; graddescent aliases it and every other
+# caller uses the alias, so match them rather than inventing a third spelling.
+from src.plate.SevenParamPlate import (                    # noqa: E402
+    BatchedModalPlateTorch as SevenParamPlate,
+)
 from src.cmaes.fit_7param_norm_es import PARAM_KEYS        # noqa: E402
 # The PLATE's own mel filterbank and DCT, not ds_mfcc_check's. That module
 # imports torchaudio, which dsenv has and dafxenv does not -- and there is no
