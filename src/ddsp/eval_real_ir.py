@@ -1,9 +1,18 @@
 """Run trained plate encoders on REAL impulse responses and score the fit.
 
     python -m src.ddsp.eval_real_ir --wav-dir data/EMT-140 \
-        --arms results/quiet7/hyb_db40 results/quiet7/L1_STFT_c1_db40 \
-               results/quiet7/L1_STFT
+        --arms results/ddsp/quiet7/L1_STFT_hyb1e4 \
+               results/ddsp/quiet7/L1_STFT_eps1e4 \
+               results/ddsp/quiet7/L1_STFT
     python -m src.ddsp.eval_real_ir --wav-dir data/EMT-140 --arms ... --limit 8
+
+The quiet7 family is the pretrained one: quiet7_pre/L1_STFT branches into
+quiet7/<arm>, so hyb1e4 / eps1e4 / L1_STFT are hybrid / log / linear off a
+shared base -- the plate's counterpart to diffsynth's pre_base -> hybridx /
+logx_halfw / magx_halfw. The plate's linear has always been on MAGNITUDE
+(losses.py: torch.abs(torch.stft(...))), so L1_STFT is the magx equivalent
+rather than a power loss. quiet7_floor/ holds the same three at a -40 dB hard
+floor.
 
 Every plate number so far is against a SYNTHETIC target drawn from the same
 seven-parameter model the encoder inverts, so the target is reachable by
@@ -18,6 +27,13 @@ as-is. A CMA-ES fit against the same audio would be a different and much
 stronger test of the MODEL; this is a test of the ENCODERS, which is what the
 losses under dispute produced.
 
+ONLY THE FIRST --duration SECONDS ARE SCORED, and that is the model's limit,
+not a choice made here. The encoders were trained at 0.25 s, so the renderer
+produces 0.25 s and the comparison covers the onset and the first part of the
+decay of a 2-6 s recording -- not the tail, which is where a plate's character
+largely lives. The default reads the value out of the checkpoint so it cannot
+silently disagree with what the encoder expects.
+
 TWO THINGS TO EXPECT, so they are not read as bugs:
 
   The encoder was trained on IRs from the synthetic prior. A real plate is out
@@ -31,11 +47,20 @@ TWO THINGS TO EXPECT, so they are not read as bugs:
   otherwise dominated by its zeroth cepstral coefficient, which would be
   measuring the recording's fader position.
 
-THE METRIC IS RESTATED AT 44.1 kHz, and its numbers are NOT comparable to the
-diffsynth tables. Those are 16 kHz, n_fft 1024, 40 mels to 7600 Hz. A plate IR
-here is 44100 Hz, so this uses n_fft 2048 / hop 512 and mels to 20000 Hz, with
-the same Hann + Slaney + dB(top_db 80) conventions. Same recipe, different
-band, so read it down a column and never against another table.
+THE METRIC IS THE PLATE'S OWN, and its numbers are NOT comparable to the
+diffsynth tables. losses.py::loss_mfcc is what every other plate result is
+reported in: librosa's mel filterbank at 44.1 kHz, 128 mels, n_fft 2048,
+hop 512, power -> 10*log10 -> orthonormal DCT-II, 20 coefficients. That is the
+standard librosa/torchaudio pipeline and it has NO top_db floor.
+
+mfcc_db80 is the same thing with the 80 dB floor the diffsynth headline metric
+applies, reported beside it because the floor is not a detail: it decides
+whether the quiet region counts at all, and a real plate's noise floor is
+exactly the kind of content that sits down there. The two columns disagreeing
+is informative rather than a problem.
+
+Neither is comparable to a 16 kHz diffsynth number -- different rate, different
+band, different mel count. Read down a column.
 
 linmag is reported beside it for the reason it always is: mfcc rewards a
 log-domain loss for optimising something structurally like what it measures,
@@ -56,15 +81,21 @@ import soundfile as sf
 import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "..", "scripts"))
 
 from src.ddsp.train_encoder import (                       # noqa: E402
     Encoder, CompositeConditioner, two_stage_forward,
 )
 from src.gd.graddescent import SAMPLE_RATE, Raw7Space      # noqa: E402
 from src.cmaes.fit_7param_norm_es import PARAM_KEYS        # noqa: E402
-import ds_mfcc_check as mc                                 # noqa: E402
+# The PLATE's own mel filterbank and DCT, not ds_mfcc_check's. That module
+# imports torchaudio, which dsenv has and dafxenv does not -- and there is no
+# reason to add a dependency when losses.py already carries a librosa mel bank
+# and an orthonormal DCT-II verified against scipy. Using the plate's own
+# machinery also keeps this metric identical to loss_mfcc, which is what every
+# other plate table reports.
+from src.loss.losses import (                              # noqa: E402
+    _get_dct, _get_mel_fb, _stft_mag, configure_loss_runtime,
+)
 
 
 class _Args:
@@ -143,10 +174,14 @@ def main() -> None:
     p.add_argument("--out", default="real_ir_eval")
     p.add_argument("--device", default="cuda")
     p.add_argument("--n-fft", type=int, default=2048,
-                   help="Metric FFT. 2048 at 44.1 kHz is the same time "
-                        "resolution 1024 gives at 16 kHz.")
+                   help="Metric FFT, matching loss_mfcc. At --duration 0.25 "
+                        "that is 11025 samples, about 21 frames at hop 512 -- "
+                        "few, but the model only renders 0.25 s.")
     p.add_argument("--hop", type=int, default=512)
-    p.add_argument("--f-max", type=float, default=20000.0)
+    p.add_argument("--n-mels", type=int, default=128,
+                   help="128, matching losses.py::loss_mfcc, not the 40 the "
+                        "diffsynth metric uses at 16 kHz.")
+    p.add_argument("--n-mfcc", type=int, default=20)
     p.add_argument("--no-tar", action="store_true")
     args = p.parse_args()
 
@@ -160,14 +195,23 @@ def main() -> None:
         wavs = wavs[: args.limit]
     print(f"{len(wavs)} wav(s) under {args.wav_dir}")
 
-    metrics = {
-        "linmag": None,      # filled below, needs no mel machinery
-        "mfcc": mc.make_mfcc(dev, window="hann", log="db", top_db=80.0,
-                             mel_norm="slaney", mel_scale="slaney",
-                             sr=SAMPLE_RATE, n_fft=args.n_fft, hop=args.hop,
-                             f_min=20.0, f_max=args.f_max),
-    }
+    configure_loss_runtime(SAMPLE_RATE, dev)
     win = torch.hann_window(args.n_fft, device=dev)
+
+    def mfcc(x, top_db=None):
+        """loss_mfcc's pipeline, with the dB floor optional.
+
+        Kept as one function with a flag rather than two copies, so the floored
+        and unfloored columns cannot drift into being different transforms with
+        different mel banks.
+        """
+        fb = _get_mel_fb(args.n_fft, args.n_mels)
+        dct = _get_dct(args.n_mfcc, args.n_mels)
+        mel = torch.matmul(fb.unsqueeze(0), _stft_mag(x, args.n_fft, args.hop) ** 2)
+        db = 10.0 * torch.log10(mel + 1e-10)
+        if top_db is not None:
+            db = torch.maximum(db, db.amax(dim=(-2, -1), keepdim=True) - top_db)
+        return torch.matmul(dct.unsqueeze(0), db)
 
     def linmag(x):
         return torch.stft(x, args.n_fft, hop_length=args.hop, window=win,
@@ -212,9 +256,10 @@ def main() -> None:
                     model, refiner, cond, space, tgt, scale, a, two)
                 pred = x1 if two else x0
             tn, pn = peak_norm(tgt).float(), peak_norm(pred).float()
-            m = {"linmag": torch.nn.functional.l1_loss(linmag(tn), linmag(pn)).item(),
-                 "mfcc": torch.nn.functional.l1_loss(metrics["mfcc"](tn),
-                                                     metrics["mfcc"](pn)).item()}
+            l1 = torch.nn.functional.l1_loss
+            m = {"linmag": l1(linmag(tn), linmag(pn)).item(),
+                 "mfcc": l1(mfcc(tn), mfcc(pn)).item(),
+                 "mfcc_db80": l1(mfcc(tn, 80.0), mfcc(pn, 80.0)).item()}
             rows.setdefault(name, {})[stem] = m
             sf.write(os.path.join(args.out, f"{stem}__{name}.wav"),
                      pn[0].cpu().numpy(), SAMPLE_RATE)
@@ -223,7 +268,7 @@ def main() -> None:
     if not names:
         raise SystemExit("nothing scored -- check the sample rate line above")
 
-    for key in ("mfcc", "linmag"):
+    for key in ("mfcc", "mfcc_db80", "linmag"):
         print(f"\n=== {key}   (peak-normalised both sides; lower is better)")
         hdr = "".join(f"{n[:22]:>24}" for n in loaded)
         print(f"{'ir':<34}{hdr}")
