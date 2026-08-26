@@ -333,6 +333,11 @@ def main() -> None:
                         "like a plate'. If the prior itself does not sound like "
                         "one, no encoder can, and the losses are not what is "
                         "being heard. Written as prior_NN.wav.")
+    p.add_argument("--prior-seed", type=int, default=0,
+                   help="Seed for the prior draw. Fixed by default so two "
+                        "runs with different --fix values sample the SAME "
+                        "seven parameters and the only audible difference is "
+                        "the pinning.")
     p.add_argument("--resample", default="soxr_hq",
                    help="Resampler for files not already at the model's rate; "
                         "'none' skips them instead. A bandlimited resample "
