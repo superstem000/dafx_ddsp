@@ -32,14 +32,27 @@ N_VAL=${N_VAL:-991}
 SEED=${SEED:-0}
 DEVICE=${DEVICE:-cuda}
 OUT=${OUT:-data}
-# MUST match scripts/jobs_emt7.txt, and not only for correctness -- these two
-# numbers are most of the wall clock. The modal sum walks modes in chunks of
-# chunk_elems // (B * n_pad): at 50M and a 1.0 s pad that is ~17 modes a pass,
-# so 46,854 modes is ~2,700 launches per batch of 32 with the GPU idle between
-# them. 400M gives ~141 a pass, ~330 launches. The 0.25 s spaces never felt this
-# because a shorter pad bought 4x the chunk from the same budget. 400M is
-# 1.6 GB per tensor, three live at once.
-NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024"}
+# MUST match scripts/jobs_emt7.txt exactly, and --compile-plate is the whole
+# reason this line exists. Measured here, 64 IRs at 1.0 s: eager 68 s, compiled
+# 8 s -- 8.5x, matching the 7.3x that 704c1ea measured on quiet3. It is not a
+# free flag either way:
+#
+#   0f260fc  compile was DROPPED for quiet3, because compiled generation and
+#            compiled training disagreed by 7.66% of saturation on the log arm
+#            (42.6% in the quietest decile). raw7 tolerated it at <=0.074%.
+#            emt7 is on raw7's side of that -- T60_DC is searched, so nothing
+#            here sits at the float32 cancellation floor -- but it is a claim,
+#            and src.ddsp.diag_gt_floor is what checks it. Run the gate.
+#   35e4529  chunk_elems and --batch-size are part of the NUMERICS CONTRACT in
+#            eager mode: 1e9 vs 2e8 moved log by 8.51%. Compiled, Inductor
+#            fuses the chunk kernel and chunk_elems is a plain memory knob
+#            again -- which is the only reason 400M here is safe.
+#
+# So --batch-size is pinned to eps_ladder.sh's BATCH=64 rather than left at
+# make_dataset's default of 32. Under compile the two are interchangeable; if
+# compile is ever dropped they are not, and a silent 32/64 split between the
+# targets and the renders is exactly the confound above.
+NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --batch-size 64"}
 
 echo "emt7: fmax=$FMAX  grid=$GRID  duration=${DUR}s"
 echo "      train $N_TRAIN -> $OUT/train-emt7   val $N_VAL -> $OUT/val-emt7"

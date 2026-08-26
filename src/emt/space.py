@@ -23,34 +23,51 @@ mode grid is computed from this space's own corner instead of inherited, and
 the geometry is narrowed to a real plate rather than a wide sampling box.
 
 THE PHYSICAL PLATE. An EMT-140 is 2.0 x 1.0 m of 0.5 mm steel under tension.
-Lx is pinned at 1.0 and Ly searched over 1.5-2.5 so 2.0 sits mid-range; h is
-searched over 0.4-0.8 mm around the real 0.5. raw7's h floor of 1 mm is twice
-the real thickness, which is why nothing it renders can clang.
+Lx is pinned at 1.0 and Ly searched over 1.5-2.2, so 2.0 sits near the top
+rather than in the middle; h is searched over 0.56-0.8 mm, which does NOT
+contain the real 0.5. Both ceilings were pulled in to buy render time -- see
+THE BUDGET LINE. raw7's h floor of 1 mm is twice the real thickness, which is
+why nothing it renders can clang; 0.56 mm is 1.12x, which is the closest this
+campaign can afford.
 
 WHAT NARROWING COSTS, stated because it is not free. rho 7000-8500 and E
 1.7e11-2.2e11 are steel rather than raw7's aluminium-to-gold box. That removes
 degrees of freedom: mu = rho*h and D/mu now vary mostly through h, so the
 estimation task is EASIER than raw7's, and a loss comparison on it is
 correspondingly weaker evidence. It is also what makes the campaign affordable
--- wide rho/E needs 118,048 modes at the corner against 46,854 here, 2.5x the
-render cost per IR. Treat "realistic plates" as a different condition from
-"wide box", not as a strictly better version of it.
+-- wide rho/E needs (159, 350) = 55,650 cells at the corner against 22,000
+here, 2.53x the render cost per IR. Treat "realistic plates" as a different
+condition from "wide box", not as a strictly better version of it.
 
-MODE COUNTS, at fmax 16000, from this box's most expensive corner (smallest h,
-largest Ly, smallest E, largest rho, smallest T0):
+MODE COUNTS, from this box's most expensive corner (smallest h, largest Ly,
+smallest E, largest rho, smallest T0):
 
-    Ly 2.5, h 0.0004, E 1.7e11, rho 8500, T0 1    ->  DDx,DDy = 137, 342
+    Ly 2.2, h 0.00056, E 1.7e11, rho 8500, T0 1   ->  DDx,DDy = 100, 220
 
-which is 46,854 modes -- almost exactly what raw7 already hits at ITS worst
-corner (47,742 at fmax 10000). The extra ceiling is paid for by the narrower
-geometry. FIXED_MODE_GRID below is that corner, so no draw is ever truncated;
-inheriting raw7's (60, 185) would truncate every single draw in this space,
-including the thickest, smallest, stiffest one, which needs DDx=108.
+which is 22,000 grid cells. FIXED_MODE_GRID below is that corner, verified as
+the maximum over all 32 corners of the box, so no draw is ever truncated. The
+cheapest draw needs (75, 112). Inheriting raw7's (60, 185) would truncate every
+single draw here.
 
-fmax 16000 rather than 20000: memory is flat in fmax -- chunk_elems bounds the
-modal sum regardless -- but time is linear in mode count, and 20 kHz costs
-another 25% for content at the edge of hearing. Raising it later is one
-constructor argument and a re-pin.
+THE BUDGET LINE, which is what set fmax and the h floor and is the only reason
+they are not larger. The renderer materialises the whole DDx x DDy grid and
+masks afterwards, so cost is grid cells x samples, and
+
+    cells  ~  Ly * fmax * sqrt(rho/E) / h
+
+Ly, fmax and h are therefore ONE knob, not three, and at 1.0 s and 10000 steps
+a 24 h arm buys Ly*fmax/h <= 4.7e7. Points on that line, all costing 23.8 h:
+
+    fmax 16000, h 0.75 mm      fmax 13000, h 0.61 mm
+    fmax 12000, h 0.56 mm      fmax 11000, h 0.50 mm   <- the real thickness
+
+12000 / 0.56 mm was chosen because fmax and h fix different symptoms. fmax sets
+where the spectrum stops, and 10000 was the "far darker"; 12000 keeps 1.2x of
+that fix. h sets how densely modes pack BELOW the ceiling, and mode density is
+what an initial crash is made of, so spending the budget on a 16 kHz ceiling
+would buy content above 13 kHz -- where a plate has least energy -- with the
+very mode density the transient needs. Raising either later is one constant and
+a re-pin, at a linear cost in training hours.
 
 WHAT IS STILL UNREACHABLE, so it is not rediscovered as a surprise. fp_x/fp_y
 stay pinned, so onset brightness is identical across the whole dataset; if the
@@ -64,12 +81,14 @@ transient are outside the model at any parameter setting.
 # The renderer's frequency ceiling. BatchedModalPlateTorch defaults it to
 # 10000.0 and Raw7Space never passes one, so every plate result in this repo
 # is bandlimited to 10 kHz -- against 48 kHz recordings with content to 20.
-FMAX = 16000.0
+# 12000 rather than 16000: see THE BUDGET LINE. It trades against the h floor
+# one-for-one, and h is the one that controls mode density.
+FMAX = 12000.0
 
 # Computed from the corner above, not inherited. Passed identically to dataset
 # generation and to training: a pin that differs between them means the targets
 # and the renders are different plates.
-FIXED_MODE_GRID = (137, 342)
+FIXED_MODE_GRID = (100, 220)
 
 # 1.0 s, not raw7's 0.25 s. At T60_F1 = 1.2 s a quarter second captures 12 dB
 # of the high-frequency decay; one second captures 50, and 15 dB at DC. Two
@@ -81,10 +100,13 @@ DURATION = 1.0
 PLATE_EMT7 = dict(
     keys=["Ly", "h", "T0", "rho", "E", "T60_DC", "loss_F1"],
     bounds={
-        # 2.0 m mid-range: the real plate.
-        "Ly": (1.5, 2.5),
-        # 0.5 mm mid-range. raw7's floor was 1 mm, twice the real thickness.
-        "h": (0.0004, 0.0008),
+        # The real plate is 2.0 m; the ceiling is 2.2 rather than 2.5 because
+        # cells scale linearly in Ly. See THE BUDGET LINE.
+        "Ly": (1.5, 2.2),
+        # The real plate is 0.5 mm and this floor is 0.56: cells scale as 1/h,
+        # so the last 0.06 mm costs 12% of every training hour. raw7's floor was
+        # 1 mm, twice the real thickness.
+        "h": (0.00056, 0.0008),
         # raw7 went to 0.01 N/m, which is not a tensioned plate.
         "T0": (1.0, 500.0),
         # Steel is 7850.

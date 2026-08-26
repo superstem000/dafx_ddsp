@@ -6,9 +6,17 @@
 # WHAT THIS IS. raw7's renders of a real EMT-140 had no initial transient, were
 # far darker and rang far longer than the target, and none of that was the
 # encoder's doing -- see src/emt/space.py for the diagnosis. This space searches
-# the damping, raises the renderer's 10 kHz ceiling to 16 kHz, computes the mode
+# the damping, raises the renderer's 10 kHz ceiling to 12 kHz, computes the mode
 # grid from its own corner instead of inheriting one that truncated every draw,
-# and narrows the geometry to a 2.0 x 1.0 m plate of 0.5 mm steel.
+# and narrows the geometry to a 2.0 x 1.0 m plate of thin steel.
+#
+# WHAT IT COSTS, because every number below was set by a 24 h/arm budget and not
+# by the physics. Cost is grid cells x samples and cells ~ Ly*fmax/h, so Ly,
+# fmax and the h floor are ONE knob. At 1.0 s and 10000 steps, 24 h buys
+# Ly*fmax/h <= 4.7e7, and fmax 12000 / h 0.56 mm / Ly 2.2 is the point on that
+# line chosen in src/emt/space.py -- fmax sets where the spectrum stops, h sets
+# how densely modes pack below it, and mode density is what a transient is made
+# of. 16 kHz would have forced the plate to 0.75 mm.
 #
 # NOT COMPARABLE TO ANY EARLIER PLATE NUMBER. Different parameter space,
 # different duration, different frequency ceiling, different mode grid. It is
@@ -29,35 +37,58 @@
 #
 # NUMERICS, and every value in it is load-bearing:
 #
-#   --fmax 16000            the renderer default is 10000 and nothing passed it
-#   --fixed-mode-grid 137,342   this space's own corner; 60,185 truncates ALL of it
+#   --fmax 12000            the renderer default is 10000 and nothing passed it
+#   --fixed-mode-grid 100,220   this space's own corner, verified as the maximum
+#                           over all 32 corners of the box; 60,185 truncates ALL
+#                           of it
 #   --duration 1.0          eps_ladder.sh never passes --duration, so without
 #                           this train_encoder uses its 0.25 default and dies
 #                           on a 1.0 s dataset
 #   --chunk-elems 400000000 the modal sum materialises chunk_elems * 4 bytes per
 #                           tensor, and there are three of them live at once.
 #                           1e9 -- what the quiet7 files use -- is 4 GB each,
-#                           12 GB on a 23 GB card at 46,854 modes. 400M is 1.6.
+#                           12 GB on a 23 GB card. 400M is 1.6.
+#                           SAFE ONLY BECAUSE OF --compile-plate: 35e4529 showed
+#                           chunk_elems is part of the numerics contract in eager
+#                           mode (1e9 vs 2e8 moved log 8.51%), and compiled it is
+#                           a plain memory knob because Inductor fuses the chunk
+#                           kernel. Same for --batch-size, pinned to 64 in
+#                           src/emt/gen.sh so the targets and the renders agree.
+#   --compile-plate         8.5x, measured here at 64 IRs (68 s eager, 8 s
+#                           compiled). 0f260fc dropped it for quiet3 because
+#                           compiled generation and compiled training disagreed
+#                           7.66% of saturation on the log arm; raw7 tolerated it
+#                           at <=0.074%. emt7 should be on raw7's side, since
+#                           T60_DC is searched and nothing sits at the float32
+#                           cancellation floor -- but GATE IT, do not assume:
+#                             python -m src.ddsp.diag_gt_floor --report-grid ...
+#                           ten minutes against a 24 h arm.
 #
 # --fmax AND --fixed-mode-grid MUST MATCH src/emt/gen.sh. A mismatch is not an
 # error anywhere: the targets are rendered on one plate and the model's attempts
 # on another, and the loss parks at a floor with no visible cause.
 
 # STAGE base
-# Parameter-only, 5000 steps, once. --param-hold-frac 1.0 means spec_w is 0
+# Parameter-only, 2500 steps, once. --param-hold-frac 1.0 means spec_w is 0
 # throughout, so the loss is the parameter L1 and the three arms would be
 # identical here by construction -- training it per-arm would inject noise of
 # the same order as the effect being measured. Same shape as quiet7_pre and
 # gamma_pre.
-PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 137,342 --fmax 16000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=5000 OUT=results/ddsp/emt7_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 40000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 100,220 --fmax 12000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=2500 OUT=results/ddsp/emt7_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE arms
-# 40000 steps from the shared base, crossfading off the parameter loss over
-# steps 5000-20000 (hold 0.125, ramp 0.375 of 40000) -- the point where the
+# 10000 steps from the shared base, crossfading off the parameter loss over
+# steps 1250-5000 (hold 0.125, ramp 0.375 of 10000) -- the point where the
 # three losses first differ at all.
-PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 137,342 --fmax 16000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/emt7 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 137,342 --fmax 16000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/emt7 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 137,342 --fmax 16000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/emt7 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+#
+# WHY 10000 AND NOT 40000. 40000 was inherited from raw7, which trained on
+# 98,304 clips: 40000 x 64 / 98304 = 26 epochs. emt7 has 24,576 clips, so the
+# same 40000 steps would be 104 epochs -- 4x the passes over the data raw7 ever
+# made, by accident rather than by design. 10000 restores raw7's 26 exactly.
+# This is the single largest saving in the campaign and it gives up nothing.
+PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 100,220 --fmax 12000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt7 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 100,220 --fmax 12000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt7 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 100,220 --fmax 12000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt7 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
 
 # Monitor:
 #   python -m src.ddsp.monitor_sweep --root results/ddsp/emt7_pre results/ddsp/emt7 \

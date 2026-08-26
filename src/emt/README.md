@@ -28,22 +28,58 @@ three things were wrong, and none of them was the encoder or the loss:
 were both fixed. `T60_F1` stays pinned at 1.2 s — it is near-degenerate with
 `loss_F1`, both shaping the same high-frequency tilt.
 
-**The ceiling is raised**, 10 kHz → 16 kHz, via a new `--fmax` on
+**The ceiling is raised**, 10 kHz → 12 kHz, via a new `--fmax` on
 `train_encoder` and `make_dataset` and a new argument to
 `Raw7Space.configure_plate`. `None` keeps the 10 kHz default, so nothing that
-ran before renders differently. Not 20 kHz: memory is flat in `fmax` — the
-modal sum is bounded by `chunk_elems` — but time is linear in mode count, and
-20 kHz costs another 25% for content at the edge of hearing.
+ran before renders differently. Not 16 kHz — see **The budget line**, which is
+what actually set this number.
 
-**The mode grid is computed, not inherited.** `137,342` is this box's most
+**The mode grid is computed, not inherited.** `100,220` is this box's most
 expensive corner (smallest `h`, largest `Ly`, smallest `E`, largest `rho`,
-smallest `T0`), so nothing is truncated. `raw7`'s `60,185` would truncate
-*every* draw here — even the thickest, smallest, stiffest one needs `DDx=108`.
+smallest `T0`), verified as the maximum over all 32 corners, so nothing is
+truncated. The cheapest draw needs `75,112`. `raw7`'s `60,185` would truncate
+*every* draw here.
 
-**Geometry is a real plate.** An EMT-140 is 2.0 × 1.0 m of 0.5 mm steel. `Lx`
-is pinned at 1.0, `Ly` searched over 1.5–2.5 so 2.0 is mid-range, `h` over
-0.4–0.8 mm. `raw7`'s `h` floor of 1 mm is twice the real thickness, which is
-why nothing it renders can clang.
+**Geometry is close to a real plate.** An EMT-140 is 2.0 × 1.0 m of 0.5 mm
+steel. `Lx` is pinned at 1.0, `Ly` searched over 1.5–2.2 so 2.0 sits near the
+top, `h` over 0.56–0.8 mm — which does **not** contain the real 0.5. Both
+ceilings were pulled in to buy render time. `raw7`'s `h` floor of 1 mm is twice
+the real thickness, which is why nothing it renders can clang; 0.56 mm is 1.12×.
+
+**10000 steps, not 40000.** Not a cut. 40000 came from `raw7`, which trained on
+98,304 clips — `40000 × 64 / 98304 = 26` epochs. At emt7's 24,576 clips the same
+40000 steps is **104** epochs, 4× the passes `raw7` ever made, inherited by
+accident. 10000 restores 26 exactly. Largest single saving in the campaign and
+it gives up nothing.
+
+## The budget line
+
+Every geometry number above was set by a 24 h/arm budget, not by the physics,
+and it is worth being explicit about which knob is which. The renderer
+materialises the whole `DDx × DDy` grid and masks afterwards, so cost is grid
+cells × samples, and
+
+```
+cells  ~  Ly * fmax * sqrt(rho/E) / h
+```
+
+`Ly`, `fmax` and the `h` floor are therefore **one knob, not three**. At 1.0 s
+and 10000 steps, 24 h buys `Ly*fmax/h <= 4.7e7`. Every point on that line costs
+the same 23.8 h:
+
+| fmax | h floor | grid | arm |
+|---|---|---|---|
+| 16,000 | 0.75 mm | 100,220 | 23.8 h |
+| 13,000 | 0.61 mm | 100,220 | 23.8 h |
+| **12,000** | **0.56 mm** | **100,220** | **23.8 h** |
+| 11,000 | 0.50 mm | 100,221 | 23.9 h |
+
+12000 / 0.56 mm was chosen because the two fix different symptoms. `fmax` sets
+where the spectrum stops, and 10 kHz was the "far darker" — 12 kHz keeps 1.2× of
+that fix. `h` sets how densely modes pack *below* the ceiling, and mode density
+is what an initial crash is made of. A 16 kHz ceiling would have bought content
+above 13 kHz, where a plate has least energy, by spending the very mode density
+the transient needs. Duration is not on this line: it was held at 1.0 s.
 
 **Duration 1.0 s**, from 0.25. At `T60_F1 = 1.2 s` a quarter second captures
 12 dB of the high-frequency decay; one second captures 50, and 15 dB at DC.
@@ -59,21 +95,37 @@ Narrowing `rho` to 7000–8500 and `E` to 1.7e11–2.2e11 is steel rather than
 `raw7`'s aluminium-to-gold box. That removes degrees of freedom — `mu = rho*h`
 and `D/mu` now vary mostly through `h` — so **this estimation task is easier
 than `raw7`'s** and a loss comparison on it is correspondingly weaker evidence.
-It is also what makes the campaign affordable: wide `rho`/`E` needs 118,048
-modes at the corner against 46,854 here, 2.5× the render cost per IR. "Realistic
+It is also what makes the campaign affordable: wide `rho`/`E` needs 55,650
+cells at the corner against 22,000 here, 2.53× the render cost per IR. "Realistic
 plates" is a different condition from "wide box", not a better version of it.
 
 ```
-                                          corner modes    per-IR cost
-raw7 today      h .001-.005, fmax 10k          47,742          1.0x
-emt7            h .0004-.0008, fmax 16k        46,854         16.9x   (4x the samples)
-emt7, wide rho/E                              118,048         42.5x
+                                          grid cells    per-IR cost
+raw7 today      h .001-.005, fmax 10k          11,100          1.0x
+emt7            h .00056-.0008, fmax 12k       22,000          7.9x   (4x the samples)
+emt7, wide rho/E                               55,650         20.1x
 ```
 
-Whole campaign at n=24576 is ~4.2× the current generation cost. 24576 × 1.0 s
-is a 4.3 GB training tensor — the same as `raw7`'s 98304 × 0.25 s, so nothing
-about memory changes; 49152 would be 8.7 GB and does not fit beside the
-diffsynth class sweep.
+24576 × 1.0 s is a 4.3 GB training tensor — the same as `raw7`'s 98304 × 0.25 s,
+so nothing about memory changes; 49152 would be 8.7 GB and does not fit beside
+the diffsynth class sweep.
+
+## Numerics, and the one gate to run first
+
+`--compile-plate` is 8.5× here (64 IRs at 1.0 s: 68 s eager, 8 s compiled),
+matching the 7.3× `704c1ea` measured. It is not a free flag. `0f260fc` dropped
+it for `quiet3` because compiled generation and compiled training disagreed by
+**7.66% of saturation on the log arm**, 42.6% of it in the quietest decile;
+`raw7` tolerated it at ≤0.074% because its quiet bins never sat at the float32
+cancellation floor. emt7 should be on `raw7`'s side — `T60_DC` is searched, so
+nothing here is that far down — but that is a claim, and `35e4529` is what
+happens when this family of assumption goes unchecked. **Run
+`src.ddsp.diag_gt_floor` at the settings training will use before spending 24 h.**
+
+`chunk_elems` and `--batch-size` are plain memory knobs *only because* compile
+fuses the chunk kernel; eager they are part of the numerics contract (`35e4529`:
+1e9 vs 2e8 moved log 8.51%). `gen.sh` therefore pins `--batch-size 64` to match
+`eps_ladder.sh` rather than leaving `make_dataset`'s default of 32.
 
 ## Not comparable to anything earlier
 
