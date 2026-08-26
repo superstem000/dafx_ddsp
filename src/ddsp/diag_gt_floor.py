@@ -54,7 +54,9 @@ import torch
 
 from src.data.make_dataset import parse_mode_grid, render as md_render
 from src.ddsp.train_encoder import load_dataset, peak_normalized
-from src.gd.graddescent import Raw7Space
+from src.gd.graddescent import (
+    Raw7Space, norm_to_physical_torch, physical_to_plate14_torch,
+)
 from src.loss.loss_selector import select_loss_function
 
 LOSSES = ("L1_STFT", "L1_STFT_pow", "L1_STFT_c2", "L1_STFT_log")
@@ -206,19 +208,28 @@ def main() -> None:
         # constant removes that, at the cost of every batch paying the worst
         # case -- which is exactly the batch-max effect that made early training
         # 2.5x faster. This prices it before committing.
+        # Go through the SAME conversion the renderer does rather than
+        # re-deriving it. The previous version un-normalized z linearly and then
+        # unpacked columns as (E, rho, h, Ly, T0) with nu hardcoded to 0.25 --
+        # raw7's key order and raw7's Poisson ratio, both wrong for every other
+        # space. Under emt7, whose keys are (Ly, h, T0, rho, E, T60_DC, loss_F1),
+        # it read Ly as E and rho as Ly and reported DDx 0, DDy 274 against a
+        # true (100, 220). It also ignored LOG_PARAMS, so T0 was wrong even for
+        # raw7. physical_to_plate14_torch is the single definition of the
+        # column order; taking nu from the vector means a space that changes it
+        # cannot silently desynchronize this again.
         pl = space.plate
         ddx, ddy = [], []
         with torch.no_grad():
             for i in range(0, z.shape[0], args.batch_size):
-                p14 = pl.__class__  # only the closed form is needed, not a render
                 zz = z[i : i + args.batch_size]
-                from src.cmaes.fit_7param_norm_es import BOUNDS_HI_NP, BOUNDS_LO_NP
-                ph = BOUNDS_LO_NP + ((zz.cpu().numpy() + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
-                E, rho, h, Ly, T0 = ph[:, 0], ph[:, 1], ph[:, 2], ph[:, 3], ph[:, 4]
-                D = E * h ** 3 / (12.0 * (1.0 - 0.25 ** 2))
+                p14 = physical_to_plate14_torch(
+                    norm_to_physical_torch(zz, space._lo, space._hi)).cpu().numpy()
+                Lx, Ly, h, T0, rho, E, nu = (p14[:, j] for j in range(7))
+                D = E * h ** 3 / (12.0 * (1.0 - nu ** 2))
                 inner = np.sqrt(np.maximum(T0 ** 2 + 4.0 * (pl.max_omega ** 2) * rho * h * D, 0.0))
                 disc = np.maximum((-T0 + inner) / (2.0 * D), 0.0)
-                ddx.append(np.floor(1.0 / np.pi * np.sqrt(disc)))
+                ddx.append(np.floor(Lx / np.pi * np.sqrt(disc)))
                 ddy.append(np.floor(Ly / np.pi * np.sqrt(disc)))
         bx = np.array([b.max() for b in ddx]); by = np.array([b.max() for b in ddy])
         allx, ally = np.concatenate(ddx), np.concatenate(ddy)
@@ -229,6 +240,14 @@ def main() -> None:
               f"   -> {allx.max()*ally.max():,.0f} modes")
         print(f"  pinning costs   {allx.max()*ally.max()/max(np.median(bx*by),1):.2f}x the "
               f"typical batch's modal work")
+        if args.fixed_mode_grid is not None:
+            px, py = args.fixed_mode_grid
+            over = int(((allx > px) | (ally > py)).sum())
+            print(f"  pin {px},{py}      " +
+                  (f"OK, covers all {allx.size} draws"
+                   if not over else
+                   f"TRUNCATES {over} of {allx.size} draws -- the targets are not "
+                   f"the plate's output at their own parameters"))
 
     print("\n  A log floor concentrated in the quiet deciles is the failure mode: it")
     print("  means the log arm's error is partly our own target/synthesis disagreement")
