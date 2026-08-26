@@ -1,0 +1,86 @@
+# emt7: the plate space that can actually sound like an EMT-140.
+#
+#   src/emt/gen.sh                                    # datasets first
+#   python scripts/gpu_queue.py --jobs scripts/jobs_emt7.txt
+#
+# WHAT THIS IS. raw7's renders of a real EMT-140 had no initial transient, were
+# far darker and rang far longer than the target, and none of that was the
+# encoder's doing -- see src/emt/space.py for the diagnosis. This space searches
+# the damping, raises the renderer's 10 kHz ceiling to 16 kHz, computes the mode
+# grid from its own corner instead of inheriting one that truncated every draw,
+# and narrows the geometry to a 2.0 x 1.0 m plate of 0.5 mm steel.
+#
+# NOT COMPARABLE TO ANY EARLIER PLATE NUMBER. Different parameter space,
+# different duration, different frequency ceiling, different mode grid. It is
+# internally comparable -- three arms, one base, one dataset -- and that is all
+# it claims.
+#
+# THE ARMS, and the one thing that makes this trio better than gamma_ppre's:
+#
+#   L1_STFT          linear, on MAGNITUDE           = diffsynth's magx
+#   L1_STFT_hyb1e2   hybrid, eps 1e-2               = diffsynth's hybridx
+#   L1_STFT_eps1e2   log,    eps 1e-2               = diffsynth's logx_halfw
+#
+# gamma_ppre compared hyb1e2 against eps1e7 -- five decades of eps apart on top
+# of the linear term, so the pair was never single-variable. diffsynth's
+# hybridx and logx_halfw both sit at log_eps_v 1e-2 and differ in exactly one
+# thing. eps1e2 was added to _EPS_LADDER for this; 1e-2 on magnitude is where
+# diffsynth's 1e-4 on power lands, since log(m) = 0.5*log(p).
+#
+# NUMERICS, and every value in it is load-bearing:
+#
+#   --fmax 16000            the renderer default is 10000 and nothing passed it
+#   --fixed-mode-grid 137,342   this space's own corner; 60,185 truncates ALL of it
+#   --duration 1.0          eps_ladder.sh never passes --duration, so without
+#                           this train_encoder uses its 0.25 default and dies
+#                           on a 1.0 s dataset
+#   --chunk-elems 400000000 the modal sum materialises chunk_elems * 4 bytes per
+#                           tensor, and there are three of them live at once.
+#                           1e9 -- what the quiet7 files use -- is 4 GB each,
+#                           12 GB on a 23 GB card at 46,854 modes. 400M is 1.6.
+#
+# --fmax AND --fixed-mode-grid MUST MATCH src/emt/gen.sh. A mismatch is not an
+# error anywhere: the targets are rendered on one plate and the model's attempts
+# on another, and the loss parks at a floor with no visible cause.
+
+# STAGE base
+# Parameter-only, 5000 steps, once. --param-hold-frac 1.0 means spec_w is 0
+# throughout, so the loss is the parameter L1 and the three arms would be
+# identical here by construction -- training it per-arm would inject noise of
+# the same order as the effect being measured. Same shape as quiet7_pre and
+# gamma_pre.
+PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 137,342 --fmax 16000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=5000 OUT=results/ddsp/emt7_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 40000" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE arms
+# 40000 steps from the shared base, crossfading off the parameter loss over
+# steps 5000-20000 (hold 0.125, ramp 0.375 of 40000) -- the point where the
+# three losses first differ at all.
+PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 137,342 --fmax 16000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/emt7 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 137,342 --fmax 16000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/emt7 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt7 TRAIN=data/train-emt7 VAL=data/val-emt7 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 137,342 --fmax 16000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=40000 OUT=results/ddsp/emt7 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt7_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375" scripts/eps_ladder.sh "{gpu}"
+
+# Monitor:
+#   python -m src.ddsp.monitor_sweep --root results/ddsp/emt7_pre results/ddsp/emt7 \
+#       --metrics spec_w param g03 nmse ratio
+#
+# Read nmse against ratio: ratio is val_nmse_6d over the constant predictor's,
+# so 1.0 means the arm has learned nothing. On gamma_ppre, linear reached 0.01
+# and the log arm 3.69 -- worse than predicting the mean. g03 is the only audio
+# metric logged and the only one comparable across arms; val_loss is each arm's
+# own objective and cannot be read sideways.
+#
+# emt7 sets composite=False, so val_nmse_6d_postmu does not exist and best_key
+# falls back to val_nmse_6d_geo. Same as quiet3 and quiet7.
+#
+# Then listen, which is the point of the whole space:
+#   python -m src.ddsp.eval_real_ir --wav-dir data/EMT-140 \
+#       --arms results/ddsp/emt7/L1_STFT results/ddsp/emt7/L1_STFT_hyb1e2 \
+#              results/ddsp/emt7/L1_STFT_eps1e2 \
+#       --render-duration 4.0 --prior 10 --out emt7_listen
+#
+# --render-duration 4.0 works because the parameters describe modes and decay
+# rates: the encoder still reads its trained 1.0 s, the renderer produces four.
+#
+# No comment line here may begin with the word "stage": gpu_queue matches
+# ^#\s*STAGE[:\s] case-insensitively. The two above are real barriers -- the
+# arms read a checkpoint the base writes.

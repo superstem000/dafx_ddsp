@@ -784,7 +784,7 @@ def run(args) -> None:
     space = Raw7Space(device, torch.float32, normalize=False)
     space.configure_plate(
         args.chunk_elems, not args.no_grad_checkpoint, args.batched_plate,
-        args.compile_plate, args.mode_bucket, args.fixed_mode_grid,
+        args.compile_plate, args.mode_bucket, args.fixed_mode_grid, args.fmax,
     )
     raw_loss_fn = select_loss_function(args.loss, sample_rate=SAMPLE_RATE, device=device)
     loss_fn = (peak_normalized(raw_loss_fn, args.peak_normalize)
@@ -1496,6 +1496,8 @@ def build_parser() -> argparse.ArgumentParser:
              "training batch agree bit-for-bit. Must match the value the dataset was "
              "rendered with. Use src.ddsp.diag_gt_floor --report-grid to pick it.",
     )
+    p.add_argument("--fmax", type=float, default=None, metavar="HZ",
+                   help="Renderer frequency ceiling in Hz. None keeps BatchedModalPlateTorch's 10000.0 default, which every plate result so far was rendered under -- so every one of them is bandlimited to 10 kHz. It must MATCH between dataset generation and training: a different ceiling is a different plate, and the mode grid computed for one does not cover the other.")
     p.add_argument(
         "--chunk-elems", type=int, default=8_000_000,
         help="Time-chunk budget for the modal sum. Sized for the unfused path; with "

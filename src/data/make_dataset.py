@@ -355,7 +355,7 @@ def run(args) -> None:
         space = Raw7Space(device, torch.float32, normalize=False)
         space.configure_plate(
             args.chunk_elems, False, args.batched_plate, args.compile_plate,
-            args.mode_bucket, args.fixed_mode_grid,
+            args.mode_bucket, args.fixed_mode_grid, args.fmax,
         )
         renderer = lambda chunk: render_training_path(space, chunk, args.duration)
         print(f"Rendering on {device} into {out_dir} via the training path "
@@ -368,6 +368,7 @@ def run(args) -> None:
             dtype=torch.float32,
             drop_sub_20hz_modes=False,
             compile_modal_sum=args.compile_plate,
+            **({} if args.fmax is None else {"fmax": args.fmax}),
         )
         renderer = lambda chunk: render(plate, chunk, args.duration)
         print(f"Rendering on {device} into {out_dir} via the historical direct path")
@@ -429,6 +430,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--batched-plate", action="store_true", help="Match training's modal-sum path")
     p.add_argument("--chunk-elems", type=int, default=20_000_000, help="Match training's")
     p.add_argument("--mode-bucket", type=int, default=1024, help="Match training's")
+    p.add_argument("--fmax", type=float, default=None, metavar="HZ",
+                   help="Renderer frequency ceiling in Hz. None keeps BatchedModalPlateTorch's 10000.0 default, which every plate result so far was rendered under -- so every one of them is bandlimited to 10 kHz. It must MATCH between dataset generation and training: a different ceiling is a different plate, and the mode grid computed for one does not cover the other.")
     p.add_argument(
         "--fixed-mode-grid", type=parse_mode_grid, default=None, metavar="DDX,DDY",
         help="Pin the modal grid; must match the training run's exactly, or targets "

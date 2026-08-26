@@ -986,7 +986,15 @@ for _tag, _e in _G03_EPS.items():
 # 1e-4 splits the 1e-5 -> 1e-3 step, which the knee table shows covering 45
 # percentage points of the bin distribution -- by far the widest rung, and so
 # the one where a cliff would be least localised.
-_EPS_LADDER = {"1": 1.0, "1e1": 1e-1, "1e3": 1e-3, "1e4": 1e-4, "1e5": 1e-5, "1e7": 1e-7}
+# 1e2 is not a ladder rung -- the ladder steps by decades from 1.0 and skipped
+# it -- but it is the one value that makes a hybrid/log PAIR single-variable.
+# _HYBRID_EPS has 1e2 because 1e-2 on magnitude is where diffsynth's 1e-4 on
+# power lands (log m = 0.5 log p), so hyb1e2 is the parity arm. Comparing it
+# against eps1e7, as gamma_ppre does, differs in TWO things: the linear term
+# AND five decades of eps. diffsynth's own hybridx and logx_halfw both sit at
+# 1e-2 and differ in one. This rung is what lets the plate match that.
+_EPS_LADDER = {"1": 1.0, "1e1": 1e-1, "1e2": 1e-2, "1e3": 1e-3, "1e4": 1e-4,
+               "1e5": 1e-5, "1e7": 1e-7}
 # The g03 rungs above spell their eps out because they are registered before
 # this dict exists. A tag meaning one eps for c1 and another for g03 would make
 # the ladder single-variable in name only, so it is checked rather than trusted.

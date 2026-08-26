@@ -201,8 +201,17 @@ class Raw7Space:
     def configure_plate(
         self, chunk_elems: int, grad_checkpoint: bool, batched: bool = False,
         compile_modal_sum: bool = False, mode_bucket: int = 1024,
-        fixed_mode_grid=None,
+        fixed_mode_grid=None, fmax: float = None,
     ) -> None:
+        # fmax is the renderer's frequency ceiling and it was unreachable:
+        # BatchedModalPlateTorch defaults it to 10 kHz and nothing here ever
+        # passed one, so every plate render in this repo has been bandlimited
+        # to 10 kHz -- inaudible in a 0.25 s synthetic IR, obvious against a
+        # 48 kHz recording of a real plate. None keeps the 10 kHz default, so
+        # nothing that ran before this existed renders differently.
+        if fmax is not None:
+            self.plate.fmax = float(fmax)
+            self.plate.max_omega = 2.0 * math.pi * float(fmax)
         self.plate.chunk_elems = chunk_elems
         self.plate.grad_checkpoint = grad_checkpoint
         self.plate.batched_modal_sum = batched
