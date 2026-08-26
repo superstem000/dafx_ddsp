@@ -146,10 +146,13 @@ echo "streaming (no resume -- run under tmux; ~22 GB over the wire either way)"
 # program from there and silently discards the pipe. That failed instantly with
 # an exhausted stream and, under `tmux new -d`, took the session down with it
 # before anything could be read.
+# `cond && cmd` statements, not `if`, are a set -e trap: when cond is false the
+# AND-list's status is 1 and errexit takes the script down. With OUT empty on
+# the multi-class path that is exactly what happened.
 EXTRA=()
 for c in "${CLASS_ARR[@]}"; do EXTRA+=(--only "$c"); done
-[[ -n "$CLASS" && -n "$OUT" ]] && EXTRA+=(--out "$OUT")
-(( MAX > 0 )) && EXTRA+=(--max "$MAX")
+if [[ -n "$CLASS" && -n "$OUT" ]]; then EXTRA+=(--out "$OUT"); fi
+if (( MAX > 0 )); then EXTRA+=(--max "$MAX"); fi
 curl -sL "$URL" | python3 "$HERE/nsynth_sample.py" "$NAME" "$SAMPLE" "$FULL" "${EXTRA[@]}"
 
 if (( ${#CLASS_ARR[@]} > 1 )); then
