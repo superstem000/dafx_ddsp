@@ -81,7 +81,10 @@ for split in train val; do
   fi
   echo
   echo "=== $split: $n IRs, seed $seed"
-  PLATE_PARAM_SPACE=emt7 python -m src.data.make_dataset \
+  # -u because this is normally run under `| tee`, which makes stdout a pipe:
+  # Python then block-buffers and the entire run's progress appears at once when
+  # the buffer flushes at exit, which reads exactly like a hang.
+  PLATE_PARAM_SPACE=emt7 python -u -m src.data.make_dataset \
     --number "$n" --duration "$DUR" --seed "$seed" --output-dir "$dir" \
     --device "$DEVICE" --fmax "$FMAX" --fixed-mode-grid "$GRID" \
     --render-path training $NUMERICS
