@@ -168,10 +168,64 @@ def load_arm(run_dir: str, ckpt_name: str, device):
             float(ck["scale"]), int(ck.get("step", -1))), "ok"
 
 
+def list_runs(root: str) -> None:
+    """Every run directory with a checkpoint, and what it actually is.
+
+    Reads each checkpoint's stored args rather than guessing from the path.
+    An arm called L1_STFT exists in at least six different sweeps here, in two
+    different parameter spaces, with and without parameter pretraining -- and
+    comparing across those is not a comparison. torch.load with weights_only
+    off is needed because train_encoder stores the args dict.
+    """
+    ck_paths = sorted(Path(root).rglob("encoder_*.pt"))
+    if not ck_paths:
+        print(f"no encoder_*.pt under {root}")
+        return
+    seen = {}
+    for q in ck_paths:
+        seen.setdefault(str(q.parent), []).append(q.name)
+    print(f"{len(seen)} run dir(s) with checkpoints under {root}\n")
+    print(f"{'step':>7}{'train data':>20}{'loss':>18}{'ppre':>6}"
+          f"{'ckpts':>26}  dir")
+    rows = []
+    for d, names in seen.items():
+        pick = "encoder_last.pt" if "encoder_last.pt" in names else names[0]
+        try:
+            ck = torch.load(os.path.join(d, pick), map_location="cpu",
+                            weights_only=False)
+        except Exception as e:
+            print(f"{'?':>7}{'?':>20}{'unreadable':>18}{'?':>6}"
+                  f"{','.join(names):>26}  {d}   ({type(e).__name__})")
+            continue
+        a = ck.get("args", {})
+        # param_w > 0 with a hold fraction is the parameter pretraining; the
+        # run names do not record it and two sweeps here differ by only that.
+        ppre = "yes" if float(a.get("param_w", 0) or 0) > 0 else "no"
+        dd = a.get("data_dir")
+        rows.append((int(ck.get("step", -1)),
+                     os.path.basename(str(dd)) if dd else "synthetic",
+                     str(a.get("loss", "?")), ppre, ",".join(sorted(names)), d))
+    for r in sorted(rows, key=lambda r: r[5]):
+        print(f"{r[0]:>7}{r[1]:>20}{r[2]:>18}{r[3]:>6}{r[4]:>26}  {r[5]}")
+
+
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--wav-dir", required=True, help="a directory of .wav IRs")
+    p.add_argument("--list", nargs="?", const="results", default=None,
+                   metavar="ROOT",
+                   help="List every run directory under ROOT holding a "
+                        "checkpoint, with its step, parameter space, loss and "
+                        "whether it was parameter-pretrained -- then exit. "
+                        "Run names alone do not say which parameter space an "
+                        "arm belongs to, and mixing spaces is not a comparison; "
+                        "this reads it out of each checkpoint's own args. The "
+                        "space is identified by the TRAINING SET, since it is "
+                        "set by the PLATE_PARAM_SPACE environment variable at "
+                        "import time and never lands in the args dict -- "
+                        "data/train-quiet7 is the quiet7 space, anything else "
+                        "is the original.")
+    p.add_argument("--wav-dir", help="a directory of .wav IRs")
     p.add_argument("--arms", nargs="+", required=True,
                    help="run directories holding the checkpoints")
     p.add_argument("--ckpt", default="encoder_last.pt",
@@ -208,6 +262,12 @@ def main() -> None:
     p.add_argument("--n-mfcc", type=int, default=20)
     p.add_argument("--no-tar", action="store_true")
     args = p.parse_args()
+
+    if args.list:
+        list_runs(args.list)
+        return
+    if not args.wav_dir:
+        p.error("--wav-dir is required (or use --list)")
 
     dev = args.device if torch.cuda.is_available() else "cpu"
     os.makedirs(args.out, exist_ok=True)
