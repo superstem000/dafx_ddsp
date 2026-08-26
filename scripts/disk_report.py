@@ -52,6 +52,11 @@ REF_PATTERNS = [
     r"TRAIN=(\S+)", r"VAL=(\S+)", r"ID_DIR=(\S+)", r"OOD_DIR=(\S+)",
     r"--data-dir\s+(\S+)", r"--val-data-dir\s+(\S+)", r"--wav-dir\s+(\S+)",
     r"data\.id_dir=(\S+)", r"data\.ood_dir=(\S+)",
+    # The hydra configs, not just the command lines that override them.
+    # resume_real.yaml carries id_dir: data/diffsynth_5-6/harmor_2oscfree and
+    # ood_dir: data/nsynth-train as DEFAULTS -- 9.8 GB that no script mentions
+    # and every diffsynth run reads.
+    r"^\s*id_dir:\s*(\S+)", r"^\s*ood_dir:\s*(\S+)",
     # THE DEFAULTS, and missing them is the dangerous direction. eps_ladder.sh
     # carries TRAIN=${TRAIN:-data/train-p99} and VAL=${VAL:-data/val-p99}, and
     # every jobs file that does not override them depends on those values. The
@@ -70,16 +75,23 @@ def du(path: str) -> int:
         return 0
 
 
-def referenced(root: str) -> set[str]:
-    """Every path any script or jobs file names, normalised.
+def referenced(root: str) -> dict[str, str]:
+    """{path: the file that names it}, so a protection can be justified.
 
-    Includes the parent of a checkpoint path: `RESUME=results/ddsp/x/enc.pt`
-    makes results/ddsp/x load-bearing, not just that one file.
+    NO PARENT WALK. An earlier version added every ancestor of each hit, which
+    put "results", "data" and "external/diffsynth/data" into the set -- and
+    since a directory counts as protected when a reference sits underneath it,
+    every single thing under those roots came back LOAD-BEARING. 52 GB of it,
+    with nothing freeable. Containment is checked at match time instead, which
+    gets the intended cases (a checkpoint reference protects its run directory)
+    without the top-level ones.
     """
-    out: set[str] = set()
+    out: dict[str, str] = {}
     files = (glob.glob(os.path.join(root, "scripts", "*")) +
              glob.glob(os.path.join(root, "src", "**", "*.sh"), recursive=True) +
-             glob.glob(os.path.join(root, "src", "**", "*.py"), recursive=True))
+             glob.glob(os.path.join(root, "src", "**", "*.py"), recursive=True) +
+             glob.glob(os.path.join(root, "external", "diffsynth", "configs",
+                                    "**", "*.yaml"), recursive=True))
     for f in files:
         if os.path.isdir(f) or os.path.basename(f) == "disk_report.py":
             continue        # its own docstring quotes example paths
@@ -87,22 +99,37 @@ def referenced(root: str) -> set[str]:
             text = open(f, errors="ignore").read()
         except Exception:
             continue
+        # A path inside external/diffsynth is relative to that directory --
+        # hydra chdirs into it -- so "data/nsynth-train" there is
+        # external/diffsynth/data/nsynth-train here.
+        prefix = ("external/diffsynth"
+                  if os.path.relpath(f, root).startswith("external" + os.sep +
+                                                         "diffsynth") else "")
         for pat in REF_PATTERNS:
-            for m in re.findall(pat, text):
+            for m in re.findall(pat, text, re.M):
                 p = m.strip().strip('"\'').rstrip(",")
                 if not p or p.startswith("-") or "{" in p or "$" in p:
                     continue
-                # A ${VAR:-default} capture is only a path if it looks like one;
-                # the same pattern also catches numbers, flags and loss names.
-                if "/" not in p and not p.startswith(("data", "results")):
-                    continue
+                if "/" not in p:
+                    # ds_run.sh resolves a bare RESUME= to a run directory:
+                    # RUNDIR="$ROOT/results/diffsynth/$NAME". Every diffsynth
+                    # jobs file writes RESUME=pre_magx_halfw, so dropping bare
+                    # names would leave every branch point in that tree
+                    # unprotected -- the one error that cannot be undone.
+                    if re.search(r"RESUME=" + re.escape(p) + r"\b", text):
+                        p = os.path.join("results", "diffsynth", p)
+                    elif not p.startswith(("data", "results")):
+                        continue
+                if prefix and not p.startswith(prefix):
+                    p = os.path.join(prefix, p)
                 p = os.path.normpath(p)
-                out.add(p)
-                # RESUME= names a run directory; --resume names a file in one.
-                while p not in (".", "/", ""):
-                    p = os.path.dirname(p)
-                    if p:
-                        out.add(p)
+                # A bare top-level name is never a reference to anything
+                # specific -- src/emt/gen.sh's OUT=${OUT:-data} would otherwise
+                # protect every dataset in the repo, which is the same failure
+                # the parent walk caused one level up.
+                if os.sep not in p:
+                    continue
+                out.setdefault(p, os.path.relpath(f, root))
     return out
 
 
@@ -174,12 +201,16 @@ def main() -> None:
                     + glob.glob(os.path.join(q, "**", "history.json"),
                                 recursive=True))
             live = is_live(q, args.live_min)
-            ref = any(rel == p or rel.startswith(p + os.sep) or p.startswith(rel + os.sep)
-                      for p in refs)
+            # Protected when a reference IS this directory, sits inside it, or
+            # names a directory this one sits inside. Checked here rather than
+            # by pre-expanding ancestors, which is what made everything match.
+            why = next((f"{p}  (named in {src})" for p, src in refs.items()
+                        if rel == p or p.startswith(rel + os.sep)
+                        or rel.startswith(p + os.sep)), None)
             if live:
                 cat, act = "LIVE", "in flight -- leave alone"
-            elif ref:
-                cat, act = "LOAD-BEARING", "a script resumes from or reads this"
+            elif why:
+                cat, act = "LOAD-BEARING", why
             elif nums and (ev or len(ck) > 2):
                 cat = "NUMBERS KEPT"
                 act = (f"drop {len(ev)} event file(s) and intermediate "
