@@ -43,9 +43,21 @@ for split in train val; do
   n=$([[ $split == train ]] && echo "$N_TRAIN" || echo "$N_VAL")
   seed=$([[ $split == train ]] && echo "$SEED" || echo "$((SEED + 1))")
   dir="$OUT/${split}-emt7"
-  if [[ -d "$dir" ]] && (( $( { ls "$dir" 2>/dev/null || true; } | wc -l ) > 0 )); then
-    echo "$dir already populated -- skipping"
-    continue
+  # "non-empty" is NOT complete. make_dataset writes one npz per IR as it goes
+  # and generation_summary.txt only after the last one, so a killed run leaves a
+  # directory that a non-empty test skips forever -- and training then reads a
+  # short dataset without complaining. Both conditions, or regenerate.
+  if [[ -d "$dir" ]]; then
+    have=$( { ls "$dir"/random_IR_[0-9]*.npz 2>/dev/null || true; } | wc -l )
+    if [[ -f "$dir/generation_summary.txt" ]] && (( have == n )); then
+      echo "$dir complete ($have/$n) -- skipping"
+      continue
+    fi
+    if (( have > 0 )); then
+      echo "$dir is PARTIAL ($have/$n npz, summary $( [[ -f "$dir/generation_summary.txt" ]] && echo present || echo missing ))"
+      echo "  regenerating from scratch -- rm -rf then continue"
+      rm -rf "$dir"
+    fi
   fi
   echo
   echo "=== $split: $n IRs, seed $seed"
