@@ -336,7 +336,7 @@ def main() -> None:
         dur = float(next(iter(loaded.values()))[4].duration)
         print(f"duration {dur}s (from the checkpoint)")
 
-    rows, names = {}, []
+    rows, names, tgts = {}, [], {}
     for wi, w in enumerate(wavs):
         x = load_wav(w, dur, SAMPLE_RATE,
                      None if args.resample.lower() == "none" else args.resample)
@@ -345,8 +345,9 @@ def main() -> None:
         stem = Path(w).stem
         names.append(stem)
         tgt = torch.from_numpy(x)[None, :].to(dev)
+        tgts[stem] = peak_norm(tgt).float()
         sf.write(os.path.join(args.out, f"{stem}__target.wav"),
-                 peak_norm(tgt)[0].cpu().numpy(), SAMPLE_RATE)
+                 tgts[stem][0].cpu().numpy(), SAMPLE_RATE)
         for name, (model, refiner, space, cond, a, scale, _s) in loaded.items():
             with torch.no_grad():
                 two = refiner is not None
@@ -367,6 +368,25 @@ def main() -> None:
         raise SystemExit("nothing scored -- check the sample rate lines above; "
                          "--resample none refuses files at another rate")
 
+    # THE ONLY THING THAT MAKES THESE NUMBERS READABLE. A distance of 60 on a
+    # dB-domain cepstrum means nothing on its own -- it could be a total failure
+    # or the ordinary scale of this metric on this audio. So score every target
+    # against ANOTHER REAL IR, which is what an encoder conveying nothing would
+    # amount to. An arm at the saturation level has told us nothing; an arm well
+    # below it has, however large its absolute number looks.
+    #
+    # Rolled by one rather than random pairs: the set is 15 clips of the same
+    # plate at three brightnesses, so consecutive names are usually the same
+    # brightness -- a HARDER reference than random pairing, and the conservative
+    # direction for a claim that an arm beats it.
+    l1 = torch.nn.functional.l1_loss
+    sat = {"linmag": [], "mfcc": [], "mfcc_db80": []}
+    for i, stem in enumerate(names):
+        a, b = tgts[stem], tgts[names[(i + 1) % len(names)]]
+        sat["linmag"].append(l1(linmag(a), linmag(b)).item())
+        sat["mfcc"].append(l1(mfcc(a), mfcc(b)).item())
+        sat["mfcc_db80"].append(l1(mfcc(a, 80.0), mfcc(b, 80.0)).item())
+
     for key in ("mfcc", "mfcc_db80", "linmag"):
         print(f"\n=== {key}   (peak-normalised both sides; lower is better)")
         hdr = "".join(f"{n[:22]:>24}" for n in loaded)
@@ -376,6 +396,11 @@ def main() -> None:
                   + "".join(f"{rows[n][stem][key]:>24.4f}" for n in loaded))
         print(f"{'MEAN':<34}"
               + "".join(f"{np.mean([rows[n][s][key] for s in names]):>24.4f}"
+                        for n in loaded))
+        sm = float(np.mean(sat[key]))
+        print(f"{'SATURATION (another real IR)':<34}{sm:>24.4f}")
+        print(f"{'  arm / saturation':<34}"
+              + "".join(f"{np.mean([rows[n][s][key] for s in names]) / sm:>24.3f}"
                         for n in loaded))
 
     print(f"\nwrote {args.out}: {len(names)} target + "
@@ -388,6 +413,12 @@ def main() -> None:
                        check=True)
         print(f"bundled: {tar}  ({os.path.getsize(tar) / 1024 / 1024:.1f} MB)")
 
+    print("\n  READ arm/saturation, NOT the absolute number. Saturation is the")
+    print("  distance between two different real IRs -- what an encoder that")
+    print("  conveyed nothing about the target would score. Near 1.0 means the")
+    print("  arm is telling us nothing on this audio however large or small its")
+    print("  raw value looks; well below 1.0 means it is, whatever the scale of")
+    print("  the metric happens to be.")
     print("\n  ONE FORWARD PASS PER ARM, no fitting. These are the encoders'")
     print("  answers, not the seven-parameter model's best case -- a CMA-ES fit")
     print("  against the same audio would be a much stronger test OF THE MODEL")
