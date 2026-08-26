@@ -174,9 +174,16 @@ def main() -> None:
     p.add_argument("--wav-dir", required=True, help="a directory of .wav IRs")
     p.add_argument("--arms", nargs="+", required=True,
                    help="run directories holding the checkpoints")
-    p.add_argument("--ckpt", default="encoder_best.pt",
-                   help="encoder_best.pt or encoder_last.pt -- those are the "
-                        "two names train_encoder writes.")
+    p.add_argument("--ckpt", default="encoder_last.pt",
+                   help="encoder_last.pt is this project's checkpoint: every "
+                        "--resume in the jobs files reads it, so it is the "
+                        "state every downstream arm was branched from.\n"
+                        "encoder_best.pt is selected on VALIDATION and lands at "
+                        "very different steps per arm -- 6000 for quiet7's "
+                        "hyb1e4 and eps1e4 against 40000 for L1_STFT -- so it "
+                        "compares each arm at its own peak rather than at equal "
+                        "training. Useful as a cross-check, misleading as a "
+                        "default.")
     p.add_argument("--duration", type=float, default=None,
                    help="Seconds of IR to model. Defaults to whatever the "
                         "checkpoint was trained at, which is what the encoder "
@@ -252,12 +259,11 @@ def main() -> None:
     if len(set(steps.values())) > 1:
         print(f"\n  NOTE: the arms are at different steps -- "
               f"{', '.join(f'{n} {s}' for n, s in steps.items())}.")
-        print("  encoder_best.pt is selected on VALIDATION, so an arm whose best")
-        print("  is early is one that peaked and then got worse. That is a real")
-        print("  property of the arm and the right checkpoint to compare, but it")
-        print("  is not 'the same amount of training'. --ckpt encoder_last.pt")
-        print("  compares equal steps instead, and the two answering differently")
-        print("  is itself worth knowing.\n")
+        print("  With --ckpt encoder_last.pt this should not happen: the arms")
+        print("  run the same number of steps. If it does, an arm died early.")
+        print("  With encoder_best.pt it is expected -- best is selected on")
+        print("  validation, so an early best means the arm peaked and got")
+        print("  worse, which is a real property but not equal training.\n")
     if not loaded:
         raise SystemExit("no arm loaded")
 
