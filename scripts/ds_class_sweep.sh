@@ -92,11 +92,25 @@ GPUS=${GPUS:-}
 OUT=${OUT:-results/class_sweep}
 
 mkdir -p "$OUT"
-SRC_N=$(ls "$IDSRC/audio" 2>/dev/null | wc -l)
+# pipefail + set -e would kill the script on `ls <missing>` before any of these
+# messages could print, which is exactly how the first launch died in silence.
+# Hence the `|| true` in the counts above.
+SRC_N=$( { ls "$IDSRC/audio" 2>/dev/null || true; } | wc -l )
 if (( SRC_N == 0 )); then
-  echo "ERROR: $IDSRC/audio is empty or missing; the ID set fixes training size"
+  echo "ERROR: $IDSRC/audio is empty or missing. It is the in-domain source the"
+  echo "per-class ID subsets are cut from, and its file count is what sizes the"
+  echo "training set (data.py:92). Nothing can run without it."
   exit 1
 fi
+if [[ ! -d "$IDSRC/param" ]]; then
+  echo "ERROR: $IDSRC/param is missing. WaveParamDataset asserts on it, and"
+  echo "ds_id_subset.sh needs a .pt per wav to build a subset."
+  exit 1
+fi
+mkdir -p logs
+for c in python3 curl tar; do
+  command -v "$c" >/dev/null || { echo "ERROR: $c not on PATH"; exit 1; }
+done
 read -r -a ALL <<< "$CLASSES"
 echo "sweep: ${#ALL[@]} classes, $REF_STEPS steps each, id source $SRC_N files,"
 echo "       min $MINFILES files, id cap $IDCAP, batch $BATCH, max $MAXF"
@@ -115,7 +129,7 @@ for ((i = 0; i < ${#ALL[@]}; i += BATCH)); do
   for cls in "${batch[@]}"; do
     tag="${cls//_/}"
     dir="external/diffsynth/data/nsynth-${tag}"
-    n=$(ls "$dir/audio" 2>/dev/null | wc -l)
+    n=$( { ls "$dir/audio" 2>/dev/null || true; } | wc -l )
     echo
     echo "===================================================================="
     echo "=== $cls   $n files   $(date '+%H:%M:%S')"

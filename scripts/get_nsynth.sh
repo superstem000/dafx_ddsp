@@ -73,8 +73,10 @@ NAME="nsynth-${SPLIT}"
 URL=${URL:-"http://download.magenta.tensorflow.org/datasets/nsynth/${NAME}.jsonwav.tar.gz"}
 # The archive to stream and the directory to write are the same thing only when
 # no class is selected. NAME stays the archive; OUT is where files land.
-read -r -a CLASS_ARR <<< "${CLASS// /
-}"
+# Plain word-splitting on the default IFS. An earlier version substituted
+# spaces for newlines first, which broke it: `read -a` consumes ONE line, so a
+# multi-class CLASS silently collapsed to its first element.
+read -r -a CLASS_ARR <<< "$CLASS"
 if (( ${#CLASS_ARR[@]} > 1 )); then
   OUT=""                       # per-class directories, named by nsynth_sample
 else
