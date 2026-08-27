@@ -106,7 +106,9 @@ from src.gd.graddescent import (                           # noqa: E402
 from src.plate.SevenParamPlate import (                    # noqa: E402
     BatchedModalPlateTorch as SevenParamPlate,
 )
-from src.cmaes.fit_7param_norm_es import PARAM_KEYS        # noqa: E402
+from src.cmaes.fit_7param_norm_es import (                 # noqa: E402
+    PARAM_BOUNDS, PARAM_KEYS,
+)
 # The PLATE's own mel filterbank and DCT, not ds_mfcc_check's. That module
 # imports torchaudio, which dsenv has and dafxenv does not -- and there is no
 # reason to add a dependency when losses.py already carries a librosa mel bank
@@ -467,7 +469,7 @@ def main() -> None:
         print(f"wrote {args.prior} prior draws (no encoder, no real audio) "
               f"to {args.out}/prior_*.wav")
 
-    rows, names, tgts = {}, [], {}
+    rows, names, tgts, preds = {}, [], {}, {}
     for wi, w in enumerate(wavs):
         rt = None if args.resample.lower() == "none" else args.resample
         x = load_wav(w, dur, SAMPLE_RATE, rt)
@@ -500,6 +502,12 @@ def main() -> None:
                  "mfcc": l1(mfcc(tn), mfcc(pn)).item(),
                  "mfcc_db80": l1(mfcc(tn, 80.0), mfcc(pn, 80.0)).item()}
             rows.setdefault(name, {})[stem] = m
+            # The predicted PHYSICAL parameters, which are what the tilt and
+            # decay tables are ultimately about: a render is dark because the
+            # encoder chose a low loss_F1, not because the renderer is dark.
+            preds.setdefault(name, {})[stem] = dict(zip(
+                PARAM_KEYS,
+                norm_to_physical_torch(z, space._lo, space._hi)[0].cpu().tolist()))
             sf.write(os.path.join(args.out, f"{stem}__{name}.wav"),
                      pn[0].cpu().numpy(), SAMPLE_RATE)
         print(f"  [{wi + 1}/{len(wavs)}] {stem}")
@@ -552,6 +560,32 @@ def main() -> None:
                         os.path.dirname(os.path.abspath(args.out)) or ".", base],
                        check=True)
         print(f"bundled: {tar}  ({os.path.getsize(tar) / 1024 / 1024:.1f} MB)")
+
+    # The predicted parameters, which is where an audible difference between
+    # two arms on the same audio actually lives. A render is dark because the
+    # encoder picked a low loss_F1, not because the renderer is dark, and no
+    # spectral table says which parameter moved.
+    print("\n=== PREDICTED PARAMETERS   median over IRs, and the spread")
+    print("  The bounds are the space's own, so a median pinned at a bound means")
+    print("  the encoder wanted to leave the space and could not.")
+    lo, hi = {}, {}
+    for k, (a_, b_) in zip(PARAM_KEYS, zip(*[PARAM_BOUNDS[k] for k in PARAM_KEYS])):
+        lo[k], hi[k] = a_, b_
+    print(f"  {'param':>10}{'bounds':>22}" + "".join(f"{n:>22}" for n in rows))
+    for k in PARAM_KEYS:
+        cells = ""
+        for n in rows:
+            v = np.array([preds[n][st][k] for st in names], dtype=float)
+            cells += f"{np.median(v):>13.4g}{'':1}[{v.min():.3g},{v.max():.3g}]".rjust(22)
+        print(f"  {k:>10}{f'[{lo[k]:.3g},{hi[k]:.3g}]':>22}" + cells)
+    csvp = os.path.join(args.out, "predicted_params.csv")
+    with open(csvp, "w") as fh:
+        fh.write("arm,ir," + ",".join(PARAM_KEYS) + "\n")
+        for n in rows:
+            for st in names:
+                fh.write(f"{n},{st}," +
+                         ",".join(f"{preds[n][st][k]:.8g}" for k in PARAM_KEYS) + "\n")
+    print(f"  per-IR values: {csvp}")
 
     print("\n  READ arm/saturation, NOT the absolute number. Saturation is the")
     print("  distance between two different real IRs -- what an encoder that")
