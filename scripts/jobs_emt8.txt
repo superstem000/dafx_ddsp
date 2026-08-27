@@ -1,0 +1,129 @@
+# emt8: the plate space set by measurement rather than by argument.
+#
+#   src/emt/gen.sh                                    # datasets first
+#   python -m src.emt.check                           # then the three files agree
+#   python scripts/gpu_queue.py --jobs scripts/jobs_emt8.txt
+#
+# WHERE EVERY NUMBER CAME FROM. src/emt/probe.py, which removes the encoder
+# entirely and scores 2048 random draws against the fifteen real EMT-140 IRs.
+# emt7's encoders could not be used for this: they emitted near-constants on
+# real audio, and every prediction was trapped inside a box the probe then
+# showed to be wrong in four of seven dimensions. See src/emt/space.py for the
+# derivation of each bound and for the rho/E degeneracy that explains emt7's
+# railing.
+#
+# NOT COMPARABLE TO ANY EARLIER PLATE NUMBER, emt7 included. Different space,
+# ceiling, mode grid and searched set. It is internally comparable -- three
+# arms, one base, one dataset -- and that is all it claims.
+#
+# THE ARMS, eps-matched, differing in exactly one thing:
+#
+#   L1_STFT          linear, on MAGNITUDE           = diffsynth's magx
+#   L1_STFT_hyb1e2   hybrid, eps 1e-2               = diffsynth's hybridx
+#   L1_STFT_eps1e2   log,    eps 1e-2               = diffsynth's logx_halfw
+#
+# 1e-2 on magnitude is where diffsynth's log_eps_v 1e-4 on power lands, since
+# log(m) = 0.5*log(p). gamma_ppre compared hyb1e2 against eps1e7 -- five decades
+# of eps apart ON TOP of the linear term -- so that pair was never
+# single-variable.
+#
+# NUMERICS, every value load-bearing:
+#
+#   --fmax 22000            probe best-of-2048 against saturation, full band:
+#                           12k 1.781, 16k 1.665, 20k 1.544, 22k 1.324. Monotone,
+#                           never flattening, and 22 kHz covers 99.9% of the mel
+#                           axis so there is no further ceiling to chase.
+#   --fixed-mode-grid 125,351   this box's corner (max Ly, min h, min T0),
+#                           verified as the maximum over all eight corners. The
+#                           cheapest draw needs (48, 63), so most draws pay 14.5x
+#                           their own requirement -- that is the price of a pin,
+#                           and the pin is what makes targets and training
+#                           synthesis agree bit-for-bit.
+#   --duration 1.0          eps_ladder.sh never passes one, so without this
+#                           train_encoder uses its 0.25 default and dies on a
+#                           1.0 s dataset.
+#   --chunk-elems 400000000 1.6 GB per intermediate, three live: 4.8 GB. FLAT in
+#                           mode count, because chunk = chunk_elems // (B*n_pad),
+#                           so doubling the modes halves the chunk. emt8 costs
+#                           ~80 MB more than emt7, which ran on the same 23 GB L4.
+#   --compile-plate         8.5x measured (64 IRs at 1.0 s: 68 s eager, 8 s
+#                           compiled), matching 704c1ea's 7.3x -- AND it is what
+#                           makes the memory fit at all. 85a3347: eager retains
+#                           every chunk's [B, n_pad, chunk] intermediate for
+#                           backward, a total of B*n_pad*Ts that chunk_elems does
+#                           NOT bound; at this corner that is ~1.5 TB. Compiled,
+#                           Inductor fuses P*env*osc into the reduction and it is
+#                           never materialised. DROPPING THIS FLAG DOES NOT MAKE
+#                           THE RUN SLOWER, IT MAKES IT IMPOSSIBLE -- and if it
+#                           ever must go for a numerics reason, GRAD_CKPT comes
+#                           back on with a far smaller chunk, per 85a3347.
+#   --eval-every 250        40 points per curve instead of 10. On emt7 the
+#                           compressed arms went from ratio 0.22/0.25 at step
+#                           4000 to 1.32/2.48 at 6000 and all we could say was
+#                           "somewhere in between" -- which is the window where
+#                           spec_w reaches 1.0 and the parameter loss finishes
+#                           crossfading out, i.e. the one transition this whole
+#                           campaign exists to characterise. ~31 s per eval,
+#                           3% of the run.
+#
+# --fmax AND --fixed-mode-grid MUST MATCH src/emt/gen.sh. A mismatch is not an
+# error anywhere: the targets render on one plate and the model's attempts on
+# another, and the loss parks at a floor with no visible cause. python -m
+# src.emt.check verifies it against space.py.
+#
+# RUN src.ddsp.diag_gt_floor BEFORE THE CAMPAIGN. quiet3 only found its 7.66%
+# log-arm confound because that gate ran at training's exact settings. emt7
+# passed it bit-for-bit; emt8 has a new ceiling, a new pin and a new searched
+# set, and nobody has checked. Ten minutes against 12 hours.
+
+# STAGE base
+# Parameter-only, 2500 steps, once. --param-hold-frac 1.0 keeps spec_w at 0
+# throughout, so the loss is the parameter L1 and the three arms would be
+# identical here by construction -- training it per-arm would inject noise of
+# the same order as the effect being measured.
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=2500 OUT=results/ddsp/emt8_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE arms
+# 10000 steps from the shared base, crossfading off the parameter loss over
+# steps 1250-5000 (hold 0.125, ramp 0.375 of 10000) -- the point where the three
+# losses first differ at all.
+#
+# WHY 10000 AND NOT 40000. 40000 came from raw7, which trained on 98,304 clips:
+# 40000 x 64 / 98304 = 26 epochs. emt8 has 24,576, so the same 40000 steps would
+# be 104 epochs -- 4x the passes raw7 ever made, by accident rather than design.
+# 10000 restores 26 exactly and gives up nothing.
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+
+# Monitor:
+#   python -m src.ddsp.monitor_sweep --root results/ddsp/emt8_pre results/ddsp/emt8 \
+#       --metrics spec_w param g03 nmse ratio
+#
+# ratio is val_nmse_6d over the constant predictor's, so 1.0 means the arm has
+# learned nothing. On emt7 linear reached 0.14 while both compressed arms ended
+# ABOVE 1.0 (2.40 and 2.42), and the divergence happened between steps 4000 and
+# 6000 -- exactly where spec_w hits 1.0. --eval-every 250 is what localises it
+# this time. g03 is the only audio metric comparable across arms; val_loss is
+# each arm's own objective and cannot be read sideways.
+#
+# emt8 sets composite=False, so val_nmse_6d_postmu does not exist and best_key
+# falls back to val_nmse_6d_geo. Same as quiet3, quiet7 and emt7.
+#
+# Then listen, which is the point of the space:
+#   PLATE_PARAM_SPACE=emt8 python -m src.ddsp.eval_real_ir --wav-dir data/EMT-140 \
+#       --arms results/ddsp/emt8/L1_STFT results/ddsp/emt8/L1_STFT_hyb1e2 \
+#              results/ddsp/emt8/L1_STFT_eps1e2 \
+#       --render-duration 4.0 --prior 10 --out emt8_listen
+#   python -m src.emt.why_dark --dir emt8_listen --fmax 22000
+#
+# THE TEST OF WHY emt7 COLLAPSED is the PREDICTED PARAMETERS table, and it is
+# narrower than it looks. These are fifteen recordings of ONE plate, so h and Ly
+# SHOULD be near-constant across them -- that is the right answer, not a
+# collapse. What must develop spread is loss_F1 and T60_DC, since bright/dark is
+# a spectral difference and the damper setting is a decay difference. emt7 had
+# spread on T60_DC and none on loss_F1, whose optimum sat 3x outside its ceiling.
+#
+# No comment line here may begin with the word "stage": gpu_queue matches
+# ^#\s*STAGE[:\s] case-insensitively. The two above are real barriers -- the
+# arms read a checkpoint the base writes.

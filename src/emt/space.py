@@ -97,6 +97,122 @@ FIXED_MODE_GRID = (100, 220)
 # which changes the architecture as well as the data.
 DURATION = 1.0
 
+# ---------------------------------------------------------------------------
+# emt8. Everything below is set by src/emt/probe.py, which removed the encoder
+# and scored 2048 random draws against the fifteen real IRs directly. Read that
+# file's header for why the encoder's own answers could not be used: emt7's
+# arms emitted near-constants, and every prediction was trapped inside a box the
+# probe then showed to be wrong in four of seven dimensions.
+#
+# WHY rho AND E ARE FIXED, and this is the finding that matters most. The modal
+# sum sees only three combinations of them: mu = rho*h, D/mu = E*h^2/(12(1-nu^2)rho)
+# and T0/mu. Four searched parameters mapping to three observables leaves an
+# EXACT one-parameter degeneracy -- these three render bit-identically:
+#
+#   h .00060  rho 13697  E 1.043e12  ->  mu 8.2180  D/mu 2.51100  T0/mu 988.923
+#   h .00107  rho  7702  E 1.855e11  ->  mu 8.2180  D/mu 2.51100  T0/mu 988.923
+#   h .00350  rho  2348  E 5.256e09  ->  mu 8.2180  D/mu 2.51100  T0/mu 988.923
+#
+# emt7 searched all three and its docstring claimed every parameter was
+# individually identifiable. That was false, and it is the best explanation of
+# emt7's railing: a tanh-bounded head free to slide along a flat direction parks
+# at a corner. Fixing rho and E removes redundancy, not freedom -- (h, T0) ->
+# (D/mu, T0/mu) is then a bijection -- and it makes the parameter NMSE, which is
+# the thesis's own metric, measure something identifiable for the first time.
+# h's ceiling is widened to 0.004 to carry the D/mu range rho and E gave up
+# (44x against the 9x of emt7's range); the FLOOR sets render cost, so that is
+# free.
+#
+# WHY THE DRIVE POINT AND PICKUP ARE FIXED. The fifteen targets are one physical
+# EMT-140 at different damper settings, so fp and op are constants of the
+# dataset rather than per-IR quantities -- and the probe found it: the same
+# single draw wins bright_1, dark_1 AND medium_1, and likewise for _2 and _3,
+# out of 2048 draws in twelve dimensions.
+#
+# WHY fmax IS 22000. Best-of-2048 against saturation, full band, same seed:
+#
+#   fmax 12000 -> 1.781    fmax 20000 -> 1.544
+#   fmax 16000 -> 1.665    fmax 22000 -> 1.324
+#
+# Monotone and never flattening; 22 kHz covers 99.9% of the mel axis, so there
+# is no further ceiling to chase. emt7's 12000 was chosen when a "0.36% of
+# energy above the ceiling" argument said it did not matter. That argument was
+# wrong: energy share badly understates what those bands are worth.
+#
+# WHAT THIS SPACE STILL CANNOT DO, so it is not rediscovered as a surprise. At
+# every one of the four ceilings the winners put loss_F1 at ~1.15x fmax and
+# pushed T60_ratio up (0.23, 0.23, 0.56, 0.67) -- both meaning "as little
+# frequency-dependent damping as the model allows". sig = alpha + beta*omega^2
+# cannot produce the target's shallow high-frequency decay, which falls 1.86x
+# from 2 to 8 kHz against the law's ~16x. Expect both parameters to sit high in
+# the results, and expect that to be the residual after everything else is right.
+FMAX_EMT8 = 22000.0
+
+# Corner of the emt8 box (max Ly, min h, min T0), verified as the maximum over
+# all eight corners. The cheapest draw needs only (48, 63), so most draws pay
+# 14.5x their own requirement -- that is the price of a pin, and the pin is what
+# makes targets and training synthesis agree bit-for-bit.
+FIXED_MODE_GRID_EMT8 = (125, 351)
+
+DURATION_EMT8 = 1.0
+
+PLATE_EMT8 = dict(
+    keys=["h", "Ly", "T0", "T60_DC", "T60_ratio", "loss_F1"],
+    bounds={
+        # Probe winners ~1.07 mm [0.64, 1.31]. The ceiling is 0.004 rather than
+        # ~0.002 because h now carries the D/mu range rho and E used to; the
+        # floor is what sets render cost, so the ceiling is free.
+        "h": (0.0006, 0.004),
+        # 1.92 [1.66, 2.50].
+        "Ly": (1.3, 2.8),
+        # 8127 [458, 2.76e4]. T0 moved with the ceiling across the four probes
+        # (5.34e4, 2.24e4, 4857, 8127), so it is entangled with fmax and gets a
+        # generous range rather than a tight one -- but not the 1e5 first
+        # proposed, which is 3.6x above the interval and only dilutes the
+        # log-uniform sampling density.
+        "T0": (30.0, 5e4),
+        # 2.67 [2.39, 2.92]; wide because a real EMT-140 damper is.
+        "T60_DC": (0.8, 6.0),
+        # NOT an absolute T60_F1. beta = 3ln10/dOmSq * (1/T60_F1 - 1/T60_DC), so
+        # T60_F1 > T60_DC makes beta negative, sig negative at high omega, and
+        # r = exp(-sig*k) > 1: the mode GROWS until it overflows to inf and
+        # poisons every metric to nan. An absolute bound cannot express the
+        # constraint; quiet7 carries it as a ratio for the same reason, and
+        # emt7's pin at 1.2 was safe only by accident of its T60_DC floor.
+        # Probe winners 0.665 [0.562, 0.791].
+        "T60_ratio": (0.05, 0.95),
+        # 2.60e4 [2.13e4, 3.42e4] -- above the 22 kHz ceiling. See the note on
+        # the damping law above.
+        "loss_F1": (3000.0, 50000.0),
+    },
+    log_keys={"T0", "T60_DC", "T60_ratio", "loss_F1"},
+    fixed={
+        "Lx": 1.0,
+        "nu": 0.30,
+        # Degenerate with h -- see the block above. 7700 / 1.85e11 is rho/E
+        # 4.2e-8, a sound speed of 4900 m/s, and both sat within a few percent
+        # across all four probe ceilings with the tightest intervals of anything
+        # measured.
+        "rho": 7700.0,
+        "E": 1.85e11,
+        # One plate, one drive point, one pickup. Probe medians at 22 kHz.
+        "fp_x": 0.22,
+        "fp_y": 0.18,
+        "op_x": 0.48,
+        "op_y": 0.59,
+    },
+    products={"T60_F1": ("T60_ratio", "T60_DC")},
+    composite=False,
+)
+
+# What gen.sh and check.py read, so the four numbers cannot drift between
+# dataset generation and training. Keyed by PLATE_PARAM_SPACE.
+NUMERICS = {
+    "emt7": dict(fmax=FMAX, grid=FIXED_MODE_GRID, duration=DURATION),
+    "emt8": dict(fmax=FMAX_EMT8, grid=FIXED_MODE_GRID_EMT8, duration=DURATION_EMT8),
+}
+
+
 PLATE_EMT7 = dict(
     keys=["Ly", "h", "T0", "rho", "E", "T60_DC", "loss_F1"],
     bounds={

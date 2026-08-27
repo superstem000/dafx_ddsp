@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Generate the emt7 IR datasets, train and val, under one pin and one ceiling.
+# Generate the emt8 IR datasets, train and val, under one pin and one ceiling.
 #
 #   src/emt/gen.sh                    # 24576 train + 991 val, ~4.3 GB
+#   SPACE=emt7 src/emt/gen.sh         # the earlier space, kept runnable
 #   N_TRAIN=49152 src/emt/gen.sh      # 8.7 GB -- check df first
 #
 # THE PIN AND THE CEILING MUST MATCH TRAINING, and that is the whole reason
 # this is a script rather than two remembered commands. --fmax and
-# --fixed-mode-grid appear here and in scripts/jobs_emt7.txt, and a mismatch
+# --fixed-mode-grid appear here and in scripts/jobs_<SPACE>.txt, and a mismatch
 # between them is not an error anywhere: it silently renders the targets on one
 # plate and the model's attempts on another, and the loss goes to a floor
 # nobody can explain. Both values come from src/emt/space.py.
@@ -20,10 +21,16 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$(cd "$HERE/../.." && pwd)"
 
-read -r FMAX GRID DUR <<< "$(python3 - <<'PY'
+# SPACE picks which entry of space.py's NUMERICS table to read, so the values
+# cannot drift between generation and training now that the file holds two
+# spaces. It is also what PLATE_PARAM_SPACE is set to below.
+SPACE=${SPACE:-emt8}
+read -r FMAX GRID DUR <<< "$(SPACE="$SPACE" python3 - <<'PY'
+import os
 ns = {}
 exec(open("src/emt/space.py").read(), ns)
-print(ns["FMAX"], "%d,%d" % ns["FIXED_MODE_GRID"], ns["DURATION"])
+n = ns["NUMERICS"][os.environ["SPACE"]]
+print(n["fmax"], "%d,%d" % n["grid"], n["duration"])
 PY
 )"
 
@@ -32,7 +39,7 @@ N_VAL=${N_VAL:-991}
 SEED=${SEED:-0}
 DEVICE=${DEVICE:-cuda}
 OUT=${OUT:-data}
-# MUST match scripts/jobs_emt7.txt exactly, and --compile-plate is the whole
+# MUST match scripts/jobs_<SPACE>.txt exactly, and --compile-plate is the whole
 # reason this line exists. Measured here, 64 IRs at 1.0 s: eager 68 s, compiled
 # 8 s -- 8.5x, matching the 7.3x that 704c1ea measured on quiet3. It is not a
 # free flag either way:
@@ -40,7 +47,7 @@ OUT=${OUT:-data}
 #   0f260fc  compile was DROPPED for quiet3, because compiled generation and
 #            compiled training disagreed by 7.66% of saturation on the log arm
 #            (42.6% in the quietest decile). raw7 tolerated it at <=0.074%.
-#            emt7 is on raw7's side of that -- T60_DC is searched, so nothing
+#            emt8 is on raw7's side of that -- T60_DC is searched, so nothing
 #            here sits at the float32 cancellation floor -- but it is a claim,
 #            and src.ddsp.diag_gt_floor is what checks it. Run the gate.
 #   35e4529  chunk_elems and --batch-size are part of the NUMERICS CONTRACT in
@@ -54,15 +61,15 @@ OUT=${OUT:-data}
 # targets and the renders is exactly the confound above.
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --batch-size 64"}
 
-echo "emt7: fmax=$FMAX  grid=$GRID  duration=${DUR}s"
-echo "      train $N_TRAIN -> $OUT/train-emt7   val $N_VAL -> $OUT/val-emt7"
+echo "$SPACE: fmax=$FMAX  grid=$GRID  duration=${DUR}s"
+echo "      train $N_TRAIN -> $OUT/train-$SPACE   val $N_VAL -> $OUT/val-$SPACE"
 echo "      $(python3 -c "print(f'{$N_TRAIN*$DUR*44100*4/1e9:.1f} GB training tensor')")"
 df -h . | tail -1
 
 for split in train val; do
   n=$([[ $split == train ]] && echo "$N_TRAIN" || echo "$N_VAL")
   seed=$([[ $split == train ]] && echo "$SEED" || echo "$((SEED + 1))")
-  dir="$OUT/${split}-emt7"
+  dir="$OUT/${split}-$SPACE"
   # "non-empty" is NOT complete. make_dataset writes one npz per IR as it goes
   # and generation_summary.txt only after the last one, so a killed run leaves a
   # directory that a non-empty test skips forever -- and training then reads a
@@ -84,11 +91,11 @@ for split in train val; do
   # -u because this is normally run under `| tee`, which makes stdout a pipe:
   # Python then block-buffers and the entire run's progress appears at once when
   # the buffer flushes at exit, which reads exactly like a hang.
-  PLATE_PARAM_SPACE=emt7 python -u -m src.data.make_dataset \
+  PLATE_PARAM_SPACE="$SPACE" python -u -m src.data.make_dataset \
     --number "$n" --duration "$DUR" --seed "$seed" --output-dir "$dir" \
     --device "$DEVICE" --fmax "$FMAX" --fixed-mode-grid "$GRID" \
     --render-path training $NUMERICS
 done
 
 echo
-echo "done. Train with scripts/jobs_emt7.txt, which reads the same two values."
+echo "done. Train with scripts/jobs_$SPACE.txt, which reads the same values."

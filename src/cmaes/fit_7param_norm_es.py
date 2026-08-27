@@ -196,10 +196,10 @@ PLATE_QUIET7 = dict(
 # recomputed -- and keeping it beside its dataset generator and its jobs file
 # is what makes those four settings reviewable together. That module is pure
 # data and imports nothing from here, so this stays a one-line registration.
-from src.emt.space import PLATE_EMT7                        # noqa: E402
+from src.emt.space import PLATE_EMT7, PLATE_EMT8                        # noqa: E402
 
 PARAM_SPACES = {"raw7": PLATE_RAW7, "quiet3": PLATE_QUIET3, "quiet7": PLATE_QUIET7,
-                "emt7": PLATE_EMT7}
+                "emt7": PLATE_EMT7, "emt8": PLATE_EMT8}
 PARAM_SPACE = os.environ.get("PLATE_PARAM_SPACE", "raw7")
 if PARAM_SPACE not in PARAM_SPACES:
     raise SystemExit(

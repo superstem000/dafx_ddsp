@@ -1,4 +1,102 @@
-# emt7 — a plate space that can sound like an EMT-140
+# emt8 — a plate space set by measurement
+
+Two spaces live here. **`emt8` is current**; `emt7` is kept for the record and
+stays runnable via `SPACE=emt7`.
+
+```
+src/emt/space.py        both spaces, and the NUMERICS table gen.sh/check.py read
+src/emt/gen.sh          dataset generation      SPACE=emt8 by default
+src/emt/probe.py        the encoder-free measurement every emt8 bound came from
+src/emt/why_dark.py     decomposes a render/target gap four ways
+src/emt/band.py         brick-wall lowpass to the renderer's ceiling
+src/emt/check.py        asserts space.py, gen.sh and the jobs file agree
+scripts/jobs_emt8.txt   the three arms
+```
+
+## Why emt8 exists
+
+emt7 trained, and its encoders produced near-constants on real audio — six of
+seven parameters identical to five figures across fifteen audibly different
+EMT-140 IRs. Every prediction was also trapped inside emt7's box. So none of
+those numbers said anything about the model, the space, or the losses.
+
+`probe.py` removes the encoder: 2048 random draws from a deliberately wide box,
+rendered, scored against all fifteen targets. Every emt8 bound comes from it.
+
+## What it found
+
+**The `rho`/`E` degeneracy, which is the finding that matters most.** The modal
+sum sees only `mu = rho*h`, `D/mu` and `T0/mu`. Four searched parameters mapping
+to three observables leaves an exact one-parameter family — these render
+bit-identically:
+
+```
+h .00060  rho 13697  E 1.043e12  ->  mu 8.2180  D/mu 2.51100  T0/mu 988.923
+h .00107  rho  7702  E 1.855e11  ->  mu 8.2180  D/mu 2.51100  T0/mu 988.923
+h .00350  rho  2348  E 5.256e09  ->  mu 8.2180  D/mu 2.51100  T0/mu 988.923
+```
+
+emt7 searched all three and claimed every parameter was individually
+identifiable. It is the best explanation of emt7's railing: a tanh-bounded head
+free to slide along a flat direction parks at a corner. emt8 fixes `rho` and `E`
+and widens `h` to carry the `D/mu` range they gave up.
+
+**The ceiling was the largest single lever and never flattened.** Best-of-2048
+against saturation, full band, same seed: `12k 1.781 · 16k 1.665 · 20k 1.544 ·
+22k 1.324`. emt7's 12 kHz was chosen on a "0.36% of energy above the ceiling"
+argument, and energy share badly understates what those bands are worth. 22 kHz
+covers 99.9% of the mel axis, so there is nothing left to chase.
+
+**Four hypotheses tested and killed** — `fmax` doesn't matter (wrong); the bass
+excess is the drive point (pinning `fp` to a corner moved 62 Hz by 0.1 dB); the
+bass excess is the simply-supported boundary condition (reachable to 0.1 dB, and
+jointly at ~20% cost); the collapse is the 46% dead input axis (band-limiting the
+input *tightened* the collapse).
+
+## The searched set
+
+| | bounds | probe winner at 22 kHz [90% CI] |
+|---|---|---|
+| `h` | 0.0006 – 0.004 | 1.07 mm [0.64, 1.31] |
+| `Ly` | 1.3 – 2.8 | 1.92 [1.66, 2.50] |
+| `T0` | 30 – 5e4, log | 8127 [458, 2.76e4] |
+| `T60_DC` | 0.8 – 6.0, log | 2.67 [2.39, 2.92] |
+| `T60_ratio` | 0.05 – 0.95, log | 0.665 [0.562, 0.791] |
+| `loss_F1` | 3000 – 50000, log | 2.60e4 [2.13e4, 3.42e4] |
+
+Fixed: `rho` 7700, `E` 1.85e11 (degenerate with `h`), `fp_x` 0.22, `fp_y` 0.18,
+`op_x` 0.48, `op_y` 0.59 (one plate, one drive point, one pickup — the probe
+picked the *same single draw* for bright_1, dark_1 and medium_1, and likewise
+for `_2` and `_3`), `Lx` 1.0, `nu` 0.30.
+
+`fmax 22000`, pin `(125, 351)` = 43,875 cells, duration 1.0 s, 24576/991,
+2500-step shared base then 10000 steps × 3 arms at batch 64, `--eval-every 250`.
+**≈11.8 h/arm**, three in parallel.
+
+## What emt8 still cannot do
+
+At every one of the four probe ceilings the winners put `loss_F1` at ~1.15× the
+ceiling and pushed `T60_ratio` up (0.23 → 0.23 → 0.56 → 0.67). Both mean the
+same thing: as little frequency-dependent damping as the model allows.
+`sig = alpha + beta*omega^2` cannot produce the target's shallow high-frequency
+decay, which falls 1.86× from 2 to 8 kHz against the law's ~16×. **Expect both to
+sit high in the results, and expect that to be the residual after everything else
+is right.** No bound fixes it; a different damping law would.
+
+A modal sum also has no noise source, so a real plate's hiss, room and driver
+transient are outside the model at any parameter setting.
+
+## The test of why emt7 collapsed
+
+Narrower than it looks. Fifteen recordings of one plate means `h` and `Ly`
+*should* be near-constant across them — that is the right answer, not a collapse.
+What must develop spread is **`loss_F1`** (bright vs dark is a spectral
+difference) and **`T60_DC`** (the damper is a decay difference). emt7 had spread
+on `T60_DC` and none on `loss_F1`, whose optimum sat 3× outside its ceiling.
+
+---
+
+# emt7 — the earlier space, kept for the record
 
 Everything specific to this experiment lives here. The renderer's physics
 (`src/plate/SevenParamPlate.py`) is untouched upstream code and is *not* copied:

@@ -22,7 +22,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-JOBS = os.path.join(ROOT, "scripts", "jobs_emt7.txt")
+SPACE = os.environ.get("SPACE", "emt8")
+JOBS = os.path.join(ROOT, "scripts", f"jobs_{SPACE}.txt")
 GEN = os.path.join(HERE, "gen.sh")
 
 
@@ -34,12 +35,13 @@ def _space() -> dict:
 
 def main() -> int:
     ns = _space()
+    n = ns["NUMERICS"][SPACE]
     want = {
-        "--fmax": float(ns["FMAX"]),
-        "--fixed-mode-grid": "%d,%d" % tuple(ns["FIXED_MODE_GRID"]),
-        "--duration": float(ns["DURATION"]),
+        "--fmax": float(n["fmax"]),
+        "--fixed-mode-grid": "%d,%d" % tuple(n["grid"]),
+        "--duration": float(n["duration"]),
     }
-    print("space.py:  " + "  ".join(f"{k} {v}" for k, v in want.items()))
+    print(f"space.py [{SPACE}]:  " + "  ".join(f"{k} {v}" for k, v in want.items()))
 
     bad = 0
     jobs = [l for l in open(JOBS).read().splitlines()
@@ -64,8 +66,8 @@ def main() -> int:
     # the same trap one level down.
     gen = open(GEN).read()
     print(f"\n{GEN}:")
-    if "space.py" in gen and "FIXED_MODE_GRID" in gen:
-        print("  ok  reads space.py rather than hardcoding")
+    if "space.py" in gen and "NUMERICS" in gen and 'SPACE' in gen:
+        print(f"  ok  reads space.py's NUMERICS[SPACE] rather than hardcoding")
     else:
         bad += 1
         print("  MISMATCH: does not read space.py -- values could drift")
