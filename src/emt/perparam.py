@@ -41,7 +41,13 @@ from pathlib import Path
 
 
 def load(root: Path):
-    """{arm: (keys, rows)} for every history.json under root."""
+    """{arm: (keys, eval_rows)} for every history.json under root.
+
+    Only EVAL rows carry the per-parameter entries. train_encoder appends a row
+    every --log-every (100) but fills in corr_/spread_/perr_ only every
+    --eval-every (250), so the last row is usually a log-only row and checking
+    it alone finds nothing. Filter to the rows that actually have them.
+    """
     out = {}
     for h in sorted(root.rglob("history.json")):
         try:
@@ -49,12 +55,13 @@ def load(root: Path):
         except Exception as e:                                   # noqa: BLE001
             print(f"  skip {h}: {e}")
             continue
-        if not rows:
+        ev = [r for r in rows if any(k.startswith("corr_") for k in r)]
+        if not ev:
             continue
         keys = [m.group(1) for m in
-                (re.fullmatch(r"corr_(.+)", k) for k in rows[-1]) if m]
+                (re.fullmatch(r"corr_(.+)", k) for k in ev[-1]) if m]
         if keys:
-            out[h.parent.name] = (keys, rows)
+            out[h.parent.name] = (keys, ev)
     return out
 
 
