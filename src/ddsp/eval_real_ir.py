@@ -568,9 +568,8 @@ def main() -> None:
     print("\n=== PREDICTED PARAMETERS   median over IRs, and the spread")
     print("  The bounds are the space's own, so a median pinned at a bound means")
     print("  the encoder wanted to leave the space and could not.")
-    lo, hi = {}, {}
-    for k, (a_, b_) in zip(PARAM_KEYS, zip(*[PARAM_BOUNDS[k] for k in PARAM_KEYS])):
-        lo[k], hi[k] = a_, b_
+    lo = {k: PARAM_BOUNDS[k][0] for k in PARAM_KEYS}
+    hi = {k: PARAM_BOUNDS[k][1] for k in PARAM_KEYS}
     print(f"  {'param':>10}{'bounds':>22}" + "".join(f"{n:>22}" for n in rows))
     for k in PARAM_KEYS:
         cells = ""
