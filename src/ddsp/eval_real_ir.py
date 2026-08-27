@@ -218,9 +218,14 @@ def load_arm(run_dir: str, ckpt_name: str, device):
         refiner.load_state_dict(ck["refiner"])
         refiner.eval()
     space = Raw7Space(device, torch.float32, normalize=False)
+    # fmax comes from the checkpoint like every other numeric, and it has to:
+    # emt7 trains at 12000 while the renderer's constructor default is 10000, so
+    # omitting it renders a DIFFERENT PLATE from the one the encoder learned --
+    # silently, and in exactly the octave a real EMT-140 is judged on. getattr
+    # because raw7 checkpoints predate the flag; None there keeps their 10 kHz.
     space.configure_plate(a.chunk_elems, not a.no_grad_checkpoint,
                           a.batched_plate, a.compile_plate, a.mode_bucket,
-                          a.fixed_mode_grid)
+                          a.fixed_mode_grid, getattr(a, "fmax", None))
     return (model, refiner, space, CompositeConditioner(device), a,
             float(ck["scale"]), int(ck.get("step", -1))), "ok"
 
@@ -429,6 +434,13 @@ def main() -> None:
     if dur is None:
         dur = float(next(iter(loaded.values()))[4].duration)
         print(f"encode duration {dur}s (from the checkpoint)")
+    # Say out loud which plate is being rendered. Every one of these is silent
+    # when wrong -- a mismatched ceiling or pin produces plausible audio at the
+    # wrong parameters, and there is no error anywhere.
+    _a = next(iter(loaded.values()))[4]
+    print(f"renderer: fmax {getattr(_a, 'fmax', None) or 10000.0}  "
+          f"pin {getattr(_a, 'fixed_mode_grid', None)}  "
+          f"space {os.environ.get('PLATE_PARAM_SPACE', 'raw7')}")
     rdur = args.render_duration if args.render_duration else dur
     if rdur != dur:
         print(f"render/score duration {rdur}s -- parameters predicted from the "
