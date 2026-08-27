@@ -76,9 +76,17 @@ METRICS = {
 
 
 def _rate(h) -> float:
-    """Steps per second over the last ~10 logged rows, resume-safe."""
+    """Steps per second over the last ~10 logged rows, resume-safe.
+
+    The single-row fallback used to be step/elapsed_s, which is the very bug the
+    window below exists to avoid: elapsed_s starts at the resume while step stays
+    absolute, so an arm resumed at 2500 and 100 steps in reported 7.8 st/s
+    against a true 0.30 -- a 26x overstatement, with the eta to match, and it
+    reads as good news rather than as a missing denominator. One row cannot
+    support a rate at all, so say so with 0.0 rather than inventing one.
+    """
     if len(h) < 2:
-        return h[-1]["step"] / max(h[-1].get("elapsed_s", 0.0), 1e-9) if h else 0.0
+        return 0.0
     k = max(0, len(h) - 11)
     ds = h[-1]["step"] - h[k]["step"]
     dt = h[-1].get("elapsed_s", 0.0) - h[k].get("elapsed_s", 0.0)
