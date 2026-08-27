@@ -42,10 +42,23 @@
 #   --duration 1.0          eps_ladder.sh never passes one, so without this
 #                           train_encoder uses its 0.25 default and dies on a
 #                           1.0 s dataset.
-#   --chunk-elems 400000000 1.6 GB per intermediate, three live: 4.8 GB. FLAT in
-#                           mode count, because chunk = chunk_elems // (B*n_pad),
-#                           so doubling the modes halves the chunk. emt8 costs
-#                           ~80 MB more than emt7, which ran on the same 23 GB L4.
+#   --chunk-elems 800000000 NOT 400M, which was tuned for emt7's mode count and
+#                           is 3.8x too slow here. The per-mode tensors sig, om,
+#                           den and P are re-read on EVERY launch, and launch
+#                           count is Ts*B*n_pad/chunk_elems while the tensors are
+#                           4*B*n_pad*4 bytes -- so total re-read traffic goes as
+#                           n_pad SQUARED at fixed chunk_elems. emt7 at 400M:
+#                           160 launches x 23.1 MB = 3.7 GB. emt8 at 400M: 313 x
+#                           45.1 MB = 14.1 GB, 3.8x the traffic for 2.0x the
+#                           modes, and measured 3.6x slower (0.97 -> 0.27 st/s).
+#                           The L4's L2 is 48 MB, so emt7's 23 MB lived in cache
+#                           and emt8's 45 MB spills to HBM -- a cliff, not a
+#                           slope. 800M restores 156 launches, emt7's 160.
+#                           Peak memory 3*chunk_elems*4B + the 4.3 GB training
+#                           tensor = ~14.1 GB on a 23 GB card.
+#                           WHENEVER THE MODE COUNT CHANGES, chunk_elems MUST BE
+#                           RESCALED WITH IT. Keeping it fixed is quadratically
+#                           wrong.
 #   --compile-plate         8.5x measured (64 IRs at 1.0 s: 68 s eager, 8 s
 #                           compiled), matching 704c1ea's 7.3x -- AND it is what
 #                           makes the memory fit at all. 85a3347: eager retains
@@ -81,7 +94,7 @@
 # throughout, so the loss is the parameter L1 and the three arms would be
 # identical here by construction -- training it per-arm would inject noise of
 # the same order as the effect being measured.
-PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=2500 OUT=results/ddsp/emt8_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=2500 OUT=results/ddsp/emt8_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE arms
 # 10000 steps from the shared base, crossfading off the parameter loss over
@@ -92,9 +105,9 @@ PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_V
 # 40000 x 64 / 98304 = 26 epochs. emt8 has 24,576, so the same 40000 steps would
 # be 104 epochs -- 4x the passes raw7 ever made, by accident rather than design.
 # 10000 restores 26 exactly and gives up nothing.
-PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
 
 # Monitor:
 #   python -m src.ddsp.monitor_sweep --root results/ddsp/emt8_pre results/ddsp/emt8 \

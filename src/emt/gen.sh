@@ -53,13 +53,16 @@ OUT=${OUT:-data}
 #   35e4529  chunk_elems and --batch-size are part of the NUMERICS CONTRACT in
 #            eager mode: 1e9 vs 2e8 moved log by 8.51%. Compiled, Inductor
 #            fuses the chunk kernel and chunk_elems is a plain memory knob
-#            again -- which is the only reason 400M here is safe.
+#            again -- which is the only reason changing it here is safe. It is
+#            800M rather than 400M because re-read traffic goes as n_pad^2 at
+#            fixed chunk_elems; see scripts/jobs_emt8.txt. Re-run
+#            src.ddsp.diag_gt_floor after any change to it.
 #
 # So --batch-size is pinned to eps_ladder.sh's BATCH=64 rather than left at
 # make_dataset's default of 32. Under compile the two are interchangeable; if
 # compile is ever dropped they are not, and a silent 32/64 split between the
 # targets and the renders is exactly the confound above.
-NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 400000000 --mode-bucket 1024 --batch-size 64"}
+NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --batch-size 64"}
 
 echo "$SPACE: fmax=$FMAX  grid=$GRID  duration=${DUR}s"
 echo "      train $N_TRAIN -> $OUT/train-$SPACE   val $N_VAL -> $OUT/val-$SPACE"
