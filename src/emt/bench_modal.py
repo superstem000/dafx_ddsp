@@ -15,6 +15,12 @@ WHAT THIS SEPARATES. Time per ELEMENT, ns / (B * n_pad * Ts):
 
   flat across n_pad          cost is linear in work and the slowdown is
                              elsewhere in the training step, not in the kernel.
+                             MEASURED: flat. 0.0108 ns/elem at 16384 rising only
+                             to 0.0120 at 44032, with 49152 (1.05x L2) FASTER
+                             than 44032 (0.94x). No step anywhere. Both the L2
+                             and the persistent-reduction hypotheses are dead,
+                             and chunk_elems is confirmed irrelevant.
+                             But that run was under no_grad -- see --grad.
   smooth rise                tiling/occupancy degrades gradually with shape.
   a STEP at some n_pad       a threshold was crossed. Two candidates:
 
@@ -72,6 +78,15 @@ def main() -> int:
     p.add_argument("--warmup", type=int, default=2)
     p.add_argument("--reps", type=int, default=3)
     p.add_argument("--no-compile", action="store_true")
+    p.add_argument(
+        "--grad", action="store_true",
+        help="Run with autograd LIVE, as training does, instead of under "
+             "no_grad. torch.compile builds a different graph for the training "
+             "forward -- it must save residuals for backward, which can change "
+             "Inductor's fusion decisions entirely. The plate trains with "
+             "--no-grad-checkpoint, so nothing is recomputed either. If ns/elem "
+             "jumps under --grad but is flat without it, the cost is in the "
+             "training-mode graph and not in the arithmetic.")
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
 
@@ -102,6 +117,11 @@ def main() -> int:
             om = mk(100.0, 1.2e5)
             den = mk(0.1, 1.0)
             P = mk(-1e-3, 1e-3)
+            if args.grad:
+                # Only P carries a gradient in training -- it is what the
+                # encoder's parameters flow through -- but that is enough to put
+                # every chunk on the training-forward path.
+                P.requires_grad_(True)
             k = 1.0 / 44100.0
 
             def once():
@@ -113,13 +133,18 @@ def main() -> int:
                     out.append(kernel(sig, om, den, P, t, k))
                 return torch.cat(out, dim=1)
 
-            with torch.no_grad():
+            ctx = torch.enable_grad() if args.grad else torch.no_grad()
+            with ctx:
                 for _ in range(args.warmup):
                     once()
                 torch.cuda.synchronize()
                 t0 = time.perf_counter()
                 for _ in range(args.reps):
-                    once()
+                    y = once()
+                    if args.grad:
+                        # Realise the graph the way training does; the base
+                        # never calls backward through it, so neither do we.
+                        del y
                 torch.cuda.synchronize()
                 ms = (time.perf_counter() - t0) / args.reps * 1e3
             elems = args.batch * n_pad * args.ts
