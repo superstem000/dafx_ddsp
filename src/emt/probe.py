@@ -117,13 +117,26 @@ def sample(box, n, seed, dev):
 
 
 def third_octave(lo, hi, n_fft, dev):
+    """Centres and their bin masks, DROPPING any band no FFT bin lands in.
+
+    At n_fft 2048 the bin spacing is 21.5 Hz while a third octave at 50 Hz is
+    11.6 Hz wide, so that band contains no bin at all. Summing it gives a hard
+    zero, which then survives the log as -291 dB and reads as a brick-wall high
+    pass in the recording rather than as an absent measurement. Hence
+    --band-fft 8192 (5.4 Hz bins, >=2 per band from 40 Hz up) and dropping
+    anything still empty instead of reporting it.
+    """
     k = np.arange(-20, 14)
     c = 1000.0 * 2.0 ** (k / 3.0)
     c = c[(c >= lo) & (c <= hi)]
     f = np.fft.rfftfreq(n_fft, 1.0 / SAMPLE_RATE)
-    M = np.stack([((f >= v * 2 ** (-1 / 6)) & (f < v * 2 ** (1 / 6))).astype(np.float32)
-                  for v in c])
-    return c, torch.from_numpy(M).to(dev)
+    rows = [((f >= v * 2 ** (-1 / 6)) & (f < v * 2 ** (1 / 6))).astype(np.float32)
+            for v in c]
+    keep = [i for i, r in enumerate(rows) if r.sum() > 0]
+    if len(keep) != len(c):
+        print(f"  (dropped {len(c) - len(keep)} third-octave band(s) with no FFT "
+              f"bin at n_fft {n_fft})")
+    return c[keep], torch.from_numpy(np.stack([rows[i] for i in keep])).to(dev)
 
 
 def main() -> int:
@@ -144,7 +157,10 @@ def main() -> int:
                         "dataset rendered elsewhere, so the numerics contract "
                         "35e4529 describes does not apply.")
     p.add_argument("--top", type=int, default=32, help="K for the bounds report")
-    p.add_argument("--n-fft", type=int, default=2048)
+    p.add_argument("--n-fft", type=int, default=2048, help="metric FFT, matching loss_mfcc")
+    p.add_argument("--band-fft", type=int, default=8192,
+                   help="FFT for the third-octave tables only. 2048 gives 21.5 Hz "
+                        "bins and leaves the 50 Hz band empty; 8192 gives 5.4 Hz.")
     p.add_argument("--hop", type=int, default=512)
     p.add_argument("--n-mels", type=int, default=128)
     p.add_argument("--n-mfcc", type=int, default=20)
@@ -181,12 +197,12 @@ def main() -> int:
     def peak(x):
         return x / x.abs().amax(dim=-1, keepdim=True).clamp(min=1e-12)
 
-    cen, M = third_octave(40.0, 20000.0, args.n_fft, dev)
+    cen, M = third_octave(40.0, 20000.0, args.band_fft, dev)
     i62 = int(np.argmin(np.abs(cen - 62.5)))
 
     def bands(x):
         """[B, n_bands] band energy shares, so this is shape and not level."""
-        P = _stft_mag(x, args.n_fft, args.hop) ** 2
+        P = _stft_mag(x, args.band_fft, args.hop) ** 2
         e = torch.einsum("bf,cf->bc", P.sum(dim=-1), M)
         return e / e.sum(dim=1, keepdim=True).clamp(min=1e-30)
 

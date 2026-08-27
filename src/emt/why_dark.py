@@ -37,8 +37,14 @@ import numpy as np
 import soundfile as sf
 
 SR = 44100
-N_FFT = 2048
 HOP = 512
+# Bands are analysed at a LONGER window than the rest. At n_fft 2048 the bin
+# spacing is 21.5 Hz and a third octave at 50 Hz is 11.6 Hz wide, so that band
+# contains NO bin and reads as digital silence -- which is how an earlier run of
+# this printed -291 dB at 50 Hz and looked like a brick-wall high pass in the
+# recordings. At 8192 the spacing is 5.4 Hz and every band from 40 Hz up has at
+# least two. HOP is unchanged, so decay time resolution is not affected.
+BAND_FFT = 8192
 
 
 def third_octave_edges(lo: float, hi: float) -> tuple[np.ndarray, np.ndarray]:
@@ -49,24 +55,30 @@ def third_octave_edges(lo: float, hi: float) -> tuple[np.ndarray, np.ndarray]:
     return c, np.stack([c * 2.0 ** (-1 / 6), c * 2.0 ** (1 / 6)])
 
 
-def stft_power(x: np.ndarray) -> np.ndarray:
+def stft_power(x: np.ndarray, n_fft: int = BAND_FFT) -> np.ndarray:
     """[frames, bins] power. Plain numpy so this runs in either venv."""
-    w = np.hanning(N_FFT + 1)[:-1].astype(np.float32)
-    n = 1 + max(0, (len(x) - N_FFT) // HOP)
+    w = np.hanning(n_fft + 1)[:-1].astype(np.float32)
+    n = 1 + max(0, (len(x) - n_fft) // HOP)
     if n < 1:
-        x = np.pad(x, (0, N_FFT - len(x)))
+        x = np.pad(x, (0, n_fft - len(x)))
         n = 1
-    idx = np.arange(N_FFT)[None, :] + HOP * np.arange(n)[:, None]
+    idx = np.arange(n_fft)[None, :] + HOP * np.arange(n)[:, None]
     return np.abs(np.fft.rfft(x[idx] * w, axis=-1)) ** 2
 
 
-def band_energy(P: np.ndarray, edges: np.ndarray) -> np.ndarray:
-    """[bands, frames] energy, summing the bins that fall in each band."""
-    f = np.fft.rfftfreq(N_FFT, 1.0 / SR)
+def band_energy(P: np.ndarray, edges: np.ndarray,
+                n_fft: int = BAND_FFT) -> np.ndarray:
+    """[bands, frames] energy, summing the bins that fall in each band.
+
+    A band with no bin in it is nan, never zero: zero survives every later log
+    as a very negative number that reads as real silence in the signal rather
+    than as an absent measurement.
+    """
+    f = np.fft.rfftfreq(n_fft, 1.0 / SR)
     out = np.empty((edges.shape[1], P.shape[0]), dtype=np.float64)
     for b in range(edges.shape[1]):
         m = (f >= edges[0, b]) & (f < edges[1, b])
-        out[b] = P[:, m].sum(axis=1) if m.any() else 0.0
+        out[b] = P[:, m].sum(axis=1) if m.any() else np.nan
     return out
 
 
@@ -122,7 +134,7 @@ def main() -> int:
     oc = np.arange(0, len(oc_c), 3)              # every third band = octaves
 
     # --- UNREACHABLE ------------------------------------------------------
-    f = np.fft.rfftfreq(N_FFT, 1.0 / SR)
+    f = np.fft.rfftfreq(BAND_FFT, 1.0 / SR)
     above = f >= args.fmax
     print(f"=== UNREACHABLE   target energy above {args.fmax:.0f} Hz")
     print("  no parameter setting can produce this; it is --fmax and nothing else")
@@ -178,8 +190,11 @@ def main() -> int:
     for b, c in enumerate(cen):
         if c >= args.fmax:
             continue
-        row = "".join(f"{float(np.mean(acc[a][b])):>18.1f}" for a in arms)
-        print(f"  {c:>7.0f}" + row)
+        vals = [float(np.mean(acc[a][b])) for a in arms]
+        if not np.all(np.isfinite(vals)):
+            print(f"  {c:>7.0f}" + "".join(f"{'n/a':>18}" for _ in arms))
+            continue
+        print(f"  {c:>7.0f}" + "".join(f"{v:>18.1f}" for v in vals))
     print()
 
     print("=== DECAY   T60 per octave, seconds (nan = never fell 25 dB in file)")
