@@ -93,6 +93,15 @@ WIDE = {
 }
 FIXED = {"Lx": 1.0, "nu": 0.30}
 
+# rho and E stay wide INDIVIDUALLY; what is bounded is their RATIO. Cost goes as
+# sqrt(rho/E)/h, so the expensive corner of an independent box is max-rho with
+# min-E -- 12000 over 6e10 = 2.0e-7, a sound speed of 2200 m/s. No metal is near
+# that: steel, aluminium and glass all sit at 3.6-3.9e-8, because sqrt(E/rho) is
+# ~5000 m/s across common solids, and this probe's own winners landed at 4.2e-8.
+# So the corner costing 58.7 h/arm at fmax 20000 is a material that does not
+# exist. Bounding the ratio removes it and leaves every real one, plus margin.
+RHO_OVER_E = (1.5e-8, 7.0e-8)
+
 
 def dd_grid(Lx, Ly, h, T0, rho, E, nu, fmax):
     """SevenParamPlate's own DDx/DDy, for pinning the grid from the box corner."""
@@ -105,9 +114,11 @@ def dd_grid(Lx, Ly, h, T0, rho, E, nu, fmax):
 
 
 def corner(box, fmax):
-    """Densest draw in the box: max Ly, min h, min T0, max rho, min E."""
+    """Densest draw: max Ly, min h, min T0, and the largest ADMITTED rho/E."""
+    e = box["E"][0]
+    rho = min(box["rho"][1], RHO_OVER_E[1] * e)
     return dd_grid(FIXED["Lx"], box["Ly"][1], box["h"][0], box["T0"][0],
-                   box["rho"][1], box["E"][0], FIXED["nu"], fmax)
+                   rho, e, FIXED["nu"], fmax)
 
 
 def sample(box, n, seed, dev):
@@ -118,6 +129,15 @@ def sample(box, n, seed, dev):
         u = torch.rand(n, generator=g)
         named[k] = (torch.exp(math.log(lo) + u * (math.log(hi) - math.log(lo)))
                     if lg else lo + u * (hi - lo))
+    # E is resampled inside the window rho/E allows, rather than rejected: an
+    # exact interval keeps every draw usable and the marginal on rho uniform.
+    r_lo, r_hi = RHO_OVER_E
+    e_lo = torch.clamp(named["rho"] / r_hi, min=box["E"][0])
+    e_hi = torch.clamp(named["rho"] / r_lo, max=box["E"][1])
+    e_hi = torch.maximum(e_hi, e_lo)
+    u = torch.rand(n, generator=g)
+    named["E"] = e_lo + u * (e_hi - e_lo)
+
     # The one derived column. named keeps the ratio, since that is the quantity
     # with a meaningful bound to report against in THE BOUNDS.
     cols["T60_F1"] = named["T60_F1_ratio"] * named["T60_DC"]
@@ -170,6 +190,14 @@ def main() -> int:
                         "dataset rendered elsewhere, so the numerics contract "
                         "35e4529 describes does not apply.")
     p.add_argument("--top", type=int, default=32, help="K for the bounds report")
+    p.add_argument(
+        "--bootstrap", type=int, default=200, metavar="N",
+        help="Resamples for the interval on each top-K median. A median over 32 "
+             "of 2048 draws in twelve dimensions is not obviously precise, and "
+             "without an interval there is no way to tell a real bound from "
+             "noise -- the un-lowpassed run put T0's median at 4.4e4 and the "
+             "lowpassed one at 2.0e3, and only an interval says whether those "
+             "two numbers actually disagree. 0 disables.")
     p.add_argument("--bass-tol", type=float, nargs="+", default=[10.0, 6.0, 3.0, 1.0],
                    metavar="DB",
                    help="thresholds for the JOINT table: best mfcc among draws "
@@ -380,14 +408,37 @@ def main() -> int:
     print(f"\n=== THE BOUNDS   the top {k} draws by mean score, per parameter")
     print("  A median hard against an edge of the WIDE box means widen further;")
     print("  one sitting mid-range with a tight spread is where emt8's bound goes.")
-    print(f"  {'param':>10}{'wide box':>24}{'winners: med [min,max]':>34}")
+    sc = D.mean(dim=1).cpu().numpy()
+    boot = {}
+    if args.bootstrap:
+        rng = np.random.default_rng(0)
+        acc = {kk: [] for kk in WIDE}
+        for _ in range(args.bootstrap):
+            idx = rng.integers(0, args.n, args.n)
+            top = idx[np.argsort(sc[idx])[:k]]
+            for kk in WIDE:
+                acc[kk].append(float(np.median(named[kk].numpy()[top])))
+        boot = {kk: (float(np.percentile(v, 5)), float(np.percentile(v, 95)))
+                for kk, v in acc.items()}
+    print(f"  {'param':>13}{'box':>22}{'median':>12}"
+          + (f"{'90% interval':>26}" if boot else "") + f"{'spread of the K':>26}")
     for kk, (lo, hi, lg) in WIDE.items():
         v = named[kk][torch.as_tensor(pool)].numpy()
-        edge = ""
-        if np.median(v) <= lo * 1.05 or np.median(v) >= hi * 0.95:
-            edge = "  <- AT AN EDGE"
-        print(f"  {kk:>10}{f'[{lo:.3g}, {hi:.3g}]':>24}"
-              f"{f'{np.median(v):.4g} [{v.min():.3g}, {v.max():.3g}]':>34}{edge}")
+        med = float(np.median(v))
+        edge = "  <- AT AN EDGE" if (med <= lo * 1.05 or med >= hi * 0.95) else ""
+        ci = ""
+        if boot:
+            b = boot[kk]
+            # An interval spanning most of the box means the median is noise.
+            span = ((math.log(max(b[1], 1e-30)) - math.log(max(b[0], 1e-30)))
+                    / max(math.log(hi) - math.log(lo), 1e-9)) if lo > 0 else 1.0
+            ci = f"[{b[0]:.3g}, {b[1]:.3g}]" + ("!" if span > 0.5 else "")
+        print(f"  {kk:>13}{f'[{lo:.3g},{hi:.3g}]':>22}{med:>12.4g}"
+              + (f"{ci:>26}" if boot else "")
+              + f"{f'[{v.min():.3g}, {v.max():.3g}]':>26}{edge}")
+    if boot:
+        print("  ! = the 90% interval covers over half the box on a log axis:")
+        print("      that median is noise and should not set a bound.")
 
     if args.out:
         os.makedirs(args.out, exist_ok=True)
