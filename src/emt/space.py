@@ -123,11 +123,31 @@ DURATION = 1.0
 # (44x against the 9x of emt7's range); the FLOOR sets render cost, so that is
 # free.
 #
-# WHY THE DRIVE POINT AND PICKUP ARE FIXED. The fifteen targets are one physical
-# EMT-140 at different damper settings, so fp and op are constants of the
-# dataset rather than per-IR quantities -- and the probe found it: the same
-# single draw wins bright_1, dark_1 AND medium_1, and likewise for _2 and _3,
-# out of 2048 draws in twelve dimensions.
+# WHY THE DRIVE POINT AND PICKUP ARE FIXED, and why their VALUES are a
+# convention rather than a measurement. Two separate facts, and only the first
+# justifies fixing them.
+#
+# They are EXACTLY EXCHANGEABLE. The renderer forms
+#   in_weight  = sin(fp_x*pi*m) * sin(fp_y*pi*n)
+#   out_weight = sin(op_x*pi*m) * sin(op_y*pi*n)
+#   P = 4 * out_weight * in_weight * ...
+# a product, so swapping (fp_x, fp_y) with (op_x, op_y) renders bit-identically.
+# Searching all four therefore carries a hard two-fold ambiguity no data
+# resolves -- the same class of error as searching rho, E and h together, and it
+# would corrupt the parameter NMSE the thesis depends on.
+#
+# And the objective is FLAT in them. src/emt/scatter.py over the 22 kHz probe:
+# the fifteen per-IR winners come from only five distinct draws, whose fp_x
+# ranges 0.036-0.486 and op_x 0.064-0.944 -- 94% and 98% of the probe box -- all
+# scoring in the top band. So these values are NOT determined by the data. They
+# are the top-32-by-mean medians, which is a stable statistic (bootstrap CI
+# about a third of the box) computed over an objective that barely varies. Being
+# wrong about them costs little, which is exactly what flatness means; but do
+# not read them as an estimate of where an EMT-140 is actually driven.
+#
+# The caveat on that: flat under loss_mfcc is not the same as inaudible. The
+# drive point sets onset brightness and the pickup combs the modal amplitudes,
+# and why_dark's ONSET table is where a listening difference would show up.
 #
 # WHY fmax IS 22000. Best-of-2048 against saturation, full band, same seed:
 #
