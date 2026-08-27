@@ -88,26 +88,117 @@
 # log-arm confound because that gate ran at training's exact settings. emt7
 # passed it bit-for-bit; emt8 has a new ceiling, a new pin and a new searched
 # set, and nobody has checked. Ten minutes against 12 hours.
+#
+# --------------------------------------------------------------------------
+# TWO SETTINGS CHANGED AFTER THE FIRST ATTEMPT, WHICH DID NOT MEASURE
+# COMPRESSION. It measured a runaway output head. That run's own history.json:
+#
+#   zmax   base  1.65-2.17 for 2500 steps, sat_frac 0.000 throughout
+#          arms  13.6 by step 3000, and linear 53.3 by step 5500
+#   sat    linear 0.221 -> 0.615 -> 0.693: at step 6000, 69% of the batch sat
+#          past |z| = 2.5, where tanh' < 0.03. At |z| = 50 tanh' is zero in
+#          float32, so most of the batch had no gradient at all.
+#   h_abs  flat at 0.29-0.33 on every arm, so this was the head's weights
+#          growing and not the trunk's features -- the distinction
+#          train_encoder.py's comment on last_z_absmax asks for.
+#
+# And the check that settles it, needing no new run. val_loss is loss_fn(xb,
+# pred) UNSCALED, and the base arm is L1_STFT, so the base's val and the linear
+# arm's val are the same function on the same 991 clips:
+#
+#   base,   step 2500, never trained on it        0.3945
+#   linear, step 6000, 3500 steps trained on it   0.6562
+#
+# The arm ended 66% worse at its own objective than the checkpoint it resumed
+# from. A failed optimization, not a bad minimum -- and the ranking across the
+# three arms was a ranking of how fast each saturated (linear sat 0.69, hyb
+# 0.35, eps 0.30), which is why none of it was kept.
+#
+#   HEAD_HINGE 1e-2, was 0. The hinge is mean((|z|-1)+^2) on the raw
+#     pre-activation, and --head-hinge's own help describes this exact failure:
+#     "The failing arms reach |z| of 60 where reaching the box edge needs 1.47;
+#     that is runaway ... 1e-2 rather than 1e-3 because the penalty is exactly
+#     zero inside the box, so over-penalizing costs a healthy run nothing while
+#     under-penalizing wastes the run." The value is jobs_clamp.txt's, not a new
+#     one. WHY THE HEAD RAN AWAY: with the hinge off, the parameter loss was the
+#     only thing holding |z| in the box, since it penalizes |z_pred - z_true|
+#     with z_true in [-1, 1] and so pulls inward. param_w = 10*(1-f) reaches
+#     exactly 0 at f = 1, and linear's zmax went 14.1 -> 53.3 in the 500 steps
+#     after it did. The schedule removed the restraint on purpose and nothing
+#     replaced it. The hinge replaces it and carries no information about the
+#     answer, so the handover it protects stays a real handover.
+#     NOT softcap: head_probe measured all three bounds and paper/README.md
+#     records linear at 0.0156-0.0170 whichever was used, so it is safe but it
+#     is not a fix here -- train_encoder.py says softcap "does NOT floor the
+#     total gradient", because the chain rule multiplies in (1 - tanh^2(z/c)),
+#     which still vanishes. It makes runaway harder to start; it cannot walk
+#     back from |z| = 50. The hinge can, its gradient 2*lam*(|z|-1) GROWING with
+#     the excursion. Keeping tanh also keeps the head identical to emt7, raw7
+#     and the quiet campaigns.
+#
+#   --param-hold-frac 0.25, was 0.125. THE BASE IS 2500 STEPS AND THE ARMS RUN
+#     TO 10000, so the hold has to be 2500/10000 for the two to meet. At 0.125
+#     the ramp started at step 1250, 1250 steps before the base ended, and a
+#     resume therefore landed a third of the way up it:
+#
+#       f = (2501 - 1250) / 3750 = 0.334
+#
+#     spec_w jumped 0 -> 0.334 and param_w dropped 10.0 -> 6.67 in ONE step, at
+#     the full 3e-4 -- stage0_lr is cosine(st, 0, s0_end), counted from absolute
+#     0, so a resume gets no warmup on the new objective however the
+#     --warmup-steps help reads. zmax went 2.05 -> 13.64 over the next 500 steps
+#     and val_loss 0.3945 -> 1.047. THE RUNAWAY STARTS HERE, 2500 steps before
+#     param_w reaches zero. At 0.25 the jump is 0.00027 and the crossfade is
+#     continuous:  f = (step - 2500)/3750, 0 at step 2500 and 1.0 at 6250.
+#     Warmup on the arms is then moot rather than missing -- with spec_w
+#     entering at 0 there is no new objective at the seam to warm up against.
+#     Masuda & Saito's SHAPE transfers and is preserved; their boundaries as
+#     fractions (12.5%, ending at 50%) assume the parameter-only phase is 12.5%
+#     of the run, and here it is 25%. Matching their fractions against a 2500-
+#     step base is what produced the jump.
+#     A second benefit: LR is held at peak until step 6800 (span 10000-2000 =
+#     8000, LR_HOLD 0.6 -> held 4800), so the first attempt gave the arms 1800
+#     steps of unanchored training at full rate. Now the crossfade ends at 6250
+#     and decay begins 550 steps later.
+#
+# --ckpt-every 1000 as well, down from the 5000 default: the first attempt's
+# last checkpoint was step 5000, by which point the collapse was complete and
+# there was nothing to reach back to.
+#
+# THE EARLY GATE, worth the twenty minutes, because the first attempt was
+# already broken at its FIRST eval after the resume -- zmax 13.6 against the
+# base's 2.05:
+#
+#   python -m src.ddsp.monitor_sweep --root results/ddsp/emt8_pre results/ddsp/emt8 \
+#       --metrics zmax sat spec_w
+#
+# At step 3000 spec_w should read 0.13, not 0.47 -- that is the hold-frac change
+# landing -- and zmax should still be single digits with sat near 0.000, as the
+# base holds it for 2500 steps. If sat is above ~0.05 by step 3500 the hinge is
+# not holding and 1e-1 is the next value; kill it there rather than at hour
+# seven.
 
 # STAGE base
 # Parameter-only, 2500 steps, once. --param-hold-frac 1.0 keeps spec_w at 0
 # throughout, so the loss is the parameter L1 and the three arms would be
 # identical here by construction -- training it per-arm would inject noise of
 # the same order as the effect being measured.
-PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=2500 OUT=results/ddsp/emt8_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 STEPS=2500 OUT=results/ddsp/emt8_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE arms
 # 10000 steps from the shared base, crossfading off the parameter loss over
-# steps 1250-5000 (hold 0.125, ramp 0.375 of 10000) -- the point where the three
-# losses first differ at all.
+# steps 2500-6250 (hold 0.25, ramp 0.375 of 10000) -- the point where the three
+# losses first differ at all. The hold ends exactly where the base ends, which
+# is what 0.25 = 2500/10000 buys; see the note above on why 0.125 did not.
+# Arms run 7500 steps here, 2501-10000, since --resume restores the counter.
 #
 # WHY 10000 AND NOT 40000. 40000 came from raw7, which trained on 98,304 clips:
 # 40000 x 64 / 98304 = 26 epochs. emt8 has 24,576, so the same 40000 steps would
 # be 104 epochs -- 4x the passes raw7 ever made, by accident rather than design.
 # 10000 restores 26 exactly and gives up nothing.
-PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=0 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.125 --param-ramp-frac 0.375 --eval-every 250" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt8 TRAIN=data/train-emt8 VAL=data/val-emt8 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 125,351 --fmax 22000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 STEPS=10000 OUT=results/ddsp/emt8 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt8_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
 
 # Monitor:
 #   python -m src.ddsp.monitor_sweep --root results/ddsp/emt8_pre results/ddsp/emt8 \
