@@ -169,6 +169,10 @@ def main() -> int:
                         "dataset rendered elsewhere, so the numerics contract "
                         "35e4529 describes does not apply.")
     p.add_argument("--top", type=int, default=32, help="K for the bounds report")
+    p.add_argument("--bass-tol", type=float, nargs="+", default=[10.0, 6.0, 3.0, 1.0],
+                   metavar="DB",
+                   help="thresholds for the JOINT table: best mfcc among draws "
+                        "that ALSO match 62 Hz within this many dB.")
     p.add_argument("--n-fft", type=int, default=2048, help="metric FFT, matching loss_mfcc")
     p.add_argument("--band-fft", type=int, default=8192,
                    help="FFT for the third-octave tables only. 2048 gives 21.5 Hz "
@@ -314,6 +318,40 @@ def main() -> int:
     print("  Under 10 dB anywhere: the bass is a BOUNDS problem, widen and retrain.")
     print("  Never under 10 dB: it is the boundary condition, and no box fixes it.")
 
+    # --- JOINT -------------------------------------------------------------
+    # THE BASS on its own is nearly free: with thousands of draws and a
+    # continuous parameter, SOME draw lands on any single band. The question
+    # that matters is whether a draw can match 62 Hz AND be a good fit, and the
+    # winners above say it is not the same draw (1046 nails bright_1's bass, 494
+    # wins its mfcc). So: best mfcc subject to the bass constraint.
+    #
+    # Against a SAME-SIZE CONTROL, because a constrained best is worse partly
+    # from having fewer candidates. The median best-of-m from the unconstrained
+    # column is the q-quantile at q = 1 - 0.5**(1/m); if the constrained best
+    # matches that, the constraint costs nothing and the two are compatible. If
+    # it is much worse, the bass and the rest are genuinely in tension -- which
+    # is what a structural mismatch looks like.
+    print(f"\n=== JOINT   best mfcc among draws ALSO within N dB at {cen[i62]:.0f} Hz")
+    print("  ctrl = median best-of-m from all draws, m = how many qualified.")
+    print("  best ~ ctrl: no tension, the constraint is free.")
+    print("  best >> ctrl: the bass and the rest cannot be had together.\n")
+    tols = sorted(args.bass_tol, reverse=True)
+    print(f"  {'ir':<20}{'free':>8}" +
+          "".join(f"{f'<={t:g}dB':>10}{'ctrl':>8}{'m':>6}" for t in tols))
+    for i, nm in enumerate(names):
+        row = f"  {nm:<20}{best[i].item():>8.2f}"
+        for t in tols:
+            m = G62[:, i] <= t
+            cnt = int(m.sum())
+            if cnt == 0:
+                row += f"{'-':>10}{'-':>8}{0:>6}"
+                continue
+            col = D[:, i][torch.isfinite(D[:, i])]
+            q = 1.0 - 0.5 ** (1.0 / cnt)
+            ctrl = float(torch.quantile(col, min(max(q, 0.0), 1.0)))
+            row += f"{float(D[:, i][m].min()):>10.2f}{ctrl:>8.2f}{cnt:>6d}"
+        print(row)
+
     # --- THE BOUNDS --------------------------------------------------------
     k = min(args.top, args.n)
     # Top K by MEAN score over the fifteen IRs, not per-IR winners: a parameter
@@ -343,6 +381,11 @@ def main() -> int:
                          T[i].cpu().numpy(), SAMPLE_RATE)
                 sf.write(os.path.join(args.out, f"{nm}__probe.wav"),
                          y[0].cpu().numpy(), SAMPLE_RATE)
+        # Every score, so the tables above can be recomputed without re-rendering.
+        np.savez(os.path.join(args.out, "probe_scores.npz"),
+                 mfcc=D.cpu().numpy(), gap62=G62.cpu().numpy(),
+                 names=np.array(names), bands=cen,
+                 **{k: named[k].numpy() for k in WIDE})
         csvp = os.path.join(args.out, "probe_best.csv")
         with open(csvp, "w") as fh:
             fh.write("ir,draw,mfcc,gap62_db," + ",".join(WIDE) + "\n")
