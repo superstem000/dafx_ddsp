@@ -55,6 +55,7 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
+from src.emt.band import brickwall_lowpass                  # noqa: E402
 from src.gd.graddescent import SAMPLE_RATE                  # noqa: E402
 from src.plate.SevenParamPlate import (                     # noqa: E402
     BatchedModalPlateTorch as SevenParamPlate,
@@ -181,6 +182,13 @@ def main() -> int:
     p.add_argument("--n-mels", type=int, default=128)
     p.add_argument("--n-mfcc", type=int, default=20)
     p.add_argument("--device", default="cuda")
+    p.add_argument(
+        "--lowpass", type=float, default=None, metavar="HZ",
+        help="Band-limit the TARGETS to this before scoring, normally --fmax. "
+             "The renders stop at fmax, so ~19 of the 128 mel bands are floored "
+             "in every draw and live in every target: without this, every score "
+             "carries a constant penalty for a band nothing can reach. There is "
+             "no encoder here, so this is the only place a lowpass applies.")
     p.add_argument("--out", default=None, help="write the best render per IR here")
     args = p.parse_args()
 
@@ -237,10 +245,21 @@ def main() -> int:
         x = np.pad(x, (0, max(0, want - len(x))))[:want]
         tg.append(x)
         names.append(Path(w).stem)
-    T = peak(torch.from_numpy(np.stack(tg)).to(dev))
+    T = torch.from_numpy(np.stack(tg)).to(dev)
+    if args.lowpass:
+        T = brickwall_lowpass(T, args.lowpass, SAMPLE_RATE)
+    if args.lowpass and abs(args.lowpass - args.fmax) > 1.0:
+        print(f"  NOTE --lowpass {args.lowpass:.0f} != --fmax {args.fmax:.0f}. "
+              f"They should match: the point is to score the target over the "
+              f"band the renders occupy.")
+    # Peak AFTER band-limiting, so the level the metric sees is the level of the
+    # band being compared rather than of a transient that was partly removed.
+    T = peak(T)
     with torch.no_grad():
         Tm, Tb = mfcc(T), bands(T)
-    print(f"{len(names)} target(s) from {args.wav_dir}\n")
+    print(f"{len(names)} target(s) from {args.wav_dir}"
+          + (f", band-limited to {args.lowpass:.0f} Hz" if args.lowpass else "")
+          + "\n")
 
     # --- THE TARGET: is the reference itself high-passed? -----------------
     print("=== THE TARGET   each recording's own third-octave share, dB below its peak band")

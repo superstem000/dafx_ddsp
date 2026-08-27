@@ -98,6 +98,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from src.ddsp.train_encoder import (                       # noqa: E402
     Encoder, CompositeConditioner, two_stage_forward,
 )
+from src.emt.band import brickwall_lowpass                  # noqa: E402
 from src.gd.graddescent import (                           # noqa: E402
     SAMPLE_RATE, Raw7Space, norm_to_physical_torch, physical_to_plate14_torch,
 )
@@ -351,6 +352,27 @@ def main() -> None:
                         "preserves mode frequencies in Hz, so it is safe; "
                         "relabelling the rate would shift every mode by 8.8% "
                         "for 48k -> 44.1k and is what this must never do.")
+    p.add_argument(
+        "--lowpass-input", type=float, default=None, metavar="HZ",
+        help="Band-limit the audio the ENCODER READS to this, normally the "
+             "checkpoint's --fmax. The encoder is on a linear axis of 1025 bins "
+             "over 22.05 kHz, and 467 of them -- 46%% -- sit above a 12 kHz "
+             "ceiling. Every training render is silent there, so across nearly "
+             "half the input width the network only ever saw the log floor, "
+             "while a real 44.1 kHz IR puts live signal in all of it. If that "
+             "shift is what collapses the predictions to a constant, this fixes "
+             "it with no retraining, and the PREDICTED PARAMETERS table is the "
+             "place it shows: spread appearing where there was none.")
+    p.add_argument(
+        "--lowpass-score", type=float, default=None, metavar="HZ",
+        help="Band-limit the TARGET before scoring and before writing it, "
+             "normally the checkpoint's --fmax. Roughly 19 of loss_mfcc's 128 "
+             "mel bands sit above a 12 kHz ceiling: floored in every render, "
+             "live in both targets of the saturation reference, so every "
+             "arm/saturation figure carries a constant penalty for a band "
+             "nothing can reach. SEPARATE from --lowpass-input on purpose -- "
+             "they change different things, and one flag doing both would make "
+             "any movement in the numbers unattributable.")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--out", default="real_ir_eval")
     p.add_argument("--device", default="cuda")
@@ -440,9 +462,17 @@ def main() -> None:
     # when wrong -- a mismatched ceiling or pin produces plausible audio at the
     # wrong parameters, and there is no error anywhere.
     _a = next(iter(loaded.values()))[4]
-    print(f"renderer: fmax {getattr(_a, 'fmax', None) or 10000.0}  "
+    _fmax = getattr(_a, "fmax", None) or 10000.0
+    print(f"renderer: fmax {_fmax}  "
           f"pin {getattr(_a, 'fixed_mode_grid', None)}  "
           f"space {os.environ.get('PLATE_PARAM_SPACE', 'raw7')}")
+    print(f"lowpass:  input {args.lowpass_input or 'off'}  "
+          f"score {args.lowpass_score or 'off'}")
+    for _nm, _v in (("--lowpass-input", args.lowpass_input),
+                    ("--lowpass-score", args.lowpass_score)):
+        if _v and abs(_v - _fmax) > 1.0:
+            print(f"  NOTE {_nm} {_v:.0f} != the renderer's fmax {_fmax:.0f}. "
+                  f"The point of both is to match the band the renders occupy.")
     rdur = args.render_duration if args.render_duration else dur
     if rdur != dur:
         print(f"render/score duration {rdur}s -- parameters predicted from the "
@@ -482,6 +512,10 @@ def main() -> None:
         names.append(stem)
         tgt = torch.from_numpy(x)[None, :].to(dev)          # encoder input
         tgt_r = torch.from_numpy(xr)[None, :].to(dev)       # scored + written
+        tgt = brickwall_lowpass(tgt, args.lowpass_input, SAMPLE_RATE)
+        tgt_r = brickwall_lowpass(tgt_r, args.lowpass_score, SAMPLE_RATE)
+        # Peak AFTER band-limiting: the level the metric sees should be the
+        # level of the band being compared, not of a transient partly removed.
         tgts[stem] = peak_norm(tgt_r).float()
         sf.write(os.path.join(args.out, f"{stem}__target.wav"),
                  tgts[stem][0].cpu().numpy(), SAMPLE_RATE)
