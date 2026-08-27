@@ -87,6 +87,19 @@ def main() -> int:
              "--no-grad-checkpoint, so nothing is recomputed either. If ns/elem "
              "jumps under --grad but is flat without it, the cost is in the "
              "training-mode graph and not in the arithmetic.")
+    p.add_argument(
+        "--om-max", type=float, nargs="+", default=[120000.0],
+        help="Upper end of the om distribution. THIS IS THE POINT OF THE WHOLE "
+             "BENCHMARK and the first version got it wrong. om enters as "
+             "sin(om*k*(t+1)), and over a 1 s render the phase of an f Hz mode "
+             "advances 2*pi*f radians -- 138,230 at 22 kHz, and the masked-out "
+             "corner of the DDx x DDy grid reaches twice w_max. CUDA's sinf uses "
+             "a cheap argument reduction below |x| ~ 105,615 and Payne-Hanek "
+             "extended precision above it. Training sees max arguments of "
+             "150,796 (emt7, fmax 12k) and 276,460 (emt8, fmax 22k) -- 30% and "
+             "62% of the range on the slow path. The original default of 120,000 "
+             "was 12%, so it measured almost pure fast-path work at every n_pad "
+             "and came out flat.")
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
 
@@ -99,22 +112,25 @@ def main() -> int:
     print("  broadcast reads that hit L2 below the line and miss above it.\n")
     kernel = _get_modal_chunk_kernel_batched(not args.no_compile)
 
-    hdr = f"  {'n_pad':>7}{'set MB':>9}{'vs L2':>8}"
+    hdr = f"  {'n_pad':>7}{'om_max':>10}{'slow%':>7}{'set MB':>9}{'vs L2':>8}"
     for ce in args.chunk_elems:
         hdr += f"{f'{ce/1e6:.0f}M: chunk':>16}{'ms':>9}{'ns/elem':>10}"
     print(hdr)
 
     base = {}
     for n_pad in args.n_pad:
+      for om_max in args.om_max:
         ws = 4 * args.batch * n_pad * 4 / 1e6
-        row = f"  {n_pad:>7,}{ws:>9.1f}{(ws/l2 if l2 else 0):>7.2f}x"
+        slow = max(0.0, (om_max - 105615.0) / om_max)
+        row = (f"  {n_pad:>7,}{om_max:>10,.0f}{slow:>6.0%}"
+               f"{ws:>9.1f}{(ws/l2 if l2 else 0):>7.2f}x")
         for ce in args.chunk_elems:
             chunk = max(64, ce // (args.batch * n_pad))
             g = torch.Generator(device="cpu").manual_seed(0)
             mk = lambda lo, hi: (lo + (hi - lo) * torch.rand(
                 (args.batch, n_pad, 1), generator=g)).to(dev)
             sig = mk(1.0, 50.0)
-            om = mk(100.0, 1.2e5)
+            om = mk(100.0, om_max)
             den = mk(0.1, 1.0)
             P = mk(-1e-3, 1e-3)
             if args.grad:
@@ -155,6 +171,9 @@ def main() -> int:
             torch.cuda.empty_cache()
         print(row)
 
+    print("\n  Compare ns/elem ACROSS om_max at one n_pad: that isolates the")
+    print("  sinf argument-reduction cost from everything else. The training")
+    print("  distributions are om_max 150796 (emt7) and 276460 (emt8).")
     print("\n  ns/elem is the number to read. Flat = cost is linear in work and")
     print("  the training slowdown is NOT in this kernel. A step between two")
     print("  adjacent n_pad = a threshold, and the 'vs L2' column says whether")
