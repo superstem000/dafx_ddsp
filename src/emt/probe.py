@@ -76,7 +76,14 @@ WIDE = {
     "rho":     (2500.0, 12000.0, False),   # emt7 railed at its 7000 floor
     "E":       (6e10, 2.6e11, False),      # emt7 railed at its 1.7e11 floor
     "T60_DC":  (0.3, 12.0, True),
-    "T60_F1":  (0.1, 6.0, True),           # emt7 PINNED this at 1.2
+    # NOT an absolute T60_F1: a RATIO of T60_DC, which is how quiet7 carries it
+    # and the reason emt7 could pin it at 1.2 safely. beta is
+    # 3ln10/dOmSq * (1/T60_F1 - 1/T60_DC), so T60_F1 > T60_DC makes beta
+    # negative, sig negative at high omega, and r = exp(-sig*k) > 1 -- the mode
+    # GROWS over 176,400 samples until it overflows to inf and poisons every
+    # metric to nan. Damping has to increase with frequency; the ratio is what
+    # enforces it. 0.95 rather than 1.0 keeps beta strictly positive.
+    "T60_F1_ratio": (0.02, 0.95, True),
     "loss_F1": (200.0, 50000.0, True),     # emt7 railed at both 2000 and 8000
     "fp_x":    (0.02, 0.5, False),         # emt7 pinned the drive point
     "fp_y":    (0.02, 0.5, False),
@@ -110,7 +117,12 @@ def sample(box, n, seed, dev):
         u = torch.rand(n, generator=g)
         named[k] = (torch.exp(math.log(lo) + u * (math.log(hi) - math.log(lo)))
                     if lg else lo + u * (hi - lo))
+    # The one derived column. named keeps the ratio, since that is the quantity
+    # with a meaningful bound to report against in THE BOUNDS.
+    cols["T60_F1"] = named["T60_F1_ratio"] * named["T60_DC"]
     for k in P14:
+        if k in cols:
+            continue
         cols[k] = (named[k] if k in named
                    else torch.full((n,), float(FIXED[k])))
     return torch.stack([cols[k] for k in P14], dim=1).to(dev), named
@@ -257,16 +269,29 @@ def main() -> int:
     with torch.no_grad():
         for s0 in range(0, args.n, args.batch):
             z = Z[s0 : s0 + args.batch]
-            y = peak(plate(z, duration=args.duration, normalize=False))
-            D[s0 : s0 + z.shape[0]] = (
-                mfcc(y).unsqueeze(1) - Tm.unsqueeze(0)).abs().mean(dim=(-2, -1))
+            raw = plate(z, duration=args.duration, normalize=False)
+            # A draw whose modal sum diverged is not a bad fit, it is not a
+            # rendering at all. Excluded and counted; min() over a nan is nan
+            # and would have taken the whole table down with it.
+            ok = torch.isfinite(raw).all(dim=-1)
+            y = peak(torch.nan_to_num(raw, nan=0.0, posinf=0.0, neginf=0.0))
+            d = (mfcc(y).unsqueeze(1) - Tm.unsqueeze(0)).abs().mean(dim=(-2, -1))
             yb62 = (10.0 * torch.log10(bands(y).clamp(min=1e-30)))[:, i62]
-            G62[s0 : s0 + z.shape[0]] = (yb62.unsqueeze(1) - tb62.unsqueeze(0)).abs()
+            g62 = (yb62.unsqueeze(1) - tb62.unsqueeze(0)).abs()
+            bad = ~ok.unsqueeze(1) | ~torch.isfinite(d)
+            D[s0 : s0 + z.shape[0]] = torch.where(bad, torch.inf, d)
+            G62[s0 : s0 + z.shape[0]] = torch.where(bad, torch.inf, g62)
             if (s0 // args.batch) % 20 == 0:
                 print(f"  {min(s0 + args.batch, args.n)}/{args.n}", flush=True)
 
     best, best_i = D.min(dim=0)
     b62, b62_i = G62.min(dim=0)
+    n_bad = int((~torch.isfinite(D[:, 0])).sum())
+    if n_bad:
+        print(f"\n  {n_bad}/{args.n} draws discarded as non-finite renders "
+              f"({100*n_bad/args.n:.1f}%).")
+    if n_bad == args.n:
+        raise SystemExit("every draw diverged -- the box admits unstable damping")
 
     # --- REACHABLE ---------------------------------------------------------
     print(f"\n=== REACHABLE   best of {args.n} random draws, plate mfcc")
