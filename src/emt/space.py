@@ -225,11 +225,83 @@ PLATE_EMT8 = dict(
     composite=False,
 )
 
+# ===========================================================================
+# emt9: emt8's box, below the Nyquist cliff.
+#
+# THE SAME SEARCH SPACE. keys, bounds, log_keys, fixed and products are emt8's,
+# reused by reference below rather than copied, so the two cannot drift and a
+# result under either is a result about the same six coordinates. ONLY THE
+# CEILING CHANGES.
+#
+# WHY. emt8's arms ended ABOVE their own initialisation on their own objective
+# -- the parameter-only base reached L1_STFT 0.3945 on val with spec_w 0
+# throughout, and the arm trained to minimise L1_STFT finished at 0.6562. That
+# is not a bad minimum, it is a surface gradient descent cannot walk, and
+# src/emt/slice.py measured it directly: no encoder, no dataset, no training,
+# just the loss along one coordinate through a known truth at one Adam step per
+# sample. Local minima within +-0.05 of z, and the fraction of steps that move
+# AWAY from the truth while pointing at it:
+#
+#   fmax     Nyq%    h: linear      Ly: linear        h: eps1e2
+#   22,000  99.8%    61  /  22%     44  /  18%        70  /  34%
+#   21,000  95.2%     2  /   0%     13  /   3%        69  /  35%
+#   20,000  90.7%     1  /   0%      9  /   2%        84  /  35%
+#   18,000  81.6%     1  /   0%     10  /   3%        77  /  38%
+#   12,000  54.4%     1  /   0%     10  /   3%        69  /  35%
+#
+# Two separate readings, and both matter.
+#
+# THE CLIFF IS AT NYQUIST, NOT AT BANDWIDTH. 21 kHz is clean and 22 kHz is
+# destroyed, so the constraint is proximity to sr/2 rather than how much band
+# the plate covers. It is NOT the number of modes crossing the om <= max_omega
+# gate -- that is 255 at 18k and 283 at 22k, an 11% difference against 1 minimum
+# versus 61, and it rises smoothly across the whole ladder while the damage is a
+# step. At 22 kHz the top modes sit at om/sr = 3.134 against pi = 3.1416, about
+# 2.005 samples per cycle. The mechanism there is not established; the threshold
+# is, and 20 kHz leaves 2 kHz of margin below a cliff bracketed to within 1 kHz.
+#
+# Ly's 9-13 minima at every ceiling from 10k to 21k is its own roughness floor,
+# not a ceiling effect -- 20 kHz is marginally CLEANER than 12 kHz on both
+# coordinates.
+#
+# THE COMPRESSION LADDER IS IN THE SURFACE, and this is the campaign's actual
+# result. At every clean ceiling the log arm has 69-84 local minima where linear
+# has one. That is "log compression is bad for parameter estimation" as a
+# measured property of the objective rather than an outcome correlation, and it
+# predicts every arm ever run here: a clean basin (1 minimum, 0%) and the arm
+# improves its own loss 2-14x while holding parameters (quiet7 linear 0.95 ->
+# 0.068 at ratio 0.05, emt7 linear 0.199 -> 0.105 at ratio 0.14); a rough
+# surface and it stalls or worsens its own loss and destroys them (emt7 hyb1e2
+# 0.430 -> 0.544 at ratio 2.40, quiet7 hyb1e4 1.053 -> 3.693 at ratio 3.28).
+# Ten arm-runs, three campaigns, no exceptions. emt8 is the one campaign whose
+# LINEAR control was also on a rough surface, which is why it inverted.
+#
+# WHAT IT COSTS. probe best-of-2048 against the fifteen real IRs reads 12k
+# 1.781, 16k 1.665, 20k 1.544, 22k 1.324, so 20 kHz keeps 52% of the 12k->22k
+# reachability gain. It is also 9% CHEAPER than emt8: 39,746 modes against
+# 43,875. chunk_elems 8e8 needs no change -- launches go 156 -> 140, which is
+# the safe direction.
+FMAX_EMT9 = 20000.0
+
+# Corner of the box (max Ly, min h, min T0), maximum over all eight corners,
+# recomputed at 20 kHz from
+#   DDx = floor(Lx/pi * sqrt((-T0 + sqrt(T0^2 + 4*max_omega^2*rho*h*D))/(2D)))
+# The same computation returns emt8's (125, 351) at 22 kHz, which is what
+# checks it.
+FIXED_MODE_GRID_EMT9 = (119, 334)
+
+DURATION_EMT9 = 1.0
+
+# By reference, not by copy: emt9 IS emt8's space at a different ceiling, and
+# an edit to the bounds above has to reach both or the claim is false.
+PLATE_EMT9 = PLATE_EMT8
+
 # What gen.sh and check.py read, so the four numbers cannot drift between
 # dataset generation and training. Keyed by PLATE_PARAM_SPACE.
 NUMERICS = {
     "emt7": dict(fmax=FMAX, grid=FIXED_MODE_GRID, duration=DURATION),
     "emt8": dict(fmax=FMAX_EMT8, grid=FIXED_MODE_GRID_EMT8, duration=DURATION_EMT8),
+    "emt9": dict(fmax=FMAX_EMT9, grid=FIXED_MODE_GRID_EMT9, duration=DURATION_EMT9),
 }
 
 
