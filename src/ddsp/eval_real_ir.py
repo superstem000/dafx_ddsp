@@ -194,6 +194,41 @@ def load_wav(path: str, duration: float, sr: int,
     return x[:want].copy()
 
 
+def training_peak_median(train_dir: str, n: int) -> float | None:
+    """Median |x|max over n training IRs, for --input-level median.
+
+    The checkpoint carries only `scale`, which train_encoder sets to the whole
+    training set's MAX |x| -- the loud edge, not the typical level. The median
+    needs the data, so it is read here rather than guessed from the max.
+    """
+    paths = sorted(Path(train_dir).glob("random_IR_[0-9]*.npz"))[:n]
+    if not paths:
+        print(f"  --input-level median: no random_IR_*.npz under {train_dir}")
+        return None
+    peaks = []
+    for q in paths:
+        with np.load(q) as d:
+            key = "ir" if "ir" in d else list(d.keys())[0]
+            peaks.append(float(np.abs(d[key]).max()))
+    return float(np.median(peaks))
+
+
+def resolve_input_level(spec: str, scale: float, args) -> float | None:
+    """The target peak for the encoder's input, or None to leave it alone."""
+    if spec == "none":
+        return None
+    if spec == "max":
+        return scale
+    if spec == "median":
+        if not args.train_dir:
+            raise SystemExit("--input-level median needs --train-dir")
+        return training_peak_median(args.train_dir, args.train_sample)
+    try:
+        return float(spec)
+    except ValueError:
+        raise SystemExit(f"--input-level {spec!r}: want none, max, median or a float")
+
+
 def load_arm(run_dir: str, ckpt_name: str, device):
     """Encoder, renderer and the training-set input scale, from a checkpoint."""
     ck_path = os.path.join(run_dir, ckpt_name)
@@ -373,6 +408,45 @@ def main() -> None:
              "nothing can reach. SEPARATE from --lowpass-input on purpose -- "
              "they change different things, and one flag doing both would make "
              "any movement in the numbers unattributable.")
+    p.add_argument(
+        "--input-level", default="none", metavar="none|max|median|FLOAT",
+        help="Rescale the ENCODER'S INPUT so its absolute level lands inside "
+             "the training distribution. Scoring is untouched -- both sides are "
+             "already peak-normalized there.\n"
+             "WHY THIS EXISTS. input_mode norm_amp feeds two channels: "
+             "log(spec/peak) for shape and log10(peak) for ABSOLUTE LEVEL, which "
+             "is how mu = rho*h is identified, since P ~ 1/(0.25*mu*Lx*Ly). "
+             "load_wav returns the file unnormalized and nothing rescales it, so "
+             "the encoder is handed the recording's fader position as a physical "
+             "measurement. Measured on emt10 and the fifteen EMT-140 files: "
+             "training log10(STFT peak) spans [-6.18, -4.41], the recordings sit "
+             "at [+1.43, +1.68] -- 5.8 DECADES above anything the encoder ever "
+             "saw, into a region where the trunk's BatchNorm statistics mean "
+             "nothing. Every arm answered with the smallest reachable mu*Ly: h, "
+             "rho and Ly all pinned to their floors, which are exactly the three "
+             "factors of the level denominator, with zero spread across all "
+             "fifteen recordings.\n"
+             "WHY IT IS A CHOICE AND NOT A FIX. A recording's gain is arbitrary "
+             "-- peak_norm's own comment says so -- so mu is not identifiable "
+             "from a real file at all, and any normalization ASSERTS a mu rather "
+             "than recovering one. Landing in-distribution is still strictly "
+             "better than extrapolating six decades, but the honest form is a "
+             "sweep over this value, treating gain as the nuisance parameter it "
+             "is.\n"
+             "none   the file as-is; what every earlier real-IR evaluation in "
+             "this project did, kept as the default so those numbers reproduce.\n"
+             "max    peak = the checkpoint's `scale`, which is the training "
+             "set's own max |x|. In range, but at its loud edge.\n"
+             "median the median training peak, the typical level rather than the "
+             "extreme. Needs --train-dir.\n"
+             "FLOAT  an explicit target peak.")
+    p.add_argument(
+        "--train-dir", default=None, metavar="DIR",
+        help="Training set the checkpoint was fitted on, e.g. data/train-emt10. "
+             "Only read for --input-level median, and only to take peaks from "
+             "--train-sample of its npz files.")
+    p.add_argument("--train-sample", type=int, default=512,
+                   help="How many training IRs to draw the peak statistics from.")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--out", default="real_ir_eval")
     p.add_argument("--device", default="cuda")
@@ -468,6 +542,20 @@ def main() -> None:
           f"space {os.environ.get('PLATE_PARAM_SPACE', 'raw7')}")
     print(f"lowpass:  input {args.lowpass_input or 'off'}  "
           f"score {args.lowpass_score or 'off'}")
+
+    # The encoder's absolute-level channel. See --input-level: the recordings
+    # arrive ~6 decades above anything the training set contains, and the three
+    # parameters of the level denominator (rho, h, Ly) rail in response.
+    _scale = next(iter(loaded.values()))[5]
+    target_peak = resolve_input_level(args.input_level, _scale, args)
+    in_peaks = []
+    if target_peak is None:
+        print(f"input level: UNCHANGED (--input-level none). Training max |x| is "
+              f"{_scale:.3e}; anything far above it is extrapolation.")
+    else:
+        print(f"input level: encoder input rescaled to peak {target_peak:.3e} "
+              f"(--input-level {args.input_level}), training max |x| {_scale:.3e}."
+              f"  Scoring is unaffected.")
     for _nm, _v in (("--lowpass-input", args.lowpass_input),
                     ("--lowpass-score", args.lowpass_score)):
         if _v and abs(_v - _fmax) > 1.0:
@@ -514,6 +602,14 @@ def main() -> None:
         tgt_r = torch.from_numpy(xr)[None, :].to(dev)       # scored + written
         tgt = brickwall_lowpass(tgt, args.lowpass_input, SAMPLE_RATE)
         tgt_r = brickwall_lowpass(tgt_r, args.lowpass_score, SAMPLE_RATE)
+        # ENCODER INPUT ONLY. tgt_r is scored, and scoring peak-normalizes both
+        # sides, so touching it here would change nothing except to hide that
+        # this happened. After the lowpass, so the peak is the level of the band
+        # the encoder actually reads.
+        if target_peak is not None:
+            p0 = float(tgt.abs().amax().clamp(min=1e-30))
+            tgt = tgt * (target_peak / p0)
+            in_peaks.append((stem, p0, float(tgt.abs().amax())))
         # Peak AFTER band-limiting: the level the metric sees should be the
         # level of the band being compared, not of a transient partly removed.
         tgts[stem] = peak_norm(tgt_r).float()
@@ -584,6 +680,18 @@ def main() -> None:
         print(f"{'  arm / saturation':<34}"
               + "".join(f"{np.mean([rows[n][s][key] for s in names]) / sm:>24.3f}"
                         for n in loaded))
+
+    if in_peaks:
+        import math as _m
+        b = [_m.log10(a) for _, a, _ in in_peaks]
+        a_ = [_m.log10(c) for _, _, c in in_peaks]
+        print(f"\ninput level applied to {len(in_peaks)} file(s): "
+              f"log10 peak [{min(b):+.2f}, {max(b):+.2f}] -> "
+              f"[{min(a_):+.2f}, {max(a_):+.2f}], "
+              f"training max {_m.log10(_scale):+.2f}")
+        print("  The SHAPE channel is unchanged by this -- features() divides the "
+              "spectrogram by its own peak -- so only the level channel moved, "
+              "which is only what identifies mu.")
 
     print(f"\nwrote {args.out}: {len(names)} target + "
           f"{len(names) * len(loaded)} resynthesis wavs, all peak-normalised")
