@@ -378,6 +378,117 @@ PLATE_EMT10 = dict(
     composite=False,
 )
 
+# ===========================================================================
+# emt11: six searched parameters, every bound and every pin set by the probe.
+#
+# WHAT IS DIFFERENT FROM emt10, and all of it is measured rather than argued.
+# src/emt/probe.py was taken from twelve searched dimensions to six over four
+# runs, and src/emt/objectives.py scores FIVE objectives against the fifteen
+# real IRs -- mfcc, bass at 62 Hz, spectral tilt, decay slope, onset share --
+# rather than mfcc alone.
+#
+#   loss_F1 FIXED at 1e4. An EXACT degeneracy, and it was live in emt10:
+#   OmDamp1 = 0 makes dOmSq = (2 pi loss_F1)^2 cancel out of
+#   alpha = 3ln10/dOmSq * (OmDamp2^2/T60_DC - OmDamp1^2/T60_F1) = 3ln10/T60_DC,
+#   so loss_F1 survives only inside
+#   beta = [3ln10/T60_DC] (1-r) / (r (2 pi loss_F1)^2) -- one combination for two
+#   parameters. (T60_DC 2.0, r 0.50, loss_F1 1e4) and (2.0, 0.20, 2e4) both give
+#   alpha 3.453878 and beta 8.748774e-10: bit-identical renders. emt10's own
+#   tables showed it -- corr at step 5000 was T60_ratio 0.496 and loss_F1 0.731,
+#   the two worst of seven against 0.929-0.997 for the rest. 1e4 rather than the
+#   probe's 2.4e4 winner because at w = 2 pi loss_F1 the law collapses to
+#   sig = 3ln10/T60_F1, so loss_F1 IS the reference frequency and T60_F1 IS the
+#   T60 there -- a round value makes T60_ratio read as "T60 at 10 kHz over T60
+#   at DC".
+#
+#   fp AND op FIXED, and unlike emt8's pins this is measured. emt8 fixed them on
+#   flatness under mfcc alone; "flat under mfcc" and "flat under everything" are
+#   different claims and only the first had been tested. All five objectives
+#   report them unconstrained, ONSET INCLUDED -- the one that could have pinned
+#   them, since the drive point sets which modes the strike excites and nothing
+#   else touches the first 20 ms:
+#     fp_x  mfcc 0.134  bass 0.215  tilt 0.103  decay 0.339  onset 0.283
+#     fp_y       0.299       0.313       0.209        0.256        0.249
+#     op_x       0.564       0.684       0.406        0.513        0.468
+#     op_y       0.604       0.567       0.421        0.431        0.704
+#   Values are the median of the five medians, so no objective is served
+#   preferentially. It is not free: fixing them cost the TILT objective 40% of
+#   its best-achievable (2.219 -> 3.101) while costing mfcc 2% (1.547 -> 1.572),
+#   because "the top-32 median is flat" and "the best draw does not care" are
+#   different statements and objectives.py measures the first.
+#
+#   h IS NOW LOG-SAMPLED, matching probe.py. Its range is a factor of 4 rather
+#   than emt8's 6.7, so this matters less than it did, but the probe's own
+#   sampling is the defensible convention and perr's "% of range" is not
+#   comparable to emt10's either way.
+#
+# BOUNDS, each the union of what all five objectives asked for. Narrowing on one
+# objective's evidence is what excluded decay's T60_DC in an earlier iteration.
+# Median [bootstrap CI] from the six-dimension run:
+#
+#   h        (5e-4, 2e-3)      1.013e-3 [8.41e-4, 1.18e-3]
+#   rho      (5e3, 1e4)            6980 [6.19e3, 8.25e3]
+#   Ly       (1.8, 3.0)           2.396 [2.30, 2.52]
+#   T0       (3e4, 4e5)         1.799e5 [1.54e5, 2.29e5]
+#   T60_DC   (1.0, 4.0)           1.985 [1.93, 2.06]
+#   T60_ratio(0.05, 0.9)         0.4853 [0.417, 0.61]
+#
+# WHAT THIS SPACE STILL CANNOT DO, so it is not rediscovered as a surprise.
+#
+#   THE DECAY SLOPE. The target falls from 6.03 s at 62 Hz to 0.98 s at 8 kHz.
+#   sig = alpha + beta*omega^2 cannot make that shape: the decay objective's own
+#   top-32 scores 0.4165 against a random draw's 0.4643 -- 10% better than
+#   knowing nothing -- while pressing T60_DC against whatever ceiling it is
+#   given (4.57 against 5.0). 0.42 in |log10 T60 ratio| is a factor of 2.6 off
+#   per band, at the best 2048 draws achieve in a box built to hold its answer.
+#   That is a synthesizer limitation and no box fixes it. T60_DC's ceiling is
+#   therefore set from the other four objectives, which all sit near 2.
+#
+#   THE STRESS CORNERS. T0/h is a stress in Pa and probe.py bounds it to
+#   (1e6, 4e8); a rectangular box cannot express that, so emt11's corners run
+#   from 15 MPa (h 2e-3, T0 3e4) to 800 MPa (h 5e-4, T0 4e5) -- the latter well
+#   past steel's yield. Those draws are unphysical but they are not WRONG as an
+#   estimation task, and they keep it from being easier than it should be.
+#
+#   AND THE TASK IS EASIER THAN emt10's. Six searched parameters in a box built
+#   around a real plate is a weaker test of a loss than seven in a wide one --
+#   emt7's docstring makes the same point about narrowing rho and E to steel.
+#   That is a deliberate trade for a sharper real-IR demonstration, not a free
+#   improvement, and a loss comparison here is correspondingly weaker evidence.
+FMAX_EMT11 = 20000.0
+
+# Corner of the box (min h, max Ly, min T0, max rho), maximum over all sixteen
+# corners. 56,307 modes against emt10's 43,152 -- 1.30x, because h's floor is
+# lower and Ly's ceiling higher. The cheapest draw needs only (57, 103).
+FIXED_MODE_GRID_EMT11 = (137, 411)
+
+DURATION_EMT11 = 1.0
+
+PLATE_EMT11 = dict(
+    keys=["h", "rho", "Ly", "T0", "T60_DC", "T60_ratio"],
+    bounds={
+        "h": (5e-4, 2e-3),
+        "rho": (5000.0, 10000.0),
+        "Ly": (1.8, 3.0),
+        "T0": (3e4, 4e5),
+        "T60_DC": (1.0, 4.0),
+        "T60_ratio": (0.05, 0.9),
+    },
+    log_keys={"h", "T0", "T60_DC", "T60_ratio"},
+    fixed={
+        "Lx": 1.0,
+        "nu": 0.30,
+        "E": 1.85e11,
+        "loss_F1": 10000.0,
+        "fp_x": 0.215,
+        "fp_y": 0.256,
+        "op_x": 0.513,
+        "op_y": 0.567,
+    },
+    products={"T60_F1": ("T60_ratio", "T60_DC")},
+    composite=False,
+)
+
 # What gen.sh and check.py read, so the four numbers cannot drift between
 # dataset generation and training. Keyed by PLATE_PARAM_SPACE.
 NUMERICS = {
@@ -385,6 +496,7 @@ NUMERICS = {
     "emt8": dict(fmax=FMAX_EMT8, grid=FIXED_MODE_GRID_EMT8, duration=DURATION_EMT8),
     "emt9": dict(fmax=FMAX_EMT9, grid=FIXED_MODE_GRID_EMT9, duration=DURATION_EMT9),
     "emt10": dict(fmax=FMAX_EMT10, grid=FIXED_MODE_GRID_EMT10, duration=DURATION_EMT10),
+    "emt11": dict(fmax=FMAX_EMT11, grid=FIXED_MODE_GRID_EMT11, duration=DURATION_EMT11),
 }
 
 

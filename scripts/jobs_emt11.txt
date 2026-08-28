@@ -1,0 +1,197 @@
+# emt11: the probe's own box, six searched parameters, two exact degeneracies
+# removed.
+#
+#   src/emt/gen.sh                                    # datasets first
+#   python -m src.emt.check                           # then the three files agree
+#   python scripts/gpu_queue.py --jobs scripts/jobs_emt11.txt
+#
+# emt10 IS NOT REPLACED. It keeps running and its results stay on disk; this
+# writes to results/ddsp/emt11{_pre} and data/{train,val}-emt11, and nothing here
+# touches an emt10 path.
+#
+# SIX SEARCHED PARAMETERS: h, rho, Ly, T0, T60_DC, T60_ratio. Fixed: Lx 1.0,
+# nu 0.30, E 1.85e11, loss_F1 1e4, fp (0.215, 0.256), op (0.513, 0.567).
+#
+# WHY SIX AND NOT emt10's SEVEN, in full in src/emt/space.py under emt11 and in
+# two lines here.
+#
+#   loss_F1 IS AN EXACT DEGENERACY and it was live in emt10. OmDamp1 = 0 makes
+#   dOmSq = (2 pi loss_F1)^2 cancel out of alpha entirely, leaving loss_F1 only
+#   inside beta together with T60_ratio -- one combination for two parameters.
+#   (T60_DC 2.0, r 0.50, loss_F1 1e4) and (2.0, 0.20, 2e4) render bit-identical.
+#   emt10's own corr at step 5000 said so before the algebra did: T60_ratio 0.496
+#   and loss_F1 0.731, the two worst of seven against 0.929-0.997.
+#
+#   fp AND op ARE FIXED ON A MEASUREMENT this time. emt8 pinned them on flatness
+#   under mfcc alone, which is a different claim from flatness under everything.
+#   src/emt/objectives.py now scores five -- mfcc, bass, tilt, decay, onset --
+#   and all five report them unconstrained, ONSET INCLUDED. Onset is the one that
+#   could have pinned them: the drive point sets which modes the strike excites
+#   and nothing else the encoder searches touches the first 20 ms. It is not
+#   free -- fixing them costs the tilt objective 40% of its best achievable
+#   against mfcc's 2% -- and that cost is stated rather than hidden.
+#
+# THE BOUNDS ARE THE UNION OF WHAT ALL FIVE OBJECTIVES ASKED FOR, not mfcc's
+# interval. Narrowing T60_DC on mfcc's CI in an earlier iteration excluded
+# decay's answer outright, which is the exact trap. Median [bootstrap CI] over
+# 2048 draws in six dimensions -- 3.56 points per axis against emt10's 2.14 at
+# ten, which 64x more draws at ten would not have bought:
+#
+#   h        (5e-4, 2e-3)      1.013e-3 [8.41e-4, 1.18e-3]
+#   rho      (5e3, 1e4)            6980 [6.19e3, 8.25e3]
+#   Ly       (1.8, 3.0)           2.396 [2.30, 2.52]
+#   T0       (3e4, 4e5)         1.799e5 [1.54e5, 2.29e5]
+#   T60_DC   (1.0, 4.0)           1.985 [1.93, 2.06]
+#   T60_ratio(0.05, 0.9)         0.4853 [0.417, 0.61]
+#
+# WHAT THIS CAMPAIGN CANNOT SHOW, stated up front so it is not rediscovered as a
+# result. The decay slope is unreachable: the target falls 6.03 s at 62 Hz to
+# 0.98 s at 8 kHz and sig = alpha + beta*omega^2 cannot make that shape, so the
+# decay objective's best 2048 draws score 0.4165 against a random draw's 0.4643.
+# That is the synthesizer, not the search, and no box fixes it. And six searched
+# parameters in a box built around a real plate is an EASIER task than emt10's
+# seven in a wide one, so a loss comparison here is weaker evidence about the
+# loss than emt10's is -- it is traded for a sharper real-IR demonstration.
+#
+# NUMERICS, every value load-bearing. The derivations are in src/emt/space.py.
+#
+#   --fmax 20000            unchanged from emt9/emt10, and NOT 22000. The loss
+#                           surface has a cliff at Nyquist: linear's local minima
+#                           in h go 1 at 21 kHz to 61 at 22 kHz, while the count
+#                           of modes crossing the om <= max_omega gate rises
+#                           smoothly across the whole ladder -- so it is
+#                           proximity to sr/2, not the gate.
+#   --fixed-mode-grid 137,411   this box's worst corner (min h, max Ly, min T0,
+#                           max rho), maximum over all sixteen. 56,307 modes,
+#                           1.30x emt10's 43,152, because h's floor is lower and
+#                           Ly's ceiling higher. The cheapest draw needs (57,
+#                           103).
+#   --chunk-elems 1000000000    RAISED from emt10's 8e8, and this is not
+#                           cosmetic. Re-read traffic goes as n_pad^2 at fixed
+#                           chunk_elems, and the mode count moved 1.30x: 8e8
+#                           gives 199 launches here against emt10's 152, while
+#                           1e9 gives 159 -- back in line. Peak memory
+#                           3*chunk*4B + the 4.3 GB training tensor = ~16.3 GB on
+#                           a 23 GB card, and quiet7 ran 1e9 successfully. Under
+#                           --compile-plate Inductor fuses the chunk kernel so
+#                           this is a plain memory knob; in eager it is part of
+#                           the numerics contract (35e4529 measured 1e9 vs 2e8
+#                           moving log by 8.51%). src.ddsp.diag_gt_floor is what
+#                           re-checks that, and it is run below.
+#   --compile-plate         8.5x measured, AND it is what makes the memory fit:
+#                           eager retains every chunk's [B, n_pad, chunk]
+#                           intermediate for backward, which chunk_elems does NOT
+#                           bound. Dropping it does not make the run slower, it
+#                           makes it impossible.
+#   --duration 1.0          eps_ladder.sh never passes one, so without this
+#                           train_encoder uses its 0.25 default and dies.
+#   --eval-every 250        the crossfade is the transition being characterised
+#                           and 40 points across it is what localises it.
+#   --ckpt-every 1000       emt8's last checkpoint was step 5000, by which point
+#                           its collapse was complete and there was nothing to
+#                           reach back to.
+#
+# LR_HOLD=0 and HEAD_HINGE=1e-2 carry over from emt10 unchanged. The first gives
+# a monotone cosine from the end of warmup to the same 0.02 floor -- which is
+# where diffsynth's ExponentialLR(gamma=0.99) over ~390 epochs lands anyway
+# (0.99^390 = 0.0198), so the two schedules agree on the endpoint and differed
+# only in the path. The second held for emt9 and emt10's linear arms for their
+# whole runs (zmax <= 5.86, sat <= 0.049) where emt8 with the hinge off reached
+# zmax 53.3 and 69% of the batch past |z| = 2.5.
+#
+# --param-hold-frac 0.25 = 2500/10000, so the hold ends exactly where the base
+# ends and spec_w enters at 0 rather than jumping. --resume restores the step
+# counter, so this fraction MUST equal base_steps/STEPS; emt8 used 0.125 against
+# the same 2500-step base and resumed at spec_w 0.334 in a single step.
+#
+# NOT COMPARABLE TO emt8, emt9 OR emt10 -- different searched set, different
+# pins, different const_nmse, different grid. It is internally comparable across
+# its three arms and its base, and that is all it claims.
+#
+# THE ARMS, eps-matched, differing in exactly one thing:
+#
+#   L1_STFT          linear, on MAGNITUDE           = diffsynth's magx
+#   L1_STFT_hyb1e2   hybrid, eps 1e-2               = diffsynth's hybridx
+#   L1_STFT_eps1e2   log,    eps 1e-2               = diffsynth's logx_halfw
+#
+# The floored arms (L1_STFT_c1_db40, the steelman of log) are still deliberately
+# NOT here, for the same reason as emt10: they belong after the default three are
+# known to work in this box.
+#
+# RUN src.ddsp.diag_gt_floor BEFORE THE CAMPAIGN. New pin, new searched set, new
+# grid and a changed chunk_elems -- which is four reasons at once. Ten minutes
+# against twelve hours:
+#
+#   PLATE_PARAM_SPACE=emt11 python -m src.ddsp.diag_gt_floor \
+#       --data-dir data/val-emt11 --duration 1.0 --fmax 20000 \
+#       --fixed-mode-grid 137,411 --chunk-elems 1000000000 --batch-size 64 \
+#       --compile-plate --losses L1_STFT L1_STFT_hyb1e2 L1_STFT_eps1e2
+
+# STAGE base
+# Parameter-only, 2500 steps, once. --param-hold-frac 1.0 keeps spec_w at 0
+# throughout, so the loss is the parameter L1 and the three arms would be
+# identical here by construction -- training it per-arm would inject noise of
+# the same order as the effect being measured.
+PLATE_PARAM_SPACE=emt11 TRAIN=data/train-emt11 VAL=data/val-emt11 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=2500 OUT=results/ddsp/emt11_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE arms
+# 10000 steps from the shared base, crossfading off the parameter loss over
+# steps 2500-6250. --resume restores the step counter, so these run 7500 steps.
+#
+# WHY 10000 AND NOT 40000. 40000 came from raw7, which trained on 98,304 clips:
+# 40000 x 64 / 98304 = 26 epochs. emt11 has 24,576, so 40000 steps would be 104
+# epochs -- 4x the passes raw7 ever made, by accident rather than design. 10000
+# restores 26 exactly.
+PLATE_PARAM_SPACE=emt11 TRAIN=data/train-emt11 VAL=data/val-emt11 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt11 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt11_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt11 TRAIN=data/train-emt11 VAL=data/val-emt11 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt11 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt11_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt11 TRAIN=data/train-emt11 VAL=data/val-emt11 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt11 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt11_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+
+# OPTIONAL FOURTH ARM, commented out because it was not asked for. Uncomment to
+# run it; it is one card and it costs nothing else.
+#
+# WHAT IT SEPARATES. Every arm in every campaign here crossfades, so "the
+# spectral loss degrades the solution" and "removing the parameter anchor
+# degrades it" have never been distinguishable. This arm never switches --
+# --param-hold-frac 1.0 for the full 10000 steps, same base, same everything --
+# so the parameter loss stays at weight 10 throughout and the spectral term
+# never enters. It is also the control DiffMoog's own narrow_ploss provided and
+# this project never has.
+#PLATE_PARAM_SPACE=emt11 TRAIN=data/train-emt11 VAL=data/val-emt11 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt11_noswitch ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt11_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+
+# Monitor:
+#   python -m src.ddsp.monitor_sweep --root results/ddsp/emt11_pre results/ddsp/emt11 \
+#       --metrics spec_w param zmax sat train val nmse ratio g03
+#
+# THE ONE COMPARISON THAT MATTERS, and it is not ratio. val_loss is loss_fn
+# unscaled and the base's arm is L1_STFT, so the base's val and the LINEAR arm's
+# val are the SAME FUNCTION on the same 991 clips. emt8's arm ended at 0.6562
+# against its base's 0.3945 -- worse at its own objective than its own starting
+# point, which is a failed optimization rather than a bad minimum. emt9's
+# reached 0.3403 against 0.3639, the first time an arm beat its base. That is
+# the number to read first.
+#
+# Per parameter, where emt9's failure was localised:
+#   python -m src.emt.perparam --root results/ddsp/emt11 --metric perr spread corr --at 3000
+#   python -m src.emt.perparam --root results/ddsp/emt11 --metric perr spread corr --at 10000
+#
+# Then listen, which is the point of the space. --input-level median IS REQUIRED,
+# not optional: input_mode=norm_amp feeds log10(STFT peak) to the encoder as an
+# absolute-level channel, and the training distribution is [-6.18, -4.41] while
+# the real EMT-140 files are [+1.43, +1.68] -- 5.8 decades out of domain. On
+# emt10 supplying it moved mfcc/sat from 2.442 to 1.732 and put h on the probe's
+# own answer.
+#   PLATE_PARAM_SPACE=emt11 python -m src.ddsp.eval_real_ir --wav-dir data/EMT-140 \
+#       --arms results/ddsp/emt11/L1_STFT results/ddsp/emt11/L1_STFT_hyb1e2 \
+#              results/ddsp/emt11/L1_STFT_eps1e2 \
+#       --input-level median --train-dir data/train-emt11 \
+#       --render-duration 4.0 --prior 10 --out emt11_listen
+#
+# eval_real_ir keys arms by DIRECTORY BASENAME, so do not pass emt11_pre/L1_STFT
+# and emt11/L1_STFT in the same invocation -- the second silently overwrites the
+# first and the base vanishes from the tables with no warning. Score the base in
+# its own run; SATURATION comes from the real IRs, so the ratios are comparable
+# across invocations.
+#
+# No comment line here may begin with the word "stage": gpu_queue matches
+# ^#\s*STAGE[:\s] case-insensitively. The two above are real barriers -- the
+# arms read a checkpoint the base writes.

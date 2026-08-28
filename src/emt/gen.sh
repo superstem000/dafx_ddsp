@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Generate the emt10 IR datasets, train and val, under one pin and one ceiling.
+# Generate the emt11 IR datasets, train and val, under one pin and one ceiling.
 #
 #   src/emt/gen.sh                    # 24576 train + 991 val, ~4.3 GB
+#   SPACE=emt10 src/emt/gen.sh        # loss_F1 and fp/op searched, seven params
 #   SPACE=emt9 src/emt/gen.sh         # rho fixed, six parameters
 #   SPACE=emt8 src/emt/gen.sh         # the 22 kHz ceiling, kept runnable
 #   SPACE=emt7 src/emt/gen.sh         # the earlier space, kept runnable
@@ -26,7 +27,7 @@ cd "$(cd "$HERE/../.." && pwd)"
 # SPACE picks which entry of space.py's NUMERICS table to read, so the values
 # cannot drift between generation and training now that the file holds two
 # spaces. It is also what PLATE_PARAM_SPACE is set to below.
-SPACE=${SPACE:-emt10}
+SPACE=${SPACE:-emt11}
 read -r FMAX GRID DUR <<< "$(SPACE="$SPACE" python3 - <<'PY'
 import os
 ns = {}
@@ -56,15 +57,18 @@ OUT=${OUT:-data}
 #            eager mode: 1e9 vs 2e8 moved log by 8.51%. Compiled, Inductor
 #            fuses the chunk kernel and chunk_elems is a plain memory knob
 #            again -- which is the only reason changing it here is safe. It is
-#            800M rather than 400M because re-read traffic goes as n_pad^2 at
-#            fixed chunk_elems; see scripts/jobs_emt8.txt. Re-run
-#            src.ddsp.diag_gt_floor after any change to it.
+#            1e9 rather than emt10's 8e8 because re-read traffic goes as n_pad^2
+#            at fixed chunk_elems and emt11 has 1.30x the modes: 8e8 gives 199
+#            launches here against emt10's 152, and 1e9 gives 159. Re-run
+#            src.ddsp.diag_gt_floor after any change to it. THIS DEFAULT IS
+#            emt11's -- with SPACE=emt10 pass NUMERICS with 800000000 to match
+#            scripts/jobs_emt10.txt.
 #
 # So --batch-size is pinned to eps_ladder.sh's BATCH=64 rather than left at
 # make_dataset's default of 32. Under compile the two are interchangeable; if
 # compile is ever dropped they are not, and a silent 32/64 split between the
 # targets and the renders is exactly the confound above.
-NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --batch-size 64"}
+NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --batch-size 64"}
 
 echo "$SPACE: fmax=$FMAX  grid=$GRID  duration=${DUR}s"
 echo "      train $N_TRAIN -> $OUT/train-$SPACE   val $N_VAL -> $OUT/val-$SPACE"

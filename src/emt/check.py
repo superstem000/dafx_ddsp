@@ -22,7 +22,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-SPACE = os.environ.get("SPACE", "emt10")
+SPACE = os.environ.get("SPACE", "emt11")
 JOBS = os.path.join(ROOT, "scripts", f"jobs_{SPACE}.txt")
 GEN = os.path.join(HERE, "gen.sh")
 
