@@ -296,12 +296,95 @@ DURATION_EMT9 = 1.0
 # an edit to the bounds above has to reach both or the claim is false.
 PLATE_EMT9 = PLATE_EMT8
 
+# ===========================================================================
+# emt10: emt9's box with rho SEARCHED. Seven parameters.
+#
+# WHY. emt8 removed the {rho, E, h} degeneracy by fixing TWO parameters, and
+# that is one too many. The modal sum sees mu = rho*h, D/mu = E*h^2/(12(1-nu^2)rho)
+# and T0/mu -- three observables. Fixing both rho and E leaves h and T0 to cover
+# them, so (mu, D/mu) collapses from a surface to a ONE-PARAMETER CURVE:
+#
+#   mu(h)   = rho*h
+#   D/mu(h) = E*h^2 / (12(1-nu^2)*rho)      determined by h, not free
+#
+# and the probe's answer is not on that curve. At 20 kHz the probe wants
+# mu 5.99 (rho 6095, h 9.824e-4) and D/mu 2.56 (E 1.762e11); emt9's curve gives
+# D/mu 1.33 at that mu, or mu 8.30 at that D/mu -- unreachable by ~1.9x either
+# way, whichever h the encoder picks.
+#
+# emt9 SHOWED THE COST DIRECTLY. Its linear arm reached 1.4-2.6% of range on h,
+# Ly, T0 and T60_DC at step 3000 and then, as param_w walked to zero at 6250,
+# h and Ly degraded 215x and 139x in perr while T0 moved 12x and T60_DC 37x.
+# Not the head -- zmax stayed 2.07-5.86 against the base's 2.29, sat <= 0.049,
+# spread 0.80-0.93 throughout. h and Ly are exactly the pair the collapse
+# implicates: h is carrying mu (level, with Ly), D/mu (stiffness) and T0/mu
+# (with T0) at once, and the level cue only constrains the product h*Ly.
+#
+# FIXING ONE IS ENOUGH, and E is the one to keep pinned -- the probe's
+# 1.762e11 [1.58e11, 2.04e11] contains emt8's 1.85e11, while its rho
+# 6095 [5.28e3, 7.29e3] does NOT contain 7700. Searching (h, rho, T0) against
+# (mu, D/mu, T0/mu) is still a bijection: from D/mu, h^2/rho = A is fixed; with
+# mu = rho*h that gives h^3 = A*mu, so h is unique, then rho = mu/h, then T0.
+# The degeneracy stays dead. Equivalently, the symmetry composite=False exists
+# to quotient is (E, rho, h) -> (c^3 E, c rho, h/c), which needs E scaled by
+# c^3; with E fixed, c = 1 and there is nothing left to quotient.
+#
+# THE PIN COSTS ALMOST NOTHING. The cost corner is (min h, max Ly, min T0, max
+# rho), since sqrt_disc ~ sqrt(max_omega/h) * (rho/E)^(1/4). At 20 kHz:
+#
+#   rho fixed 7700 (emt9)             (119, 334) = 39,746
+#   rho (4e3, 9e3)                    (124, 348) = 43,152   1.09x
+#   rho (5.28e3, 7.29e3) probe 90%    (117, 330) = 38,610   0.97x
+#   rho (2.5e3, 1.2e4)  probe box     (133, 374) = 49,742   1.25x
+#
+# (4e3, 9e3) brackets steel at 7700-7900 and the probe's 6095 with headroom,
+# holds the 90% interval well inside, and costs 9%. The probe's own box runs to
+# 12,000 kg/m^3 -- denser than lead -- which was deliberately unphysical so as
+# not to prejudge, and is not a bound worth defending. rho is LINEAR: the range
+# spans a factor of 2.25, where log spacing buys nothing.
+#
+# h's floor is the real cost lever, not rho -- at the widest rho box, moving it
+# 0.0006 -> 0.0008 goes from 1.25x to 0.94x. Its ceiling stays 0.004 even though
+# the probe wants 9.8e-4 [6.96e-4, 1.34e-3] and emt8's stated reason for 0.004
+# ("h now carries the D/mu range rho and E gave up") no longer applies. The
+# ceiling costs nothing, and emt7 died of a box that excluded the answer.
+FMAX_EMT10 = 20000.0
+FIXED_MODE_GRID_EMT10 = (124, 348)
+DURATION_EMT10 = 1.0
+
+PLATE_EMT10 = dict(
+    keys=["h", "rho", "Ly", "T0", "T60_DC", "T60_ratio", "loss_F1"],
+    bounds={
+        "h": (0.0006, 0.004),
+        "rho": (4000.0, 9000.0),
+        "Ly": (1.3, 2.8),
+        "T0": (30.0, 5e4),
+        "T60_DC": (0.8, 6.0),
+        "T60_ratio": (0.05, 0.95),
+        "loss_F1": (3000.0, 50000.0),
+    },
+    log_keys={"T0", "T60_DC", "T60_ratio", "loss_F1"},
+    fixed={
+        "Lx": 1.0,
+        "nu": 0.30,
+        # The one of the pair that stays pinned; see the derivation above.
+        "E": 1.85e11,
+        "fp_x": 0.22,
+        "fp_y": 0.18,
+        "op_x": 0.48,
+        "op_y": 0.59,
+    },
+    products={"T60_F1": ("T60_ratio", "T60_DC")},
+    composite=False,
+)
+
 # What gen.sh and check.py read, so the four numbers cannot drift between
 # dataset generation and training. Keyed by PLATE_PARAM_SPACE.
 NUMERICS = {
     "emt7": dict(fmax=FMAX, grid=FIXED_MODE_GRID, duration=DURATION),
     "emt8": dict(fmax=FMAX_EMT8, grid=FIXED_MODE_GRID_EMT8, duration=DURATION_EMT8),
     "emt9": dict(fmax=FMAX_EMT9, grid=FIXED_MODE_GRID_EMT9, duration=DURATION_EMT9),
+    "emt10": dict(fmax=FMAX_EMT10, grid=FIXED_MODE_GRID_EMT10, duration=DURATION_EMT10),
 }
 
 
