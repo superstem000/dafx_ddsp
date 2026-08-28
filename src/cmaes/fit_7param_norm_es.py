@@ -197,12 +197,12 @@ PLATE_QUIET7 = dict(
 # is what makes those four settings reviewable together. That module is pure
 # data and imports nothing from here, so this stays a one-line registration.
 from src.emt.space import (PLATE_EMT7, PLATE_EMT8, PLATE_EMT9, PLATE_EMT10,
-                           PLATE_EMT11)                        # noqa: E402
+                           PLATE_EMT11, PLATE_EMT12)           # noqa: E402
 
 PARAM_SPACES = {"raw7": PLATE_RAW7, "quiet3": PLATE_QUIET3, "quiet7": PLATE_QUIET7,
                 "emt7": PLATE_EMT7, "emt8": PLATE_EMT8,
                 "emt9": PLATE_EMT9, "emt10": PLATE_EMT10,
-                "emt11": PLATE_EMT11}
+                "emt11": PLATE_EMT11, "emt12": PLATE_EMT12}
 PARAM_SPACE = os.environ.get("PLATE_PARAM_SPACE", "raw7")
 if PARAM_SPACE not in PARAM_SPACES:
     raise SystemExit(

@@ -489,6 +489,102 @@ PLATE_EMT11 = dict(
     composite=False,
 )
 
+# ===========================================================================
+# emt12: emt11 at TWO SECONDS, on a box trimmed back to physical ceilings.
+#
+# THE CLIP WAS TOO SHORT TO MEASURE THE DECAY, and that is the whole reason
+# this space exists. A clip of length d exposes 60*d/T60 dB of decay. ISO 3382
+# fits T20 over the -5 to -25 dB range, so 25 dB of usable decay is the floor
+# for measuring a reverberation time at all, and the longest T60 a clip can
+# support is 2.4*d:
+#
+#     duration   longest measurable T60 (T20)   full 60 dB
+#       1.0 s              2.4 s                  1.0 s
+#       2.0 s              4.8 s                  2.0 s
+#
+# emt11's T60_DC ceiling was 4.0 s against 1.0 s clips, which exposed 15 dB at
+# the ceiling -- ten short of what a T20 fit needs. So the top 40% of the
+# T60_DC box was never measurable from the training clips, by the standard
+# acoustics itself uses. That is a candidate explanation for T60_DC and
+# T60_ratio having been the worst-identified coordinates in every campaign
+# since emt7, and it costs nothing but time to remove.
+#
+#   DURATION 2.0 s and T60_DC's CEILING 4.8 s, which is 2.4*d exactly. The
+#   ceiling is now set BY the clip length rather than guessed beside it. It
+#   also moves toward the target: the real EMT-140 falls 6.03 s at 62 Hz, so
+#   4.0 could not have reached it under any loss.
+#
+#   THE ENCODER NEEDS NO CHANGE. train_encoder's stack ends in
+#   AdaptiveAvgPool2d((None, 1)) -- time is pooled away and only the frequency
+#   axis reaches the head -- so head_in does not depend on duration. Checked
+#   before committing a day of GPU to it.
+#
+# TWO CEILINGS COME BACK IN, for runtime and for physics at once. emt11's
+# real-IR table (step 7000, --input-level median, all fifteen EMT-140 files)
+# had ALL THREE arms railed on rho at 9949-9997 against a 10000 ceiling, and
+# the two compressed arms railed on Ly at 2.997 and 3.000 against 3.0. Both
+# ceilings sit past anything a plate is made of:
+#
+#   rho  1e4 -> 8.5e3    10000 kg/m^3 is past lead. Steel is 7850, so 8500
+#                        still holds the physical answer with 8% of headroom.
+#                        x0.946 on mode count (DDx ~ rho^(1/4) in both axes).
+#   Ly   3.0 -> 2.6      Lx is pinned at 1.0 and the EMT-140 is 2 x 1 m, so
+#                        3.0 asked for a 3:1 plate. 2.6 keeps 30% of headroom
+#                        over the real aspect. x0.867, in one axis only.
+#
+# Together x0.800 on the mode count: 44,802 against emt11's 56,307, which is
+# emt10's 43,152 again. That pays for 40% of the duration doubling, so emt12
+# costs 1.60x emt11 rather than 2.00x.
+#
+#   h's FLOOR STAYS AT 5e-4 even though it is the expensive one -- x1.200 on
+#   the count by itself, more than the other two together, because
+#   DDx ~ (mu/D)^(1/4) ~ h^(-1/2) applies to both axes. 0.5 mm IS the EMT-140
+#   plate, and emt11's eps arm railed exactly there while hyb sat at 0.51 mm.
+#   Raising it to buy speed would delete the correct answer.
+#
+# THE ARMS WILL STILL RAIL on rho and Ly; that is expected and is not what the
+# trim was for. The point is that they now rail against ceilings that a plate
+# could actually have, so a railed value is evidence about the encoder rather
+# than an artifact of a box that allowed lead.
+#
+# EVERYTHING ELSE IS emt11 UNCHANGED -- the same six searched keys, the same
+# pins, the same fp/op measured across five objectives, the same fixed
+# loss_F1 killing the T60_ratio degeneracy. Only the clip length, two
+# ceilings, and T60_DC's ceiling move, so emt11 -> emt12 is a much smaller
+# step than emt10 -> emt11 was.
+FMAX_EMT12 = 20000.0
+
+# Corner of the box (min h, max Ly, min T0, max rho), maximum over all sixteen
+# corners: h 5e-4, rho 8500, Ly 2.6, T0 3e4. 44,802 modes.
+FIXED_MODE_GRID_EMT12 = (131, 342)
+
+DURATION_EMT12 = 2.0
+
+PLATE_EMT12 = dict(
+    keys=["h", "rho", "Ly", "T0", "T60_DC", "T60_ratio"],
+    bounds={
+        "h": (5e-4, 2e-3),
+        "rho": (5000.0, 8500.0),
+        "Ly": (1.8, 2.6),
+        "T0": (3e4, 4e5),
+        "T60_DC": (1.0, 4.8),
+        "T60_ratio": (0.05, 0.9),
+    },
+    log_keys={"h", "T0", "T60_DC", "T60_ratio"},
+    fixed={
+        "Lx": 1.0,
+        "nu": 0.30,
+        "E": 1.85e11,
+        "loss_F1": 10000.0,
+        "fp_x": 0.215,
+        "fp_y": 0.256,
+        "op_x": 0.513,
+        "op_y": 0.567,
+    },
+    products={"T60_F1": ("T60_ratio", "T60_DC")},
+    composite=False,
+)
+
 # What gen.sh and check.py read, so the four numbers cannot drift between
 # dataset generation and training. Keyed by PLATE_PARAM_SPACE.
 NUMERICS = {
@@ -497,6 +593,7 @@ NUMERICS = {
     "emt9": dict(fmax=FMAX_EMT9, grid=FIXED_MODE_GRID_EMT9, duration=DURATION_EMT9),
     "emt10": dict(fmax=FMAX_EMT10, grid=FIXED_MODE_GRID_EMT10, duration=DURATION_EMT10),
     "emt11": dict(fmax=FMAX_EMT11, grid=FIXED_MODE_GRID_EMT11, duration=DURATION_EMT11),
+    "emt12": dict(fmax=FMAX_EMT12, grid=FIXED_MODE_GRID_EMT12, duration=DURATION_EMT12),
 }
 
 
