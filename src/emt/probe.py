@@ -154,6 +154,25 @@ FIXED = {"Lx": 1.0, "nu": 0.30, "E": 1.85e11, "loss_F1": 10000.0}
 # exist. Bounding the ratio removes it and leaves every real one, plus margin.
 RHO_OVER_E = (1.5e-8, 7.0e-8)
 
+# T0 is tension per unit LENGTH (N/m), so T0/h is a STRESS in Pa -- and that is
+# a physical bound the box has never used. Without it T0 has climbed every time
+# it was given room: median 4,857 in the (0.1, 1e6) box, 44,300 at (1e3, 1e6),
+# 104,800 at (1e4, 5e5), with the top-32 VALUES then pressing 4.87e5 against the
+# ceiling. In stress that last one is 415 MPa at the winners' h of 1.17 mm --
+# mild steel yields near 250 and spring steel near 500, so the search was
+# already asking for a plate that tears.
+#
+# The winners themselves are not the problem: 104,800 / 1.17e-3 = 89 MPa, well
+# inside the elastic range, and the CI [6.17e4, 1.55e5] is 53-132 MPa. Bounding
+# the ratio deletes the draws that cannot exist and stops T0's ceiling being a
+# number to chase. 4e8 rather than 2.5e8 so a spring-steel plate is admitted;
+# 1e6 because below ~1 MPa the tension term is irrelevant next to stiffness and
+# the draws are indistinguishable.
+#
+# Applied exactly as RHO_OVER_E is: T0 is sampled inside the window h allows,
+# rather than rejected, so h keeps its uniform marginal and no draw is wasted.
+T0_OVER_H = (1e6, 4e8)
+
 
 def dd_grid(Lx, Ly, h, T0, rho, E, nu, fmax):
     """SevenParamPlate's own DDx/DDy, for pinning the grid from the box corner."""
@@ -169,7 +188,10 @@ def corner(box, fmax):
     """Densest draw: max Ly, min h, min T0, and the largest ADMITTED rho/E."""
     e = FIXED["E"]
     rho = min(box["rho"][1], RHO_OVER_E[1] * e)
-    return dd_grid(FIXED["Lx"], box["Ly"][1], box["h"][0], box["T0"][0],
+    # Lower T0 means more modes, so the corner takes the smallest T0 the stress
+    # bound ADMITS at the corner's h -- not the box floor, which may be excluded.
+    t0 = max(box["T0"][0], box["h"][0] * T0_OVER_H[0])
+    return dd_grid(FIXED["Lx"], box["Ly"][1], box["h"][0], t0,
                    rho, e, FIXED["nu"], fmax)
 
 
@@ -184,6 +206,16 @@ def sample(box, n, seed, dev):
     # E used to be resampled inside the rho/E window. It is FIXED now (see the
     # note on FIXED), and rho's floor was raised to 1.5e-8 * 1.85e11 = 2775 so
     # every draw already satisfies the ratio bound without rejection.
+
+    # T0 inside the window h allows, same trick RHO_OVER_E used: an exact
+    # interval keeps every draw usable and leaves h's marginal uniform. Log
+    # because T0 is log-sampled, so the conditional has to be too.
+    s_lo, s_hi = T0_OVER_H
+    t_lo = torch.clamp(named["h"] * s_lo, min=box["T0"][0])
+    t_hi = torch.clamp(named["h"] * s_hi, max=box["T0"][1])
+    t_hi = torch.maximum(t_hi, t_lo * (1.0 + 1e-6))
+    u = torch.rand(n, generator=g)
+    named["T0"] = torch.exp(torch.log(t_lo) + u * (torch.log(t_hi) - torch.log(t_lo)))
 
     # The one derived column. named keeps the ratio, since that is the quantity
     # with a meaningful bound to report against in THE BOUNDS.
