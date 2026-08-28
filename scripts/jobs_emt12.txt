@@ -139,10 +139,30 @@ PLATE_PARAM_SPACE=emt12 TRAIN=data/train-emt12 VAL=data/val-emt12 N_TRAIN=24576 
 
 # STAGE arms
 # 10000 steps from the shared base, crossfading off the parameter loss over
-# steps 2500-6250. --resume restores the step counter, so these run 7500 steps.
-PLATE_PARAM_SPACE=emt12 TRAIN=data/train-emt12 VAL=data/val-emt12 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 2.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt12 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt12_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt12 TRAIN=data/train-emt12 VAL=data/val-emt12 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 2.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt12 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt12_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt12 TRAIN=data/train-emt12 VAL=data/val-emt12 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 2.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt12 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt12_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+# steps 2500-5000. --resume restores the step counter, so these run 7500 steps.
+#
+# THE CROSSFADE ENDS AT 5000, NOT emt11's 6250. handover() is
+# f = clip((step - hold)/ramp) with hold = param_hold_frac*steps and
+# ramp = param_ramp_frac*steps, so --param-ramp-frac 0.25 puts param_w at zero
+# at 2500 + 2500 = 5000 where 0.375 put it at 6250. Two reasons:
+#
+#   IT RESTORES THE REFERENCE SCHEDULE EXACTLY. Masuda & Saito hold the
+#   parameter loss for 50 epochs of 400 and crossfade over 50-200, so the
+#   crossfade ENDS at 50% of the run. emt9/10/11 ended at 62.5% because the ramp
+#   was set beside the hold rather than against the endpoint. 5000/10000 is 50%.
+#   (The hold is 25% rather than their 12.5% because it is pinned to the 2500-
+#   step base, which is not free to move.)
+#
+#   IT BUYS A THIRD MORE PURE-SPECTRAL RUN. 5000 steps at param_w = 0 against
+#   emt11's 3750. That regime is where the whole question lives -- emt9's h and
+#   Ly degraded 215x and 139x in perr only AFTER param_w reached zero -- so the
+#   longer it runs the better the drift is resolved. It also means the drift, if
+#   it happens, starts 1250 steps earlier and at a HIGHER learning rate (LR_HOLD
+#   is 0, so lr at 5000 is 70% of peak against 46% at 6250), which is the
+#   harsher test rather than the gentler one.
+PLATE_PARAM_SPACE=emt12 TRAIN=data/train-emt12 VAL=data/val-emt12 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 2.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt12 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt12_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.25 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt12 TRAIN=data/train-emt12 VAL=data/val-emt12 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 2.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt12 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt12_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.25 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt12 TRAIN=data/train-emt12 VAL=data/val-emt12 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 2.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt12 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt12_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.25 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
 
 # OPTIONAL FOURTH ARM, commented out because it was not asked for. Uncomment to
 # run it; it is one card and it costs nothing else. Every arm in every campaign
