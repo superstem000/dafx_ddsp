@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Generate the emt9 IR datasets, train and val, under one pin and one ceiling.
+# Generate the emt10 IR datasets, train and val, under one pin and one ceiling.
 #
 #   src/emt/gen.sh                    # 24576 train + 991 val, ~4.3 GB
+#   SPACE=emt9 src/emt/gen.sh         # rho fixed, six parameters
 #   SPACE=emt8 src/emt/gen.sh         # the 22 kHz ceiling, kept runnable
 #   SPACE=emt7 src/emt/gen.sh         # the earlier space, kept runnable
 #   N_TRAIN=49152 src/emt/gen.sh      # 8.7 GB -- check df first
@@ -25,7 +26,7 @@ cd "$(cd "$HERE/../.." && pwd)"
 # SPACE picks which entry of space.py's NUMERICS table to read, so the values
 # cannot drift between generation and training now that the file holds two
 # spaces. It is also what PLATE_PARAM_SPACE is set to below.
-SPACE=${SPACE:-emt9}
+SPACE=${SPACE:-emt10}
 read -r FMAX GRID DUR <<< "$(SPACE="$SPACE" python3 - <<'PY'
 import os
 ns = {}
