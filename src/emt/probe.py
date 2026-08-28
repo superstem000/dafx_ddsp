@@ -73,9 +73,14 @@ P14 = list(SevenParamPlate.PARAM_ORDER)
 WIDE = {
     "Ly":      (1.0, 3.5, False),
     "h":       (0.0003, 0.003, True),      # 0.3 mm to 3 mm; emt7 railed at 0.56
-    "T0":      (0.1, 1e6, True),           # emt7 railed at its 500 ceiling
-    "rho":     (2500.0, 12000.0, False),   # emt7 railed at its 7000 floor
-    "E":       (6e10, 2.6e11, False),      # emt7 railed at its 1.7e11 floor
+    # (0.1, 1e6) wasted four decades: below ~1e3 the fundamental is under 8 Hz
+    # at any (rho, h, Ly) in this box, and the 20 kHz bass winners want
+    # 3.3e5 [7.1e4, 8.3e5]. Seven decades to three is 2.3x the resolution on the
+    # one axis the bass actually cares about.
+    "T0":      (1e3, 1e6, True),
+    # Floor raised from 2500 so every draw satisfies RHO_OVER_E with E fixed:
+    # 1.5e-8 * 1.85e11 = 2775. Nothing is rejected and the marginal stays uniform.
+    "rho":     (2775.0, 12000.0, False),
     "T60_DC":  (0.3, 12.0, True),
     # NOT an absolute T60_F1: a RATIO of T60_DC, which is how quiet7 carries it
     # and the reason emt7 could pin it at 1.2 safely. beta is
@@ -84,14 +89,46 @@ WIDE = {
     # GROWS over 176,400 samples until it overflows to inf and poisons every
     # metric to nan. Damping has to increase with frequency; the ratio is what
     # enforces it. 0.95 rather than 1.0 keeps beta strictly positive.
-    "T60_F1_ratio": (0.02, 0.95, True),
-    "loss_F1": (200.0, 50000.0, True),     # emt7 railed at both 2000 and 8000
+    # WITH loss_F1 FIXED THIS IS "T60 at 10 kHz over T60 at DC", and that is not
+    # a renaming -- it is what the damping law already computes. At
+    # w = 2*pi*loss_F1 the law collapses:
+    #   sig = 3ln10/T60_DC + 3ln10*(1/T60_F1 - 1/T60_DC) = 3ln10/T60_F1
+    # so loss_F1 IS the reference frequency and T60_F1 IS the T60 there.
+    # (0.005, 0.98) covers both of the old box's winners -- the mfcc top-32 sat
+    # at 0.886 and the bass top-32 at 0.020 once converted -- in 2.3 decades
+    # where the old (ratio x loss_F1) pair needed 5.9 to span the same betas.
+    "T60_F1_ratio": (0.005, 0.98, True),
     "fp_x":    (0.02, 0.5, False),         # emt7 pinned the drive point
     "fp_y":    (0.02, 0.5, False),
     "op_x":    (0.05, 0.95, False),
     "op_y":    (0.05, 0.95, False),
 }
-FIXED = {"Lx": 1.0, "nu": 0.30}
+# WHY E AND loss_F1 ARE NO LONGER SEARCHED. Both are EXACT degeneracies, so
+# dropping them costs no reachable render and buys resolution everywhere else.
+#
+#   E.   The modal sum sees only mu = rho*h, D/mu = E*h^2/(12(1-nu^2)rho) and
+#        T0/mu, so (E, rho, h) -> (c^3 E, c rho, h/c) is invariant. Searching all
+#        three spends a dimension on a flat direction -- which is exactly why
+#        objectives.py reported rho AND E as "unconstrained" with intervals
+#        covering nearly the whole box under BOTH objectives. They are not
+#        uninformative, they are degenerate with each other. With E fixed,
+#        (h, rho, T0) -> (mu, D/mu, T0/mu) is a bijection.
+#
+#   loss_F1.  alpha = 3ln10/dOmSq * (OmDamp2^2/T60_DC - OmDamp1^2/T60_F1), and
+#        OmDamp1 = 0, so dOmSq = (2*pi*loss_F1)^2 cancels and alpha = 3ln10/T60_DC
+#        with no loss_F1 in it at all. It survives only inside
+#        beta = [3ln10/T60_DC] * (1-r) / (r * (2*pi*loss_F1)^2), so T60_F1_ratio
+#        and loss_F1 enter through ONE combination. Verified: (T60_DC 2.0,
+#        r 0.50, loss_F1 1e4) and (2.0, 0.20, 2e4) both give alpha 3.453878 and
+#        beta 8.748774e-10 -- bit-identical renders. 10000 rather than the
+#        probe's own 2.4e4 winner because a round reference frequency makes
+#        T60_F1_ratio read directly as "T60 at 10 kHz over T60 at DC".
+#
+# 12 searched dimensions to 10. At 2048 draws the mean nearest-neighbour spacing
+# goes 0.530 -> 0.474 of the box per axis, and T0's own axis improves 2.3x on top
+# of that. More draws is the weak lever by comparison: 64x the samples at 12
+# dimensions only reaches 0.375.
+FIXED = {"Lx": 1.0, "nu": 0.30, "E": 1.85e11, "loss_F1": 10000.0}
 
 # rho and E stay wide INDIVIDUALLY; what is bounded is their RATIO. Cost goes as
 # sqrt(rho/E)/h, so the expensive corner of an independent box is max-rho with
@@ -115,7 +152,7 @@ def dd_grid(Lx, Ly, h, T0, rho, E, nu, fmax):
 
 def corner(box, fmax):
     """Densest draw: max Ly, min h, min T0, and the largest ADMITTED rho/E."""
-    e = box["E"][0]
+    e = FIXED["E"]
     rho = min(box["rho"][1], RHO_OVER_E[1] * e)
     return dd_grid(FIXED["Lx"], box["Ly"][1], box["h"][0], box["T0"][0],
                    rho, e, FIXED["nu"], fmax)
@@ -129,14 +166,9 @@ def sample(box, n, seed, dev):
         u = torch.rand(n, generator=g)
         named[k] = (torch.exp(math.log(lo) + u * (math.log(hi) - math.log(lo)))
                     if lg else lo + u * (hi - lo))
-    # E is resampled inside the window rho/E allows, rather than rejected: an
-    # exact interval keeps every draw usable and the marginal on rho uniform.
-    r_lo, r_hi = RHO_OVER_E
-    e_lo = torch.clamp(named["rho"] / r_hi, min=box["E"][0])
-    e_hi = torch.clamp(named["rho"] / r_lo, max=box["E"][1])
-    e_hi = torch.maximum(e_hi, e_lo)
-    u = torch.rand(n, generator=g)
-    named["E"] = e_lo + u * (e_hi - e_lo)
+    # E used to be resampled inside the rho/E window. It is FIXED now (see the
+    # note on FIXED), and rho's floor was raised to 1.5e-8 * 1.85e11 = 2775 so
+    # every draw already satisfies the ratio bound without rejection.
 
     # The one derived column. named keeps the ratio, since that is the quantity
     # with a meaningful bound to report against in THE BOUNDS.
