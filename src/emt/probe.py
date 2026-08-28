@@ -71,17 +71,28 @@ P14 = list(SevenParamPlate.PARAM_ORDER)
 # that were fixed on physical grounds (rho, E) are searched again over a range
 # no real steel occupies. (lo, hi, log?)
 WIDE = {
-    "Ly":      (1.0, 3.5, False),
+    # 2.225 [2.03, 2.74] at 20 kHz. Widened from the CI by ~2x on each side:
+    # the CI says how well-determined the MEDIAN OF THESE DRAWS is, not where
+    # the truth is, and emt7 died of narrowing to an under-resolved answer.
+    "Ly":      (1.5, 3.2, False),
     "h":       (0.0003, 0.003, True),      # 0.3 mm to 3 mm; emt7 railed at 0.56
     # (0.1, 1e6) wasted four decades: below ~1e3 the fundamental is under 8 Hz
     # at any (rho, h, Ly) in this box, and the 20 kHz bass winners want
     # 3.3e5 [7.1e4, 8.3e5]. Seven decades to three is 2.3x the resolution on the
     # one axis the bass actually cares about.
-    "T0":      (1e3, 1e6, True),
+    # mfcc wants 4.43e4 [2.32e4, 9.66e4] -- but the BASS wants 2.22e5
+    # [4.14e4, 8.45e5], so the ceiling is set by the bass and NOT by mfcc.
+    # Narrowing to mfcc's CI here would delete the bass's answer entirely.
+    "T0":      (1e4, 5e5, True),
     # Floor raised from 2500 so every draw satisfies RHO_OVER_E with E fixed:
     # 1.5e-8 * 1.85e11 = 2775. Nothing is rejected and the marginal stays uniform.
-    "rho":     (2775.0, 12000.0, False),
-    "T60_DC":  (0.3, 12.0, True),
+    # 7452 [5.38e3, 8.39e3] once E is fixed and rho stops being degenerate
+    # with it -- steel is 7700-7900. Floor stays above 1.5e-8 * 1.85e11 = 2775
+    # so RHO_OVER_E needs no rejection.
+    "rho":     (4000.0, 11000.0, False),
+    # 1.957 [1.78, 2.00] -- the tightest CI of anything measured, and the
+    # biggest single narrowing available: 1.6 decades to 0.6.
+    "T60_DC":  (1.0, 4.0, True),
     # NOT an absolute T60_F1: a RATIO of T60_DC, which is how quiet7 carries it
     # and the reason emt7 could pin it at 1.2 safely. beta is
     # 3ln10/dOmSq * (1/T60_F1 - 1/T60_DC), so T60_F1 > T60_DC makes beta
@@ -97,6 +108,10 @@ WIDE = {
     # (0.005, 0.98) covers both of the old box's winners -- the mfcc top-32 sat
     # at 0.886 and the bass top-32 at 0.020 once converted -- in 2.3 decades
     # where the old (ratio x loss_F1) pair needed 5.9 to span the same betas.
+    # DELIBERATELY NOT NARROWED. mfcc wants 0.659 [0.538, 0.787] and the bass
+    # wants 0.046 [0.006, 0.574]; they barely overlap, so this is the one
+    # coordinate the two objectives genuinely pull apart and any narrowing
+    # would be a choice between them dressed as a measurement.
     "T60_F1_ratio": (0.005, 0.98, True),
     "fp_x":    (0.02, 0.5, False),         # emt7 pinned the drive point
     "fp_y":    (0.02, 0.5, False),
@@ -306,6 +321,49 @@ def main() -> int:
         e = torch.einsum("bf,cf->bc", P.sum(dim=-1), M)
         return e / e.sum(dim=1, keepdim=True).clamp(min=1e-30)
 
+    # ONE time-resolved tensor, three objectives off it. TILT, DECAY and ONSET
+    # are all reductions of [B, n_bands, n_frames], so adding them costs no
+    # extra rendering -- which is the whole reason they belong in this file
+    # rather than in a second pass over the wavs.
+    n_on = max(1, int(round(0.020 * SAMPLE_RATE / args.hop)))
+
+    def bands_t(x):
+        """[B, n_bands, n_frames] band energy over time."""
+        P = _stft_mag(x, args.band_fft, args.hop) ** 2
+        return torch.einsum("bft,cf->bct", P, M)
+
+    def shape_decay_onset(bt):
+        """(tilt_dB, T60_s, onset_share), each [B, n_bands], from bands_t.
+
+        TILT is the time-summed share in dB, i.e. exactly what bands() gives,
+        so it is level-free and comparable across draws.
+
+        DECAY is a least-squares slope of 10*log10(energy) against time over the
+        WHOLE render, converted to a T60. A full-length fit is biased by the
+        noise floor at the tail -- a proper T20 would window between -5 and
+        -25 dB -- but the bias applies identically to the render and to the
+        target, and only their RATIO is scored. Vectorising a per-band variable
+        window over 2048 draws x 15 IRs x 27 bands is not worth the accuracy.
+
+        ONSET is the share of each band's energy inside the first 20 ms, which
+        is why_dark's ONSET column and the one place a pinned drive point can
+        show up: fp/op set which modes the strike excites, and nothing else the
+        encoder searches does.
+        """
+        e = bt.sum(dim=-1)
+        sh = e / e.sum(dim=1, keepdim=True).clamp(min=1e-30)
+        tilt = 10.0 * torch.log10(sh.clamp(min=1e-30))
+
+        L = 10.0 * torch.log10(bt.clamp(min=1e-30))          # [B, C, T]
+        n_t = L.shape[-1]
+        t = torch.arange(n_t, device=L.device, dtype=L.dtype) * (args.hop / SAMPLE_RATE)
+        tc = t - t.mean()
+        slope = (tc * (L - L.mean(dim=-1, keepdim=True))).sum(-1) / (tc * tc).sum()
+        t60 = -60.0 / slope.clamp(max=-1e-3)                 # dB/s -> s
+
+        onset = bt[..., :n_on].sum(-1) / e.clamp(min=1e-30)
+        return tilt, t60, onset
+
     # --- targets ----------------------------------------------------------
     from pathlib import Path
     wavs = sorted(str(q) for q in Path(args.wav_dir).rglob("*.wav"))
@@ -333,6 +391,7 @@ def main() -> int:
     T = peak(T)
     with torch.no_grad():
         Tm, Tb = mfcc(T), bands(T)
+        Ttilt, Tt60, Ton = shape_decay_onset(bands_t(T))
     print(f"{len(names)} target(s) from {args.wav_dir}"
           + (f", band-limited to {args.lowpass:.0f} Hz" if args.lowpass else "")
           + "\n")
@@ -362,6 +421,9 @@ def main() -> int:
     # this rather than a separate incremental tracker to get wrong.
     D = torch.empty((args.n, len(names)), device=dev)
     G62 = torch.empty((args.n, len(names)), device=dev)
+    TL = torch.empty((args.n, len(names)), device=dev)   # tilt, mean |dB| error
+    DC = torch.empty((args.n, len(names)), device=dev)   # decay, mean |log10 T60 ratio|
+    ON = torch.empty((args.n, len(names)), device=dev)   # onset, mean |share| error
     tb62 = (10.0 * torch.log10(Tb.clamp(min=1e-30)))[:, i62]
 
     print(f"\nrendering {args.n} draws...")
@@ -377,9 +439,20 @@ def main() -> int:
             d = (mfcc(y).unsqueeze(1) - Tm.unsqueeze(0)).abs().mean(dim=(-2, -1))
             yb62 = (10.0 * torch.log10(bands(y).clamp(min=1e-30)))[:, i62]
             g62 = (yb62.unsqueeze(1) - tb62.unsqueeze(0)).abs()
+            ytilt, yt60, yon = shape_decay_onset(bands_t(y))
+            # [draws, 1, bands] against [1, n_ir, bands] -> [draws, n_ir]
+            tl = (ytilt.unsqueeze(1) - Ttilt.unsqueeze(0)).abs().mean(dim=-1)
+            # T60 in log ratio: scale-free, and a render twice as long as the
+            # target scores the same as one half as long.
+            dc = (torch.log10(yt60.clamp(min=1e-3)).unsqueeze(1)
+                  - torch.log10(Tt60.clamp(min=1e-3)).unsqueeze(0)).abs().mean(dim=-1)
+            on = (yon.unsqueeze(1) - Ton.unsqueeze(0)).abs().mean(dim=-1)
             bad = ~ok.unsqueeze(1) | ~torch.isfinite(d)
             D[s0 : s0 + z.shape[0]] = torch.where(bad, torch.inf, d)
             G62[s0 : s0 + z.shape[0]] = torch.where(bad, torch.inf, g62)
+            for _t, _v in ((TL, tl), (DC, dc), (ON, on)):
+                _t[s0 : s0 + z.shape[0]] = torch.where(
+                    bad | ~torch.isfinite(_v), torch.inf, _v)
             if (s0 // args.batch) % 20 == 0:
                 print(f"  {min(s0 + args.batch, args.n)}/{args.n}", flush=True)
 
@@ -447,6 +520,31 @@ def main() -> int:
             row += f"{float(D[:, i][m].min()):>10.2f}{ctrl:>8.2f}{cnt:>6d}"
         print(row)
 
+    # --- SHAPE, DECAY, ONSET -----------------------------------------------
+    print("\n=== THE OTHER THREE   best of the same draws, per objective")
+    print("  Free off the same renders, so these cost no GPU time. Each is a")
+    print("  mean over third-octave bands of |render - target|:")
+    print("    tilt    dB of the time-summed band share; level-free")
+    print("    decay   |log10(T60_render / T60_target)|, so 0.30 is a factor of 2")
+    print("    onset   share of each band's energy in the first 20 ms")
+    print("  ONSET IS THE ONE THAT MATTERS FOR THE SEARCHED SET. fp/op set which")
+    print("  modes the strike excites and nothing else the encoder searches does,")
+    print("  so if they are unconstrained here too they can be fixed -- and if")
+    print("  they are not, they belong in the search.\n")
+    print(f"  {'ir':<22}" + "".join(f"{h:>10}" for h in ("tilt dB", "decay", "onset")))
+    for i, nm in enumerate(names):
+        print(f"  {nm:<22}{TL[:, i].min().item():>10.3f}"
+              f"{DC[:, i].min().item():>10.3f}{ON[:, i].min().item():>10.4f}")
+    print(f"  {'MEAN of the bests':<22}{TL.min(dim=0).values.mean().item():>10.3f}"
+          f"{DC.min(dim=0).values.mean().item():>10.3f}"
+          f"{ON.min(dim=0).values.mean().item():>10.4f}")
+    print(f"  {'MEDIAN draw (random)':<22}"
+          + "".join(f"{float(np.median(t[torch.isfinite(t)].cpu().numpy())):>10.3f}"
+                    for t in (TL, DC, ON)))
+    print("\n  read best against the random median: an objective whose best is")
+    print("  near the median is one no draw in this box does well, which is a")
+    print("  statement about the MODEL rather than about the search.")
+
     # --- THE BOUNDS --------------------------------------------------------
     k = min(args.top, args.n)
     # Top K by MEAN score over the fifteen IRs, not per-IR winners: a parameter
@@ -502,6 +600,8 @@ def main() -> int:
         # Every score, so the tables above can be recomputed without re-rendering.
         np.savez(os.path.join(args.out, "probe_scores.npz"),
                  mfcc=D.cpu().numpy(), gap62=G62.cpu().numpy(),
+                 tilt=TL.cpu().numpy(), decay=DC.cpu().numpy(),
+                 onset=ON.cpu().numpy(),
                  names=np.array(names), bands=cen,
                  **{k: named[k].numpy() for k in WIDE})
         csvp = os.path.join(args.out, "probe_best.csv")

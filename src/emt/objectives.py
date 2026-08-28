@@ -9,15 +9,20 @@ that file rather than new work.
 
 THE QUESTION IT ANSWERS, which is not "what are the bounds" but "what should be
 SEARCHED". emt10 fixes fp_x, fp_y, op_x, op_y at the medians of the top-32 draws
-by mfcc, on the argument that the objective is flat in them. But the probe scores
-two things, and the draws that win them are disjoint sets: the mfcc winners are
-{1038, 235, 299, ...} and the 62 Hz winners are {1222, 1482, 1402, ...}, with no
-overlap at all. If those two sets also disagree about WHERE a parameter should
-sit, then that parameter is doing real work for one objective and pinning it at
-the other's answer is a choice with a cost -- which is exactly the case that
-matters for fp/op, since mode (1,1)'s amplitude is
-sin(fp_x*pi)sin(fp_y*pi)sin(op_x*pi)sin(op_y*pi) and nothing else the encoder
-searches can turn the fundamental down.
+by mfcc, on the argument that the objective is flat in them. But the probe now
+scores FIVE things -- mfcc, bass, tilt, decay, onset -- and "flat under mfcc" is
+not "flat under everything". Only the first was ever measured, and the objectives
+already disagree: on the first two-objective run the mfcc winners were {1038,
+235, 299, ...} and the 62 Hz winners {1222, 1482, 1402, ...}, with no draw in
+common.
+
+ONSET IS THE ONE THAT DECIDES fp/op. The drive point sets which modes the strike
+excites and the pickup combs their amplitudes; nothing else the encoder searches
+touches the first 20 ms. If onset leaves them unconstrained too then all four can
+be fixed and the search drops from ten dimensions to six -- which at 2048 draws
+is 2.14 -> 3.56 points per axis, more than 34 GPU-hours of extra draws would buy
+at ten. If onset pins them, they belong in the search and that is the answer to
+why the strike reads as a thud rather than a crash.
 
 HOW TO READ IT. Per parameter, the median and 90% interval of the top-K draws
 under each objective, side by side.
@@ -35,10 +40,16 @@ The last case is the trap: "flat under mfcc" and "flat under everything" are
 different claims, and only the first was ever measured.
 
 COMPATIBILITY, printed below the table. For the top-K under each objective,
-their median score under the OTHER one, against what a random draw gets. It is
-the same question JOINT asks in probe.py, without the bass threshold being a
-free parameter: if the mfcc winners score near-random on bass, one vector cannot
-serve both and the model needs a coordinate that decouples them.
+their median score under every OTHER one, against what a random draw gets. It is
+the same question JOINT asks in probe.py without the bass threshold being a free
+parameter: a top-K that scores near random elsewhere is one vector serving one
+goal and abandoning the rest, and the fix for that is a coordinate that decouples
+them rather than a better search over the ones the model has.
+
+WITH FIVE OBJECTIVES THE VERDICTS TIGHTEN, deliberately. "agree" now needs a
+value all five can live with, and "unconstrained" needs all five to be
+indifferent -- so a parameter that only mfcc cared about stops being called
+free.
 """
 
 from __future__ import annotations
@@ -56,7 +67,8 @@ from src.emt.probe import WIDE                                     # noqa: E402
 
 # Every objective is (key in the npz, lower-is-better, label). gap62 is stored
 # as |render - target| in dB, so it is already a distance like mfcc is.
-OBJECTIVES = [("mfcc", "mfcc"), ("gap62", "bass 62Hz")]
+OBJECTIVES = [("mfcc", "mfcc"), ("gap62", "bass"), ("tilt", "tilt"),
+              ("decay", "decay"), ("onset", "onset")]
 
 
 def top_k(score: np.ndarray, k: int) -> np.ndarray:
@@ -80,7 +92,7 @@ def interval(v: np.ndarray, log: bool):
 
 
 def fmt(x: float) -> str:
-    return f"{x:.4g}"
+    return f"{x:.3g}"
 
 
 def main() -> int:
@@ -105,13 +117,18 @@ def main() -> int:
         sets[label] = top_k(d[key], args.k)
 
     labels = [l for _, l in OBJECTIVES]
-    ov = len(set(sets[labels[0]]) & set(sets[labels[1]]))
-    print(f"=== OVERLAP   {ov} of {args.k} draws are in BOTH objectives' top-{args.k}")
+    print(f"=== OVERLAP   shared draws between each pair's top-{args.k}")
     print("  0 means no single draw is good at both, which is the strongest form")
-    print("  of 'these objectives want different plates'.\n")
+    print("  of 'these objectives want different plates'.")
+    print(f"  {'':>10}" + "".join(f"{l:>10}" for l in labels))
+    for a in labels:
+        print(f"  {a:>10}" + "".join(
+            f"{'-' if a == b else len(set(sets[a]) & set(sets[b])):>10}"
+            for b in labels))
+    print()
 
     print("=== WHAT EACH OBJECTIVE WANTS   median [5%, 95%] of its top-K")
-    w = 26
+    w = 20
     print(f"  {'param':>14}" + "".join(f"{l:>{w}}" for l in labels) + "   verdict")
     disagree, flat = [], []
     for kk, (lo, hi, lg) in WIDE.items():
@@ -120,7 +137,7 @@ def main() -> int:
         for l in labels:
             med, a, b = interval(v[sets[l]], lg)
             ivs.append((a, b))
-            cells += f"{fmt(med) + ' [' + fmt(a) + ',' + fmt(b) + ']':>{w}}"
+            cells += f"{fmt(med) + '[' + fmt(a) + ',' + fmt(b) + ']':>{w}}"
         # General over any number of objectives: they share a value iff the
         # highest lower bound is below the lowest upper bound.
         overlap = max(a for a, _ in ivs) <= min(b for _, b in ivs)
@@ -154,20 +171,19 @@ def main() -> int:
     print("\n=== COMPATIBILITY   each objective's top-K scored under the other")
     print("  'random' is the median over all draws, i.e. what carrying no")
     print("  information about that objective looks like.")
-    print(f"  {'top-K by':>14}" + "".join(f"{'-> ' + l:>18}" for l in labels)
-          + f"{'':>4}")
+    print(f"  {'top-K by':>12}" + "".join(f"{l:>12}" for l in labels))
     for l_sel in labels:
-        row = f"  {l_sel:>14}"
+        row = f"  {l_sel:>12}"
         for (key, l_sc) in OBJECTIVES:
             s = d[key].mean(axis=1)
             s = np.where(np.isfinite(s), s, np.inf)
-            row += f"{np.median(s[sets[l_sel]]):>18.4g}"
+            row += f"{np.median(s[sets[l_sel]]):>12.4g}"
         print(row)
-    row = f"  {'random':>14}"
+    row = f"  {'random':>12}"
     for key, _ in OBJECTIVES:
         s = d[key].mean(axis=1)
         s = np.where(np.isfinite(s), s, np.inf)
-        row += f"{np.median(s[np.isfinite(s)]):>18.4g}"
+        row += f"{np.median(s[np.isfinite(s)]):>12.4g}"
     print(row)
     print("\n  A top-K that scores near 'random' under the other objective is one")
     print("  vector serving one goal and abandoning the other. That is not a")
