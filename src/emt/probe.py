@@ -71,52 +71,25 @@ P14 = list(SevenParamPlate.PARAM_ORDER)
 # that were fixed on physical grounds (rho, E) are searched again over a range
 # no real steel occupies. (lo, hi, log?)
 WIDE = {
-    # 2.225 [2.03, 2.74] at 20 kHz. Widened from the CI by ~2x on each side:
-    # the CI says how well-determined the MEDIAN OF THESE DRAWS is, not where
-    # the truth is, and emt7 died of narrowing to an under-resolved answer.
-    "Ly":      (1.5, 3.2, False),
-    "h":       (0.0003, 0.003, True),      # 0.3 mm to 3 mm; emt7 railed at 0.56
-    # (0.1, 1e6) wasted four decades: below ~1e3 the fundamental is under 8 Hz
-    # at any (rho, h, Ly) in this box, and the 20 kHz bass winners want
-    # 3.3e5 [7.1e4, 8.3e5]. Seven decades to three is 2.3x the resolution on the
-    # one axis the bass actually cares about.
-    # mfcc wants 4.43e4 [2.32e4, 9.66e4] -- but the BASS wants 2.22e5
-    # [4.14e4, 8.45e5], so the ceiling is set by the bass and NOT by mfcc.
-    # Narrowing to mfcc's CI here would delete the bass's answer entirely.
-    "T0":      (1e4, 5e5, True),
-    # Floor raised from 2500 so every draw satisfies RHO_OVER_E with E fixed:
-    # 1.5e-8 * 1.85e11 = 2775. Nothing is rejected and the marginal stays uniform.
-    # 7452 [5.38e3, 8.39e3] once E is fixed and rho stops being degenerate
-    # with it -- steel is 7700-7900. Floor stays above 1.5e-8 * 1.85e11 = 2775
-    # so RHO_OVER_E needs no rejection.
-    "rho":     (4000.0, 11000.0, False),
-    # 1.957 [1.78, 2.00] -- the tightest CI of anything measured, and the
-    # biggest single narrowing available: 1.6 decades to 0.6.
-    "T60_DC":  (1.0, 4.0, True),
-    # NOT an absolute T60_F1: a RATIO of T60_DC, which is how quiet7 carries it
-    # and the reason emt7 could pin it at 1.2 safely. beta is
-    # 3ln10/dOmSq * (1/T60_F1 - 1/T60_DC), so T60_F1 > T60_DC makes beta
-    # negative, sig negative at high omega, and r = exp(-sig*k) > 1 -- the mode
-    # GROWS over 176,400 samples until it overflows to inf and poisons every
-    # metric to nan. Damping has to increase with frequency; the ratio is what
-    # enforces it. 0.95 rather than 1.0 keeps beta strictly positive.
-    # WITH loss_F1 FIXED THIS IS "T60 at 10 kHz over T60 at DC", and that is not
-    # a renaming -- it is what the damping law already computes. At
-    # w = 2*pi*loss_F1 the law collapses:
-    #   sig = 3ln10/T60_DC + 3ln10*(1/T60_F1 - 1/T60_DC) = 3ln10/T60_F1
-    # so loss_F1 IS the reference frequency and T60_F1 IS the T60 there.
-    # (0.005, 0.98) covers both of the old box's winners -- the mfcc top-32 sat
-    # at 0.886 and the bass top-32 at 0.020 once converted -- in 2.3 decades
-    # where the old (ratio x loss_F1) pair needed 5.9 to span the same betas.
-    # DELIBERATELY NOT NARROWED. mfcc wants 0.659 [0.538, 0.787] and the bass
-    # wants 0.046 [0.006, 0.574]; they barely overlap, so this is the one
-    # coordinate the two objectives genuinely pull apart and any narrowing
-    # would be a choice between them dressed as a measurement.
-    "T60_F1_ratio": (0.005, 0.98, True),
-    "fp_x":    (0.02, 0.5, False),         # emt7 pinned the drive point
-    "fp_y":    (0.02, 0.5, False),
-    "op_x":    (0.05, 0.95, False),
-    "op_y":    (0.05, 0.95, False),
+    # THE FINAL BOX. Six searched dimensions, and every bound below is the union
+    # of what the FIVE objectives asked for rather than what mfcc alone did --
+    # narrowing on one objective's evidence is what excluded decay's T60_DC last
+    # time. 2048 draws over six axes is 3.56 points per axis, against 2.14 at ten
+    # and 1.89 at the twelve this started with.
+    #
+    # medians per objective (mfcc / bass / tilt / decay / onset) in brackets.
+    "Ly":      (1.7, 3.1, False),          # 2.21 2.14 2.19 2.35 2.65
+    "h":       (5e-4, 2.5e-3, True),       # 1.18e-3 8.1e-4 8.2e-4 1.70e-3 1.31e-3
+    "T0":      (1e4, 4e5, True),           # 8.5e4 1.6e5 1.3e5 4.7e4 2.1e4
+    "rho":     (4500.0, 11000.0, False),   # 6934 6460 6460 8080 8980
+    # THE TWO THAT DISAGREE, and the reason they stay wide. decay wants
+    # T60_DC 3.88 [3.67, 3.99] against mfcc's 1.95 [1.64, 2.25], and
+    # T60_F1_ratio 0.0169 [0.008, 0.034] against mfcc's 0.583 [0.385, 0.903] --
+    # a factor of 34. The previous box's (1.0, 4.0) had decay pressed against
+    # the ceiling, because that ceiling was set from mfcc's CI alone. Both
+    # answers have to fit or the probe cannot report the disagreement it found.
+    "T60_DC":  (1.0, 5.0, True),           # 1.95 2.03 1.97 3.88 2.39
+    "T60_F1_ratio": (0.005, 0.98, True),   # 0.583 0.147 0.071 0.017 0.351
 }
 # WHY E AND loss_F1 ARE NO LONGER SEARCHED. Both are EXACT degeneracies, so
 # dropping them costs no reachable render and buys resolution everywhere else.
@@ -143,7 +116,31 @@ WIDE = {
 # goes 0.530 -> 0.474 of the box per axis, and T0's own axis improves 2.3x on top
 # of that. More draws is the weak lever by comparison: 64x the samples at 12
 # dimensions only reaches 0.375.
-FIXED = {"Lx": 1.0, "nu": 0.30, "E": 1.85e11, "loss_F1": 10000.0}
+# fp_x, fp_y, op_x, op_y JOIN THE FIXED SET, and unlike emt8's pins this is
+# measured rather than assumed. emt8 fixed them on their flatness under mfcc
+# alone -- "flat under mfcc" and "flat under everything" are different claims,
+# and only the first had ever been tested. All five objectives now report them
+# unconstrained, ONSET INCLUDED, which is the one that could have pinned them:
+# the drive point sets which modes the strike excites and nothing else the
+# encoder searches touches the first 20 ms. It does not need them either.
+#
+#   fp_x   mfcc 0.134  bass 0.215  tilt 0.103  decay 0.339  onset 0.283
+#   fp_y        0.299       0.313       0.209        0.256        0.249
+#   op_x        0.564       0.684       0.406        0.513        0.468
+#   op_y        0.604       0.567       0.421        0.431        0.704
+#
+# every 5-95% interval covering most of its range. The values below are the
+# MEDIAN OF THE FIVE MEDIANS, so no objective is served preferentially -- and
+# because the objectives are flat in them the exact value costs little either
+# way. They differ slightly from emt8's (0.22, 0.18) / (0.48, 0.59), which came
+# from the 22 kHz mfcc top-32 only.
+#
+# Fixing both fp AND op also disposes of the exchange symmetry for free: P is a
+# product of sin(fp_x pi m)sin(fp_y pi n) and sin(op_x pi m)sin(op_y pi n), so
+# swapping the pairs renders bit-identically and searching all four carries a
+# hard two-fold ambiguity no data resolves.
+FIXED = {"Lx": 1.0, "nu": 0.30, "E": 1.85e11, "loss_F1": 10000.0,
+         "fp_x": 0.215, "fp_y": 0.256, "op_x": 0.513, "op_y": 0.567}
 
 # rho and E stay wide INDIVIDUALLY; what is bounded is their RATIO. Cost goes as
 # sqrt(rho/E)/h, so the expensive corner of an independent box is max-rho with
