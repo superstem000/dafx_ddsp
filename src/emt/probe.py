@@ -214,7 +214,23 @@ def main() -> int:
                         "not tied to any checkpoint's training window.")
     p.add_argument("--fmax", type=float, default=12000.0)
     p.add_argument("--batch", type=int, default=16)
-    p.add_argument("--chunk-elems", type=int, default=400_000_000)
+    p.add_argument(
+        "--chunk-elems", type=int, default=800_000_000,
+        help="NOT 4e8, which was tuned for emt7's 22,000-mode grid and is wrong "
+             "for any grid this size. Per-mode tensors are re-read on EVERY "
+             "launch and launch count is Ts*B*n_pad/chunk_elems, so total "
+             "re-read traffic goes as n_pad^2 at fixed chunk_elems -- the rule "
+             "jobs_emt8.txt states as 'WHENEVER THE MODE COUNT CHANGES, "
+             "chunk_elems MUST BE RESCALED WITH IT.' At this box's 20 kHz corner "
+             "of (188, 660) = 124,080 modes, --batch 16 and 4 s:\n"
+             "  4e8   876 launches x 31.8 MB = 27.8 GB traffic, peak 4.8 GB\n"
+             "  8e8   438 launches x 31.8 MB = 13.9 GB traffic, peak 9.6 GB\n"
+             "against an emt10 training step's 6.7 GB. The raw arithmetic puts a "
+             "2048-draw run at ~6 min -- 368 forward-equivalents of a training "
+             "step, which is ~123 steps at 0.34 st/s -- and the traffic is what "
+             "took it to 20-30. Per-clip traffic goes as batch/chunk_elems, so "
+             "--batch 8 with this halves it again to 3.5 GB; src/emt/bench_modal.py "
+             "is what settles whether the occupancy loss is worth it.")
     p.add_argument("--mode-bucket", type=int, default=1024)
     p.add_argument("--no-compile", action="store_true",
                    help="eager modal sum. 8.5x slower here; compile is safe "
