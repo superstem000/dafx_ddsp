@@ -258,17 +258,23 @@ def main() -> int:
         ]
         for a in arms:
             L.append(f"      {a}: {audio_rel}/{stem}__{a}.wav")
-    # ONE QUESTION, AND IT IS THE ONE THAT MAKES A SECOND LISTENER USABLE.
-    # webMUSHRA mints a fresh uuid per page load, so it identifies a SESSION,
-    # not a person: without a name, one listener who ran it twice and two
-    # listeners who ran it once are indistinguishable in the results, with no
-    # way to tell after the fact. It lands in session.participant and
-    # mushra_server.py flattens it to a participant_listener column.
+    # ONE QUESTION, AND IT IS A CODE RATHER THAN A NAME. webMUSHRA mints a
+    # fresh uuid per page load, so it identifies a SESSION, not a person:
+    # without something stable, one listener who ran it twice and two listeners
+    # who ran it once are indistinguishable, with no way to tell afterwards.
+    # What that requires is a pseudonym -- enough to separate listeners and to
+    # link one listener's repeat sessions, which a code does completely.
     #
-    # Playback device is deliberately NOT asked. It is standard for a remote
-    # panel of unknown listeners, where it is the only defence against someone
-    # rating on laptop speakers; this panel is a handful of people in one lab
-    # who know what the test is, so it would be a form field nobody reads.
+    # A NAME WOULD BE PERSONAL DATA and buys nothing on top of that. It would
+    # put identifiable information in a CSV that gets copied between machines
+    # and possibly into a repository, and bring whatever data-protection and
+    # ethics rules apply along with it, in exchange for no analysis anyone
+    # wants to run. Hand out P1, P2, P3 and keep the mapping out of the data.
+    #
+    # Playback device is deliberately NOT asked either. It is standard for a
+    # remote panel of unknown listeners, where it is the only defence against
+    # someone rating on laptop speakers; this panel is a handful of people in
+    # one lab who know what the test is.
     L += [
         "  - type: finish",
         "    name: Thank you",
@@ -277,8 +283,8 @@ def main() -> int:
         "    writeResults: true",
         "    questionnaire:",
         "      - type: text",
-        "        label: Your name or initials",
-        "        name: listener",
+        "        label: 'Participant ID (the code you were given, e.g. P1 -- not your name)'",
+        "        name: participant_id",
         "",
     ]
 
