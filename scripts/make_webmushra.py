@@ -266,12 +266,29 @@ def main() -> int:
         ]
         for a in arms:
             L.append(f"      {a}: {audio_rel}/{stem}__{a}.wav")
+    # THE QUESTIONNAIRE IS WHAT MAKES A SECOND LISTENER USABLE. webMUSHRA
+    # mints a fresh uuid per page load, so it identifies a SESSION, not a
+    # person: without this, one listener who ran it twice and two listeners who
+    # ran it once are indistinguishable in the results, and there is no way to
+    # tell after the fact. The fields land in session.participant and
+    # mushra_server.py flattens them to participant_* columns.
+    #
+    # It sits on the finish page because that is where webMUSHRA puts it, which
+    # means it is answered AFTER the ratings -- fine for an identifier, and it
+    # keeps the listener from spending attention on forms before the trials.
     L += [
         "  - type: finish",
         "    name: Thank you",
         "    content: Your responses have been recorded.",
         "    showResults: true",
         "    writeResults: true",
+        "    questionnaire:",
+        "      - type: text",
+        "        label: Your name or initials",
+        "        name: listener",
+        "      - type: text",
+        "        label: Headphones or speakers used",
+        "        name: playback",
         "",
     ]
 
