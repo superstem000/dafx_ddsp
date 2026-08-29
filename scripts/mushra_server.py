@@ -165,16 +165,25 @@ def public_ip() -> str:
         req = urllib.request.Request(
             "http://169.254.169.254/latest/api/token", method="PUT",
             headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"})
-        tok = urllib.request.urlopen(req, timeout=0.4).read().decode()
+        tok = urllib.request.urlopen(req, timeout=1.5).read().decode()
         hdr = {"X-aws-ec2-metadata-token": tok}
     except Exception:                                    # noqa: BLE001
         hdr = {}
     try:
         req = urllib.request.Request(
             "http://169.254.169.254/latest/meta-data/public-ipv4", headers=hdr)
-        return urllib.request.urlopen(req, timeout=0.4).read().decode().strip()
+        return urllib.request.urlopen(req, timeout=1.5).read().decode().strip()
     except Exception:                                    # noqa: BLE001
         return ""
+
+
+def is_private(ip: str) -> bool:
+    """RFC1918. An address a browser elsewhere cannot reach."""
+    p = ip.split(".")
+    if len(p) != 4 or not all(x.isdigit() for x in p):
+        return False
+    a, b = int(p[0]), int(p[1])
+    return a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168)
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -222,6 +231,9 @@ def main() -> int:
     p.add_argument("--host", default="localhost",
                    help="localhost, reached over an SSH tunnel. 0.0.0.0 "
                         "exposes it to the network.")
+    p.add_argument("--show", type=int, default=3, metavar="N",
+                   help="how many config links to print, newest first. The "
+                        "webMUSHRA checkout ships 26 examples.")
     p.add_argument("--flatten", action="store_true",
                    help="rebuild every CSV from the stored JSONs and exit")
     args = p.parse_args()
@@ -251,19 +263,31 @@ def main() -> int:
     # rather than a placeholder: the configs that are really there, against an
     # address that is really reachable. "0.0.0.0" is a bind address, not one a
     # browser can open.
-    configs = sorted(p.name for p in (root / "configs").glob("*.yaml"))
+    # Newest first and capped: a webMUSHRA checkout ships 26 example configs,
+    # and burying the one just copied in among them is worse than a
+    # placeholder was. The one you want is the one you just wrote.
+    found = sorted((root / "configs").glob("*.yaml"),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    configs = [p.name for p in found[:args.show]]
     hosts = [args.host]
     if args.host in ("0.0.0.0", "", "::"):
         hosts = [h for h in (public_ip(), lan_ip()) if h] or ["<this-host>"]
-    if not configs:
+    if not found:
         print(f"\n  no .yaml under {root/'configs'} -- copy one in first")
     for h in hosts:
         for c in configs:
             print(f"  http://{h}:{args.port}/?config={c}")
+    if len(found) > len(configs):
+        print(f"  (+{len(found) - len(configs)} older config(s) in "
+              f"{root/'configs'}; --show N for more)")
     if args.host == "localhost":
         print("  (localhost only -- tunnel in with "
               "ssh -L {p}:localhost:{p} <user>@<host>, or re-run with "
               "--host 0.0.0.0)".format(p=args.port))
+    elif all(is_private(h) for h in hosts):
+        print("  NOTE: that is a private address. The instance metadata "
+              "service did not answer,\n        so use the box's PUBLIC IP in "
+              "the link when connecting from outside.")
     print("\nEvery submission prints a line here. If you finish a session and "
           "see nothing,\nthe finish page is not set to writeResults: true.")
     try:
