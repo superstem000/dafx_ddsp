@@ -46,6 +46,8 @@ import argparse
 import csv
 import json
 import re
+import socket
+import urllib.request
 import uuid as _uuid
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -136,6 +138,45 @@ def store(results: Path, session: dict) -> Path:
     return raw
 
 
+def lan_ip() -> str:
+    """The address of the interface that reaches the outside world.
+
+    Opening a UDP socket to a routable address picks the right interface
+    without sending a packet -- gethostbyname(gethostname()) returns 127.0.1.1
+    on a lot of Linux installs, which is useless in a link.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(0.3)
+            s.connect(("192.0.2.1", 9))          # TEST-NET-1, never routed
+            return s.getsockname()[0]
+    except OSError:
+        return ""
+
+
+def public_ip() -> str:
+    """EC2's own metadata, if this is EC2. Silence and a short timeout if not.
+
+    The public address is the one worth printing, since it is what gets pasted
+    to whoever is listening from somewhere else. IMDSv2 wants a token first;
+    v1 is tried after in case the instance still allows it.
+    """
+    try:
+        req = urllib.request.Request(
+            "http://169.254.169.254/latest/api/token", method="PUT",
+            headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"})
+        tok = urllib.request.urlopen(req, timeout=0.4).read().decode()
+        hdr = {"X-aws-ec2-metadata-token": tok}
+    except Exception:                                    # noqa: BLE001
+        hdr = {}
+    try:
+        req = urllib.request.Request(
+            "http://169.254.169.254/latest/meta-data/public-ipv4", headers=hdr)
+        return urllib.request.urlopen(req, timeout=0.4).read().decode().strip()
+    except Exception:                                    # noqa: BLE001
+        return ""
+
+
 class Handler(SimpleHTTPRequestHandler):
     results: Path = Path("results")
 
@@ -205,10 +246,24 @@ def main() -> int:
     srv = ThreadingHTTPServer((args.host, args.port),
                               partial(Handler, directory=str(root)))
     print(f"serving {root}\nresults -> {results}")
-    print(f"  http://{args.host}:{args.port}/?config=<yourconfig>.yaml")
+
+    # Print links that can actually be clicked or pasted to a collaborator,
+    # rather than a placeholder: the configs that are really there, against an
+    # address that is really reachable. "0.0.0.0" is a bind address, not one a
+    # browser can open.
+    configs = sorted(p.name for p in (root / "configs").glob("*.yaml"))
+    hosts = [args.host]
+    if args.host in ("0.0.0.0", "", "::"):
+        hosts = [h for h in (public_ip(), lan_ip()) if h] or ["<this-host>"]
+    if not configs:
+        print(f"\n  no .yaml under {root/'configs'} -- copy one in first")
+    for h in hosts:
+        for c in configs:
+            print(f"  http://{h}:{args.port}/?config={c}")
     if args.host == "localhost":
         print("  (localhost only -- tunnel in with "
-              "ssh -L {p}:localhost:{p} <user>@<host>)".format(p=args.port))
+              "ssh -L {p}:localhost:{p} <user>@<host>, or re-run with "
+              "--host 0.0.0.0)".format(p=args.port))
     print("\nEvery submission prints a line here. If you finish a session and "
           "see nothing,\nthe finish page is not set to writeResults: true.")
     try:
