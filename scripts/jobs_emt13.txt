@@ -1,4 +1,4 @@
-# emt13: the BEST ONE-SECOND campaign, against emt12's best two-second one.
+# emt13: one second, and a ceiling that can actually reach the plate.
 #
 #   src/emt/gen.sh                                    # datasets first, ~4.5 GB
 #   python -m src.emt.check                           # then the three files agree
@@ -7,51 +7,58 @@
 # emt12 IS NOT REPLACED and neither is emt11. This writes to
 # results/ddsp/emt13{_pre} and data/{train,val}-emt13.
 #
-# WHY IT EXISTS. emt11 -> emt12 moved FOUR things at once: the clip length
-# 1.0 -> 2.0 s, rho's ceiling 1e4 -> 8.5e3, Ly's ceiling 3.0 -> 2.6, T60_DC's
-# ceiling 4.0 -> 4.8, and separately the crossfade end 6250 -> 5000. So emt12
-# scoring worse than emt11 on real audio at step 6000 (convolved mfcc_db80
-# 1.951 against 1.735) is unattributable, and the duration is the expensive one
-# to be wrong about -- it is what doubles the run.
+# THE CEILING IS 8.0 s BECAUSE THE TARGET IS 6.03 s. The EMT-140 decays 6.03 s
+# at 62 Hz. emt11 offered 4.0 and emt12 offers 4.8, so NEITHER can represent
+# the recording's bass decay however well it estimates -- the answer sits
+# outside the box by construction, which is a worse problem than estimating it
+# imprecisely. 8.0 puts it inside with headroom and costs nothing in compute:
+# T60 does not enter DDx/DDy, so the grid, the mode count and the memory are
+# emt12's exactly.
 #
-# NOT A ONE-VARIABLE ISOLATION, DELIBERATELY. Holding T60_DC's ceiling at
-# emt12's 4.8 would have isolated the duration exactly -- and compared a
-# properly sized 2.0 s box against a 1.0 s box carrying half a decade of decay
-# its own clips cannot measure. Best against handicapped answers nothing worth
-# knowing. This is best against best.
+# WHY ONE SECOND, AND A CORRECTION TO emt12'S ARGUMENT FOR TWO. emt12's case
+# was that a clip of length d exposes 60*d/T60 dB and ISO 3382's T20 fit needs
+# 25 dB, so 1.0 s could only measure T60 <= 2.4 s. THAT RULE DOES NOT APPLY.
+# T20 needs 25 dB because it fits a slope through a NOISY measurement; these
+# targets are noiseless synthetic renders and the encoder is a CNN learning a
+# mapping, not fitting a slope. The real limit is whether the spectrogram
+# difference between T60 = 6 and T60 = 7 is large against what h, rho, Ly and
+# T0 are doing at the same time -- which nobody has measured.
 #
-# THE T20 RULE SETS BOTH CEILINGS. A clip of length d exposes 60*d/T60 dB of
-# decay and ISO 3382 fits T20 over 25 dB, so the longest measurable T60 is
-# 2.4*d. Each box is sized to exactly that, and at each ceiling a clip shows
-# precisely 25 dB:
+# Sensitivity falls smoothly instead of crossing a threshold. dB of decay
+# visible at the end of the clip:
 #
-#     duration   T60_DC ceiling = 2.4*d   dB at the ceiling
-#       1.0 s            2.4                     25          <- emt13
-#       2.0 s            4.8                     25          <- emt12
+#     T60      at 1.0 s   at 2.0 s
+#     2.0        30         60
+#     4.8        12.5       25
+#     6.0        10         20
+#     8.0         7.5       15
 #
-# emt13 is the first 1.0 s box in this project sized to what its clips support:
-# emt11 ran a 4.0 ceiling against 1.0 s clips and could not measure its own top
-# 40%.
+# 2.0 s expresses T60_DC twice as strongly, which is a real advantage and not a
+# necessity. The evidence so far leans the other way: per-band EDT at 62 Hz
+# against the target's 5.43 s ran 2.40 / 2.46 / 1.92 for emt11's arms at 1.0 s
+# and 1.75 / 1.79 / 2.17 for emt12's at 2.0 s -- the ONE SECOND run closer on
+# the very quantity the second second was bought for. Confounded by step count
+# and three bound changes, so not proof; but not support either.
 #
-# WHAT THE COMPARISON CAN AND CANNOT SAY:
+# SO THIS ANSWERS BOTH QUESTIONS AT THE PRICE OF THE CHEAPER ONE. Healthy corr
+# on T60_DC at 1.0 s with an 8.0 ceiling means one second is sufficient AND the
+# reachable ceiling works, and every campaign after this is half price. Poor
+# corr means 1.0 s is the limit, learned for half what emt12 cost.
 #
-#   corr IS COMPARABLE -- scale-free, so "does the encoder track T60_DC across
-#   the val set" reads the same in both.
+# WHAT IT IS NOT. Two things differ from emt12 -- duration and the ceiling --
+# so it isolates neither. Deliberate: emt12 already differs from emt11 in four
+# bounds plus a schedule, so there is no clean chain left to protect, and a run
+# that can match the plate is worth more than another link in a broken one. If
+# the duration ever needs isolating, a 2.0 s run at ceiling 8.0 does it against
+# this one with one variable.
 #
-#   perr IS NOT. It is normalised by the parameter's own range and emt13's
-#   T60_DC range is half of emt12's, so the same error in seconds prints twice
-#   as large here. Compare corr, or convert back to seconds first.
-#
-#   emt12 IS FAVOURED ON REAL AUDIO BY CONSTRUCTION. The EMT-140 decays 6.03 s
-#   at 62 Hz; emt12 can offer 4.8 and emt13 only 2.4, so emt13 is capped
-#   further from the truth before a step is taken. That is not a flaw in the
-#   control, it IS the argument for two seconds -- longer clips do not merely
-#   measure the decay better, they permit a box that reaches the real plate at
-#   all. A conclusion, not a confound.
+# perr IS NOT COMPARABLE TO emt12's ON T60_DC -- it is normalised by the
+# parameter's own range and this range is 1.67x emt12's, so the same error in
+# seconds prints smaller here. corr is scale-free; use it.
 #
 # NUMERICS. Everything is emt12's except the two things 1.0 s changes:
 #
-#   --duration 1.0          and T60_DC's ceiling with it, per the rule above.
+#   --duration 1.0          half of emt12's, for the reasons above.
 #   --fixed-mode-grid 131,342   unchanged. Duration does not enter DDx/DDy, so
 #                           this is the same 44,802-mode corner (h 5e-4,
 #                           rho 8500, Ly 2.6, T0 3e4) emt12 renders.
@@ -120,9 +127,9 @@ PLATE_PARAM_SPACE=emt13 TRAIN=data/train-emt13 VAL=data/val-emt13 N_TRAIN=24576 
 #   python -m src.emt.perparam --root results/ddsp/emt12 --metric perr spread corr --at 10000
 #
 # T60_DC and T60_ratio side by side, and read CORR not perr -- the ranges
-# differ, so perr is not on the same scale. Better corr in emt12 means the extra
-# second bought the decay evidence it was supposed to; equal means it did not
-# and 1.0 s clips with a correctly sized ceiling are enough.
+# differ, so perr is not on the same scale. Healthy corr here means 1.0 s clips
+# can learn a ceiling that reaches the real plate, and the second second emt12
+# spends is not needed. Poor corr means it is.
 #
 # val_loss is still the base-vs-linear check within emt13 -- same function, same
 # 991 clips -- but it is NOT comparable to emt12's, which runs over twice the

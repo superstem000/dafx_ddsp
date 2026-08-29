@@ -588,60 +588,74 @@ PLATE_EMT12 = dict(
 # What gen.sh and check.py read, so the four numbers cannot drift between
 # dataset generation and training. Keyed by PLATE_PARAM_SPACE.
 # ===========================================================================
-# emt13: the BEST ONE-SECOND campaign, against emt12's best two-second one.
+# emt13: one second, and a ceiling that can actually reach the plate.
 #
-# emt11 -> emt12 moved four things at once -- the clip length, rho's ceiling,
-# Ly's ceiling, T60_DC's ceiling -- plus the crossfade end from 6250 to 5000.
-# So "emt12 scores worse than emt11 on real audio" is unattributable, and the
-# duration is the expensive one to be wrong about: it is what doubles the run.
+# THE CEILING IS 8.0 s BECAUSE THE TARGET IS 6.03 s. The EMT-140 decays 6.03 s
+# at 62 Hz. emt11 offered 4.0, emt12 offers 4.8, so NEITHER can represent the
+# recording's bass decay however well it estimates -- the answer is outside the
+# box by construction. 8.0 puts it inside with headroom, and it costs nothing
+# in compute: T60 does not enter DDx/DDy, so the grid, the mode count and the
+# memory are all emt12's exactly.
 #
-# WHAT THIS COMPARES, and it is deliberately NOT a one-variable isolation.
-# Holding T60_DC's ceiling at emt12's 4.8 would have isolated the duration
-# exactly, but it would have compared a properly sized 2.0 s box against a
-# 1.0 s box carrying half a decade of decay its own clips cannot measure --
-# best against handicapped. The useful question is best against best.
+# WHY ONE SECOND, AND A CORRECTION TO WHY emt12 IS TWO. emt12's case for 2.0 s
+# was that a clip of length d exposes 60*d/T60 dB and ISO 3382's T20 fit needs
+# 25 dB, so 1.0 s could only measure T60 <= 2.4 s. THAT RULE DOES NOT APPLY
+# HERE. T20 needs 25 dB because it fits a slope through a NOISY measurement;
+# these targets are noiseless synthetic renders and the encoder is a CNN
+# learning a mapping, not fitting a slope. What actually limits it is whether
+# the spectrogram difference between T60 = 6 and T60 = 7 is large against the
+# differences h, rho, Ly and T0 cause at the same time -- a signal-to-
+# interference question nobody has measured.
 #
-#   T60_DC's CEILING IS 2.4, WHICH IS 2.4*d FOR d = 1.0. Same rule emt12's 4.8
-#   came from: a clip of length d exposes 60*d/T60 dB, ISO 3382 fits T20 over
-#   25 dB, so the longest measurable T60 is 2.4*d. emt13 is therefore the first
-#   1.0 s box in this project sized to what its clips can actually support --
-#   emt11 ran a 4.0 ceiling against 1.0 s clips and could not measure its own
-#   top 40%.
+# The sensitivity falls smoothly rather than crossing a threshold. dB of decay
+# visible at the end of the clip:
+#
+#     T60      at 1.0 s   at 2.0 s
+#     2.0        30         60
+#     4.8        12.5       25
+#     6.0        10         20
+#     8.0         7.5       15
+#
+# 2.0 s does express T60_DC twice as strongly and that is a real advantage. It
+# is not a necessity, and the evidence so far leans the other way: per-band EDT
+# at 62 Hz against the target's 5.43 s ran 2.40 / 2.46 / 1.92 for emt11's arms
+# at 1.0 s and 1.75 / 1.79 / 2.17 for emt12's at 2.0 s -- the ONE SECOND run
+# closer on the very quantity the second second was bought for. Confounded by
+# step count and by three bound changes, so not proof; but not support either.
+#
+# SO THIS RUN ANSWERS BOTH QUESTIONS FOR THE PRICE OF THE CHEAPER ONE. If
+# T60_DC's corr comes back healthy at 1.0 s with an 8.0 ceiling, then one
+# second is sufficient AND the reachable ceiling works, and every campaign
+# after this is half price. If corr is poor, 1.0 s is the limit and that was
+# learned for half of what emt12 cost.
 #
 #   chunk_elems IS 1e9, not emt12's 8e8. 8e8 exists because emt12's 2.0 s
 #   training tensor is 8.7 GB and 12.0 + 8.7 leaves no margin on a 23 GB card;
 #   at 1.0 s the tensor is 4.3 GB, 12.0 + 4.3 = 16.3 fits, and 1e9 cuts the
 #   launch count from 160 to 128. Under --compile-plate it is a pure memory
-#   knob with no effect on the result, so taking the faster one is free.
+#   knob with no effect on the result, so the faster split is free.
 #
 #   EVERYTHING ELSE IS emt12's: the same five other bounds, the same pins, the
-#   same (131, 342) grid -- duration does not enter DDx/DDy -- the same
-#   crossfade at 5000, LR_HOLD=0, 10000 steps, 24576 clips.
+#   same (131, 342) grid, the same crossfade at 5000, LR_HOLD=0, 10000 steps,
+#   24576 clips.
 #
-# WHAT THE COMPARISON CAN AND CANNOT SAY, stated here so it is not rediscovered
-# in the tables.
+# WHAT IT IS NOT. Two things differ from emt12 -- duration and the ceiling --
+# so this is not a one-variable isolation of either. That is deliberate: emt12
+# already differs from emt11 in four bounds plus a schedule, so there is no
+# clean chain left to protect, and a run that can match the plate is worth more
+# than another link in a broken one. If the duration ever needs isolating, a
+# 2.0 s run at ceiling 8.0 does it against this one with one variable.
 #
-#   corr IS COMPARABLE. It is scale-free, so "does the encoder track T60_DC
-#   across the val set" reads the same in both campaigns.
-#
-#   perr IS NOT. It is normalised by the parameter's own range, and emt13's
-#   T60_DC range is half of emt12's, so the same absolute error prints twice as
-#   large here. Compare corr, or convert perr back to seconds first.
-#
-#   AND emt12 IS FAVOURED ON REAL AUDIO BY CONSTRUCTION. The EMT-140 decays
-#   6.03 s at 62 Hz. emt12 can offer 4.8, emt13 only 2.4, so emt13 is capped
-#   further from the truth before a single step is taken. That is not a flaw in
-#   the control -- it IS the argument for two seconds, and the honest way to
-#   state it: longer clips do not merely measure the decay better, they permit
-#   a box that reaches the real plate at all. Read it as a conclusion, not a
-#   confound.
+# perr IS NOT COMPARABLE TO emt12's on T60_DC -- it is normalised by the
+# parameter's own range and this range is 1.67x emt12's, so the same error in
+# seconds prints smaller here. corr is scale-free; use it.
 FMAX_EMT13 = FMAX_EMT12
 FIXED_MODE_GRID_EMT13 = FIXED_MODE_GRID_EMT12
 DURATION_EMT13 = 1.0
 
 PLATE_EMT13 = dict(
     keys=list(PLATE_EMT12["keys"]),
-    bounds={**PLATE_EMT12["bounds"], "T60_DC": (1.0, 2.4)},
+    bounds={**PLATE_EMT12["bounds"], "T60_DC": (1.0, 8.0)},
     log_keys=set(PLATE_EMT12["log_keys"]),
     fixed=dict(PLATE_EMT12["fixed"]),
     products=dict(PLATE_EMT12["products"]),
