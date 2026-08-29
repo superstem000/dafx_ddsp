@@ -663,39 +663,88 @@ PLATE_EMT13 = dict(
 )
 
 # ===========================================================================
-# emt14: emt11, with the crossfade ending at 5000 instead of 6250. Nothing else.
+# emt14: emt11 with Lx pinned at 1.5 instead of 1.0. Nothing else moves.
 #
-# THE ONE CLEAN TEST OF THE SCHEDULE. --param-ramp-frac went 0.375 -> 0.25 for
-# emt12 on request, and emt13 inherited it -- but BOTH of those also changed
-# three bounds, so "does ending the crossfade at 5000 help" has never actually
-# been asked. This asks it: PLATE_EMT14 IS PLATE_EMT11, the same object rather
-# than a copy, and the duration, grid, chunk_elems, pins, steps, LR schedule
-# and clip count are emt11's too. One flag differs.
+# WHY. Listening on emt11's renders finds a low buzz that the real EMT-140 does
+# not have, and src/emt/modal_diag.py measured what it is: the arms' spectrum in
+# the 63-500 Hz region is TONAL where the target's is not. Spectral flatness --
+# geometric over arithmetic mean of power, 1.0 for noise and 0.0005 for a bank
+# of pure sinusoids -- reads
 #
-# WHY IT IS WORTH A RUN. Linear ties across emt11, emt12 and emt13 -- 2/2/2 on
-# the six real-audio metrics -- so four bound changes over two campaigns bought
-# the arm under test nothing. What has never been isolated is the schedule, and
-# there is a specific reason to suspect it: the earlier end means 1250 FEWER
-# steps carrying any parameter anchor, and emt13's in-domain ratio sat at 0.33
-# where emt12's read 0.12 mid-run. If the anchor time is what costs, this shows
-# it against emt11 directly.
+#              63 Hz    125 Hz   250 Hz   500 Hz
+#     target   0.246    0.208    0.193    0.177
+#     linear   0.0001   0.0003   0.0026   0.0185
+#     eps      0.0008   0.0026   0.0124   0.0544
+#     hyb      0.0351   0.0002   0.0012   0.0115
 #
-# WHAT IT COULD ALSO SHOW, and this is the reason to want it rather than fear
-# it: the crossfade ending at 50% of the run restores Masuda & Saito's shape
-# exactly (they hold 50 epochs of 400 and crossfade over 50-200), where emt11's
-# 6250 was 62.5%. And it buys 5000 pure-spectral steps against emt11's 3750,
-# starting them at 70% of peak lr rather than 46% -- the harsher test of
-# whether the solution survives without the anchor, which is the question the
-# whole project turns on.
+# The arms sit AT the pure-lattice value; the target is 74x to 2463x flatter.
+# And in the 125-500 Hz bands, where a sung fundamental lives, the flatness
+# order is hyb peakiest > linear > eps flattest, which is the buzz order the ear
+# reported. It is also the order of theoretical mode density A/c^2 -- eps 3.7x,
+# linear 1.5x, hyb 1.0x -- so density is the mechanism and it is measurable.
 #
-# THE DATASET IS emt11's DISTRIBUTION EXACTLY. Same box, same duration, same
-# grid, same seed -- so data/train-emt14 comes out bit-identical to the
-# data/train-emt11 that was deleted for disk. Regenerate it with
-# `src/emt/gen.sh`; nothing else needs to change.
+# THE FIX IS AREA, AND Lx IS THE PLACE TO GET IT. Density goes as A/c^2 and c
+# also sets where every mode SITS (f11 ~ c), so buying density by lowering c
+# drops the whole ladder an octave -- which is exactly what eps does, flattest
+# and darkest at once. Area is the only lever that adds modes at UNCHANGED
+# pitch. With Lx pinned at 1.0 the area was Ly alone, and all three arms were
+# already pressed against Ly's 3.0 ceiling (2.816, 2.997, 2.999 -- 94%, 100%,
+# 100%). Moving the Lx pin to 1.5 beats raising that ceiling on three counts at
+# identical cost:
+#
+#                              modes  runtime   area range   aspect at Ly 2.8
+#     emt11  Lx 1.0, Ly<=3.0  56,307    1.00x   1.80 - 3.00        2.80:1
+#            Lx 1.0, Ly<=4.5  84,529    1.50x   1.80 - 4.50        2.80:1
+#     emt14  Lx 1.5, Ly<=3.0  84,255    1.50x   2.70 - 4.50        1.87:1
+#
+#   THE AREA FLOOR RISES 1.8 -> 2.7. A ceiling only permits a bigger plate; the
+#   pin forces a minimum density on every draw.
+#   THE ASPECT GETS CLOSER TO THE REAL PLATE, 1.87:1 against the EMT-140's 2:1
+#   where emt11 sat at 2.80:1 -- area and physicality usually trade, and here
+#   they do not.
+#   AND Ly's BOUNDS DO NOT MOVE. Lx is a PIN, not a searched parameter, so the
+#   searched space stays byte-identical to emt11's: same six keys, same six
+#   bounds. Only a constant changes, which is as clean as a single-variable
+#   experiment gets.
+#
+# A squarer plate at the same area was considered and is worse: at 4.5 m^2 the
+# 63 Hz octave holds four modes whatever the aspect, but the gap coefficient of
+# variation runs 0.17 for 1.5 x 3.0, 0.26 for 1 x 4.5 and 0.57 for 2 x 2.25.
+# Near-square clusters modes into near-degenerate pairs, and a clustered pair
+# reads as one louder peak -- peakier for the same count.
+#
+# WHAT IT WILL NOT DO. 1.5x the density against the ~3.6x needed to reach the
+# target's modal overlap (M = 0.24 against linear's 0.067). The buzz should
+# measurably reduce, not vanish, and modal_diag reads flatness as a number so
+# the result is a coefficient rather than an impression. The real plate has the
+# low-frequency mode density of an ideal plate five times its own size --
+# suspension, frame, damping plates, enclosure -- and no parameter setting in a
+# seven-parameter model manufactures that.
+#
+# EVERYTHING ELSE IS emt11's, and deliberately: the same six searched bounds
+# including T60_DC at (1.0, 4.0) -- NOT emt13's 8.0, which put a third of the
+# draws in a region 4x less observable for a ceiling no arm ever used -- the
+# same rho ceiling of 1e4, the same 1.0 s duration, the same crossfade ending at
+# 6250, LR_HOLD=0, 10000 steps, 24576 clips, chunk_elems 1e9.
+#
+# rho IS DELIBERATELY NOT TIGHTENED to emt12's 8.5e3. It would work against this
+# run: capping rho lowers mu, raises c from 123 to 134, and costs 15% of the
+# density gain to save 8% of the runtime.
 FMAX_EMT14 = FMAX_EMT11
-FIXED_MODE_GRID_EMT14 = FIXED_MODE_GRID_EMT11
 DURATION_EMT14 = DURATION_EMT11
-PLATE_EMT14 = PLATE_EMT11
+
+# Recomputed for Lx 1.5: DDx is proportional to Lx, so the corner grows in one
+# axis only. 84,255 modes against emt11's 56,307.
+FIXED_MODE_GRID_EMT14 = (205, 411)
+
+PLATE_EMT14 = dict(
+    keys=list(PLATE_EMT11["keys"]),
+    bounds=dict(PLATE_EMT11["bounds"]),
+    log_keys=set(PLATE_EMT11["log_keys"]),
+    fixed={**PLATE_EMT11["fixed"], "Lx": 1.5},
+    products=dict(PLATE_EMT11["products"]),
+    composite=PLATE_EMT11["composite"],
+)
 
 NUMERICS = {
     "emt7": dict(fmax=FMAX, grid=FIXED_MODE_GRID, duration=DURATION),

@@ -1,63 +1,91 @@
-# emt14: emt11 with the crossfade ending at 5000 instead of 6250. Nothing else.
+# emt14: emt11 with Lx pinned at 1.5 instead of 1.0. Nothing else moves.
 #
 #   src/emt/gen.sh                                    # datasets first, ~4.5 GB
 #   python -m src.emt.check                           # then the three files agree
 #   python scripts/gpu_queue.py --jobs scripts/jobs_emt14.txt
 #
-# emt11, emt12 and emt13 are all untouched. This writes to
-# results/ddsp/emt14{_pre} and data/{train,val}-emt14.
+# emt11, emt12 and emt13 are untouched. This writes to results/ddsp/emt14{_pre}
+# and data/{train,val}-emt14.
 #
-# THE ONE CLEAN TEST OF THE SCHEDULE. --param-ramp-frac went 0.375 -> 0.25 for
-# emt12 on request, and emt13 inherited it -- but both of those ALSO changed
-# three bounds, so "does ending the crossfade at 5000 help" has never been
-# asked. This asks it. src/emt/space.py sets PLATE_EMT14 = PLATE_EMT11, the
-# same object rather than a copy, so the box cannot drift; the duration, grid,
-# chunk_elems, pins, steps, LR schedule and clip count are emt11's as well.
-# ONE FLAG DIFFERS.
+# WHY. Listening on emt11's renders finds a low buzz the real EMT-140 does not
+# have, and src/emt/modal_diag.py measured what it is: the arms' spectrum in the
+# 63-500 Hz region is TONAL where the target's is not. Spectral flatness --
+# geometric over arithmetic mean of power, 1.0 for noise, 0.0005 for a bank of
+# pure sinusoids:
 #
-# WHY IT IS WORTH A RUN. Linear ties across emt11, emt12 and emt13 -- 2/2/2 on
-# the six real-audio metrics -- so four bound changes over two campaigns bought
-# the arm under test nothing. The schedule is the one thing never isolated, and
-# there is a specific reason to suspect it: ending at 5000 leaves 1250 FEWER
-# steps carrying any parameter anchor, and emt13's in-domain ratio sat at 0.33.
+#              63 Hz    125 Hz   250 Hz   500 Hz
+#     target   0.246    0.208    0.193    0.177
+#     linear   0.0001   0.0003   0.0026   0.0185
+#     eps      0.0008   0.0026   0.0124   0.0544
+#     hyb      0.0351   0.0002   0.0012   0.0115
 #
-# AND A REASON TO WANT IT RATHER THAN FEAR IT. Ending the crossfade at 50% of
-# the run restores Masuda & Saito's shape exactly -- they hold 50 epochs of 400
-# and crossfade over 50-200 -- where emt11's 6250 was 62.5%. It also buys 5000
-# pure-spectral steps against emt11's 3750, beginning at 70% of peak lr rather
-# than 46%. That is the harsher test of whether the solution survives without
-# the anchor, which is the question the project turns on.
+# The arms sit AT the pure-lattice value and the target is 74x to 2463x flatter.
+# In the 125-500 Hz bands, where a sung fundamental lives, the order is hyb
+# peakiest > linear > eps flattest -- which is the buzz order the ear reported,
+# AND the order of theoretical mode density A/c^2 (eps 3.7x, linear 1.5x, hyb
+# 1.0x). Density is the mechanism, and it is measurable.
 #
-#     hold ends   param_w = 0   % of run   pure-spectral steps   lr at handover
-#   emt11   2500       6250        62.5%          3750                46%
-#   emt14   2500       5000        50.0%          5000                70%
+# THE FIX IS AREA, AND Lx IS WHERE TO GET IT. Density goes as A/c^2, and c also
+# sets where every mode SITS, so buying density by lowering c drops the whole
+# ladder an octave -- which is what eps does, flattest and darkest at once. Area
+# is the only lever that adds modes at UNCHANGED pitch. With Lx pinned at 1.0
+# the area was Ly alone, and all three arms were already pressed against Ly's
+# 3.0 ceiling (2.816 / 2.997 / 2.999 = 94% / 100% / 100%).
 #
-# THE DATASET IS emt11's EXACTLY -- same box, duration, grid and seed -- so
-# data/train-emt14 comes out bit-identical to the data/train-emt11 that was
-# deleted for disk. gen.sh regenerates it; nothing else changes.
+#                              modes  runtime   area range   aspect at Ly 2.8
+#     emt11  Lx 1.0, Ly<=3.0  56,307    1.00x   1.80 - 3.00        2.80:1
+#            Lx 1.0, Ly<=4.5  84,529    1.50x   1.80 - 4.50        2.80:1
+#     emt14  Lx 1.5, Ly<=3.0  84,255    1.50x   2.70 - 4.50        1.87:1
 #
-# NUMERICS, all emt11's, none of them reconsidered:
+#   THE AREA FLOOR RISES 1.8 -> 2.7. A ceiling only permits a bigger plate; the
+#   pin forces a minimum density on every draw.
+#   THE ASPECT MOVES TOWARD THE REAL PLATE, 1.87:1 against the EMT-140's 2:1
+#   where emt11 sat at 2.80:1. Area and physicality usually trade; here they do
+#   not.
+#   AND Ly's BOUNDS DO NOT MOVE. Lx is a PIN, not a searched parameter, so the
+#   searched space is byte-identical to emt11's -- same six keys, same six
+#   bounds, verified in src/emt/space.py. Only a constant changes.
 #
+# A squarer plate at the same area is worse, not better: at 4.5 m^2 the 63 Hz
+# octave holds four modes whatever the aspect, but the gap coefficient of
+# variation runs 0.17 for 1.5 x 3.0, 0.26 for 1 x 4.5 and 0.57 for 2 x 2.25.
+# Near-square clusters modes into near-degenerate pairs, and a clustered pair
+# reads as one louder peak -- peakier for the same count.
+#
+# WHAT IT WILL NOT DO. 1.5x density against the ~3.6x needed to reach the
+# target's modal overlap (M 0.24 against linear's 0.067). The buzz should
+# measurably reduce, not vanish. The real plate has the low-frequency mode
+# density of an ideal plate FIVE TIMES its own size -- suspension, frame,
+# damping plates, enclosure -- and no parameter setting in a seven-parameter
+# model manufactures that.
+#
+# NUMERICS. All emt11's except the grid, which follows from the pin:
+#
+#   --fixed-mode-grid 205,411   Lx 1.5 at this box's corner (min h, max Ly, min
+#                           T0, max rho). DDx is proportional to Lx, so the
+#                           corner grows in one axis only: 84,255 modes against
+#                           emt11's 56,307, 1.50x.
 #   --duration 1.0          emt11's. The 2.0 s experiment (emt12) did not beat
 #                           it on any consistent reading and cost double.
-#   --fixed-mode-grid 137,411   emt11's box corner, 56,307 modes. Wider than
-#                           emt12/emt13's (131, 342) because rho's ceiling is
-#                           1e4 and Ly's is 3.0 here.
-#   --chunk-elems 1000000000    emt11's. 160 launches at 1.0 s; peak 12.0 GB
-#                           chunk + 4.3 GB tensor = 16.3 GB on a 23 GB card.
-#   --fmax 20000            unchanged since emt9. The loss surface has a cliff
-#                           at Nyquist -- linear's local minima in h go 1 at
-#                           21 kHz to 61 at 22 kHz.
-#   --compile-plate         8.5x measured, and what makes the memory fit: eager
-#                           retains every chunk's [B, n_pad, chunk] intermediate
-#                           for backward, which chunk_elems does not bound.
+#   --chunk-elems 1000000000    emt11's. At n_pad 84,992 that is 183 launches;
+#                           peak 12.0 GB chunk + 4.3 GB tensor = 16.3 GB.
+#   --fmax 20000            unchanged since emt9 -- the loss surface has a cliff
+#                           at Nyquist.
+#   --compile-plate         8.5x measured, and what makes the memory fit.
 #   --eval-every 250 --ckpt-every 1000   unchanged.
 #
-# --param-hold-frac 0.25 = 2500/10000 is UNCHANGED and must stay: --resume
-# restores the step counter, so the hold has to end exactly where the base
-# ends or spec_w jumps at the seam. Only the RAMP moves.
+# THE CROSSFADE STAYS AT 6250 (--param-ramp-frac 0.375), emt11's. The earlier
+# 5000 handover is a separate question that emt12 and emt13 both carried
+# alongside bound changes and neither isolated; bundling it here would make this
+# two variables again. It stays cheaply testable later.
 #
-# COST: emt11's exactly.
+# T60_DC STAYS AT (1.0, 4.0), not emt13's 8.0. That ceiling put a third of the
+# log-uniform draws above T60 = 4, where a 1.0 s clip resolves T60 four times
+# less sharply, and no arm ever used it -- linear chose 2.32 of 8.0.
+#
+# rho STAYS AT (5e3, 1e4), not emt12's 8.5e3. Tightening it works against this
+# run: it lowers mu, raises c from 123 to 134, and costs 15% of the density gain
+# to save 8% of the runtime.
 #
 # THE ARMS, eps-matched, differing in exactly one thing:
 #
@@ -65,61 +93,61 @@
 #   L1_STFT_hyb1e2   hybrid, eps 1e-2               = diffsynth's hybridx
 #   L1_STFT_eps1e2   log,    eps 1e-2               = diffsynth's logx_halfw
 #
-# RUN src.ddsp.diag_gt_floor FIRST. The dataset is new even though the
-# distribution is not, and the gate is ten minutes against nine hours:
+# RUN src.ddsp.diag_gt_floor FIRST. New pin and a new grid, which is a new plate:
 #
 #   PLATE_PARAM_SPACE=emt14 python -m src.ddsp.diag_gt_floor \
 #       --data-dir data/val-emt14 --duration 1.0 --fmax 20000 \
-#       --fixed-mode-grid 137,411 --chunk-elems 1000000000 --batch-size 64 \
+#       --fixed-mode-grid 205,411 --chunk-elems 1000000000 --batch-size 64 \
 #       --compile-plate --losses L1_STFT L1_STFT_hyb1e2 L1_STFT_eps1e2
 
 # STAGE base
 # Parameter-only, 2500 steps, once. --param-hold-frac 1.0 keeps spec_w at 0
 # throughout, so the three arms would be identical here by construction.
-PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=2500 OUT=results/ddsp/emt14_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=2500 OUT=results/ddsp/emt14_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
 
 # STAGE arms
 # 10000 steps from the shared base, crossfading off the parameter loss over
-# steps 2500-5000. --resume restores the step counter, so these run 7500 steps.
-PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.25 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.25 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
-PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.25 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+# steps 2500-6250 -- emt11's schedule exactly. --resume restores the step
+# counter, so these run 7500 steps.
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
 
 # OPTIONAL FOURTH ARM, commented out because it was not asked for. It never
-# crossfades -- --param-hold-frac 1.0 for the full 10000 steps -- so the
-# parameter loss stays at weight 10 and the spectral term never enters. It is
-# the control DiffMoog's narrow_ploss provided and this project never has.
-#PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 137,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14_noswitch ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+# crossfades, so the parameter loss stays at weight 10 and the spectral term
+# never enters -- the control DiffMoog's narrow_ploss provided and this project
+# never has.
+#PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14_noswitch ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
 
-# READ IT AGAINST emt11, WHICH IS THE ONLY COMPARISON IT SUPPORTS. One flag
-# differs, so any difference is the schedule.
+# READ IT AGAINST emt11. One pin differs, so any difference is the area.
 #
-#   python -m src.ddsp.monitor_sweep --root results/ddsp/emt14_pre results/ddsp/emt14 \
-#       --metrics spec_w param zmax sat train val nmse ratio g03
+# THE NUMBER THIS FILE EXISTS FOR is not in monitor_sweep at all -- it is
+# spectral flatness on the rendered IRs:
 #
-# THE TWO NUMBERS THIS FILE EXISTS FOR:
-#
-#   ratio, in-domain. emt13 read 0.33 for linear. If the anchor time is what
-#   costs, emt14 lands near emt13 and well above emt11; if the bounds did it,
-#   emt14 matches emt11.
-#
-#   val, base vs linear -- same function, same 991 clips. emt9 and emt11 both
-#   improved on their base by ~6%; emt13's linear fell 0.5% short of its own.
-#   Which side emt14 lands on says whether the earlier handover is what broke
-#   that.
-#
-#   python -m src.emt.perparam --root results/ddsp/emt14 --metric perr spread corr --at 10000
-#   python -m src.emt.perparam --root results/ddsp/emt11 --metric perr spread corr --at 10000
-#
-# perr IS comparable here, unlike against emt12/emt13 -- identical bounds, so
-# identical normalisation.
-#
-# Then the real IRs, --input-level median required as always:
 #   PLATE_PARAM_SPACE=emt14 python -m src.ddsp.eval_real_ir --wav-dir data/EMT-140 \
 #       --arms results/ddsp/emt14/L1_STFT results/ddsp/emt14/L1_STFT_hyb1e2 \
 #              results/ddsp/emt14/L1_STFT_eps1e2 \
 #       --input-level median --train-dir data/train-emt14 \
 #       --render-duration 4.0 --prior 10 --out emt14_listen
+#   python -m src.emt.modal_diag --dir emt14_listen
+#   python -m src.emt.modal_diag --dir emt11_listen_last
+#
+# Flatness at 125-500 Hz, emt14 against emt11. 1.5x the area should raise it;
+# if it does not, density is not the mechanism and the buzz is something else.
+# Run modal_diag --selftest once first -- it checks the measurement against a
+# synthetic lattice and matched noise.
+#
+# Then the ordinary tables, which should be UNCHANGED if the area is doing what
+# it is supposed to and nothing else:
+#
+#   python -m src.ddsp.monitor_sweep --root results/ddsp/emt14_pre results/ddsp/emt14 \
+#       --metrics spec_w param zmax sat train val nmse ratio g03
+#   python -m src.emt.perparam --root results/ddsp/emt14 --metric perr spread corr --at 10000
+#   python -m src.emt.perparam --root results/ddsp/emt11 --metric perr spread corr --at 10000
+#
+# perr IS comparable against emt11 -- identical searched bounds, identical
+# normalisation. It is the only campaign since emt11 for which that is true.
+#
 #   python -m src.ddsp.eval_convolved --dir emt14_listen \
 #       --dry data/dry/m5_dona_straight.wav --out emt14_conv
 #
