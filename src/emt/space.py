@@ -587,6 +587,44 @@ PLATE_EMT12 = dict(
 
 # What gen.sh and check.py read, so the four numbers cannot drift between
 # dataset generation and training. Keyed by PLATE_PARAM_SPACE.
+# ===========================================================================
+# emt13: emt12's box at ONE SECOND. The control emt12 does not have.
+#
+# emt11 -> emt12 moved four things at once -- the clip length, rho's ceiling,
+# Ly's ceiling, T60_DC's ceiling, and (separately, on request) the crossfade
+# end from step 6250 to 5000. So "emt12 scores worse than emt11 on real audio"
+# is currently unattributable, and the duration is the expensive one to be
+# wrong about.
+#
+# THE BOX IS emt12's OBJECT, not a copy of its values. Aliasing rather than
+# restating makes "identical space" structural: the two cannot drift apart in
+# a later edit, which a duplicated dict absolutely would.
+#
+# EVERY OTHER KNOB IS emt12's TOO, including the ones a 1.0 s run would
+# otherwise want changed:
+#
+#   T60_DC's CEILING STAYS AT 4.8, and that is the experiment rather than an
+#   oversight. It was set to 2.4*d, and at 1.0 s the T20 rule gives 2.4 -- so
+#   emt13 is a box whose top half its own clips cannot measure, which is
+#   exactly the condition emt12 was built to remove. If two seconds is what
+#   fixed T60_DC and T60_ratio, emt13 loses them and emt12 keeps them. If the
+#   two campaigns recover them equally well, the T20 argument was wrong and
+#   the extra second bought nothing.
+#
+#   chunk_elems STAYS AT 8e8 even though 1.0 s halves the training tensor to
+#   4.3 GB and 1e9 would fit. Under --compile-plate it is a pure memory knob,
+#   so keeping it removes a difference for free: 160 launches at 1.0 s against
+#   emt12's 319 at 2.0 s, same work per sample.
+#
+#   THE GRID IS UNCHANGED at (131, 342). Duration does not enter DDx/DDy.
+#
+# So emt12 -> emt13 differs in one thing and one thing only, and emt13 costs
+# half of emt12 -- 0.80x emt11 rather than 1.60x.
+FMAX_EMT13 = FMAX_EMT12
+FIXED_MODE_GRID_EMT13 = FIXED_MODE_GRID_EMT12
+DURATION_EMT13 = 1.0
+PLATE_EMT13 = PLATE_EMT12
+
 NUMERICS = {
     "emt7": dict(fmax=FMAX, grid=FIXED_MODE_GRID, duration=DURATION),
     "emt8": dict(fmax=FMAX_EMT8, grid=FIXED_MODE_GRID_EMT8, duration=DURATION_EMT8),
@@ -594,6 +632,7 @@ NUMERICS = {
     "emt10": dict(fmax=FMAX_EMT10, grid=FIXED_MODE_GRID_EMT10, duration=DURATION_EMT10),
     "emt11": dict(fmax=FMAX_EMT11, grid=FIXED_MODE_GRID_EMT11, duration=DURATION_EMT11),
     "emt12": dict(fmax=FMAX_EMT12, grid=FIXED_MODE_GRID_EMT12, duration=DURATION_EMT12),
+    "emt13": dict(fmax=FMAX_EMT13, grid=FIXED_MODE_GRID_EMT13, duration=DURATION_EMT13),
 }
 
 

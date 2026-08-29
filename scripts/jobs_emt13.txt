@@ -1,0 +1,130 @@
+# emt13: emt12's box at ONE SECOND. The control emt12 does not have.
+#
+#   src/emt/gen.sh                                    # datasets first, ~4.5 GB
+#   python -m src.emt.check                           # then the three files agree
+#   python scripts/gpu_queue.py --jobs scripts/jobs_emt13.txt
+#
+# emt12 IS NOT REPLACED and neither is emt11. This writes to
+# results/ddsp/emt13{_pre} and data/{train,val}-emt13.
+#
+# WHY IT EXISTS. emt11 -> emt12 moved FOUR things at once: the clip length
+# 1.0 -> 2.0 s, rho's ceiling 1e4 -> 8.5e3, Ly's ceiling 3.0 -> 2.6, T60_DC's
+# ceiling 4.0 -> 4.8, and separately the crossfade end 6250 -> 5000. So emt12
+# scoring worse than emt11 on real audio at step 6000 (convolved mfcc_db80
+# 1.951 against 1.735) is unattributable, and the duration is the expensive one
+# to be wrong about -- it is what doubles the run.
+#
+# emt13 IS emt12 WITH ONE THING CHANGED. src/emt/space.py sets
+# PLATE_EMT13 = PLATE_EMT12 -- the same object, not a copy, so the two boxes
+# cannot drift apart in a later edit. Same six searched keys, same bounds, same
+# pins, same grid, same crossfade at 5000, same LR_HOLD=0, same 10000 steps,
+# same 24576 clips, same chunk_elems. Only --duration differs.
+#
+# WHAT IT DECIDES. emt12's whole argument was that a 1.0 s clip exposes
+# 60*d/T60 dB of decay, so with ISO 3382's T20 needing 25 dB it can only
+# measure T60 <= 2.4*d = 2.4 s, and emt11's T60_DC ceiling of 4.0 put the top
+# 40% of that box beyond measurement. emt13 keeps the 4.8 ceiling at 1.0 s,
+# which makes it a box whose top HALF its own clips cannot measure:
+#
+#     duration   longest measurable T60 (T20)   T60_DC ceiling
+#       1.0 s              2.4 s                    4.8      <- emt13
+#       2.0 s              4.8 s                    4.8      <- emt12
+#
+#   If the T20 argument is right, emt12 recovers T60_DC and T60_ratio and
+#   emt13 does not, and src.emt.perparam --metric corr shows it directly.
+#   If the two recover them equally well, the argument was wrong and the
+#   second per clip bought nothing -- which is worth knowing before any
+#   further campaign pays for it.
+#
+# THE CEILING IS DELIBERATELY NOT LOWERED TO 2.4. That would be the right
+# choice for a campaign meant to succeed and the wrong one for a control:
+# changing it would move two things and this file would answer nothing.
+#
+# NUMERICS. Every value is emt12's, and the two that a 1.0 s run would
+# otherwise want changed are held anyway:
+#
+#   --duration 1.0          THE ONLY DIFFERENCE FROM emt12.
+#   --fixed-mode-grid 131,342   unchanged. Duration does not enter DDx/DDy, so
+#                           this is the same 44,802-mode corner (h 5e-4,
+#                           rho 8500, Ly 2.6, T0 3e4) emt12 renders.
+#   --chunk-elems 800000000 unchanged, though 1.0 s halves the training tensor
+#                           to 4.3 GB and 1e9 would fit inside the 23 GB card.
+#                           Under --compile-plate it is a pure memory knob, so
+#                           holding it removes a difference for free: 160
+#                           launches here against emt12's 319, identical work
+#                           per sample.
+#   --fmax 20000            unchanged since emt9. The loss surface has a cliff
+#                           at Nyquist -- linear's local minima in h go 1 at
+#                           21 kHz to 61 at 22 kHz.
+#   --compile-plate         8.5x measured, and what makes the memory fit at all:
+#                           eager retains every chunk's [B, n_pad, chunk]
+#                           intermediate for backward, which chunk_elems does
+#                           not bound.
+#   --eval-every 250 --ckpt-every 1000   unchanged.
+#
+# COST. Half of emt12, which is 0.80x emt11 -- the cheapest campaign since
+# emt9, and the reason this control is worth running rather than reasoning
+# about.
+#
+# THE ARMS, eps-matched, differing in exactly one thing:
+#
+#   L1_STFT          linear, on MAGNITUDE           = diffsynth's magx
+#   L1_STFT_hyb1e2   hybrid, eps 1e-2               = diffsynth's hybridx
+#   L1_STFT_eps1e2   log,    eps 1e-2               = diffsynth's logx_halfw
+#
+# RUN src.ddsp.diag_gt_floor FIRST. New duration and a new dataset, which is
+# two reasons, and the gate is ten minutes against nine hours:
+#
+#   PLATE_PARAM_SPACE=emt13 python -m src.ddsp.diag_gt_floor \
+#       --data-dir data/val-emt13 --duration 1.0 --fmax 20000 \
+#       --fixed-mode-grid 131,342 --chunk-elems 800000000 --batch-size 64 \
+#       --compile-plate --losses L1_STFT L1_STFT_hyb1e2 L1_STFT_eps1e2
+
+# STAGE base
+# Parameter-only, 2500 steps, once. --param-hold-frac 1.0 keeps spec_w at 0
+# throughout, so the three arms would be identical here by construction.
+PLATE_PARAM_SPACE=emt13 TRAIN=data/train-emt13 VAL=data/val-emt13 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=2500 OUT=results/ddsp/emt13_pre ARMS="L1_STFT" EXTRA="--param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --lr-decay-end 10000 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+
+# STAGE arms
+# 10000 steps from the shared base, crossfading off the parameter loss over
+# steps 2500-5000 -- emt12's schedule exactly, so the handover meets the full
+# spectral loss at 70% of peak lr in both runs.
+PLATE_PARAM_SPACE=emt13 TRAIN=data/train-emt13 VAL=data/val-emt13 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt13 ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt13_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.25 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt13 TRAIN=data/train-emt13 VAL=data/val-emt13 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt13 ARMS="L1_STFT_hyb1e2" EXTRA="--resume results/ddsp/emt13_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.25 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt13 TRAIN=data/train-emt13 VAL=data/val-emt13 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt13 ARMS="L1_STFT_eps1e2" EXTRA="--resume results/ddsp/emt13_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.25 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+
+# OPTIONAL FOURTH ARM, commented out because it was not asked for. It never
+# crossfades -- --param-hold-frac 1.0 for the full 10000 steps -- so the
+# parameter loss stays at weight 10 and the spectral term never enters. It is
+# the control DiffMoog's narrow_ploss provided and this project never has.
+#PLATE_PARAM_SPACE=emt13 TRAIN=data/train-emt13 VAL=data/val-emt13 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --fixed-mode-grid 131,342 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt13_noswitch ARMS="L1_STFT" EXTRA="--resume results/ddsp/emt13_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 1.0 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+
+# READ IT AGAINST emt12, NOT emt11. emt13 vs emt12 is one variable; emt13 vs
+# emt11 is three bounds and a schedule as well, and answers nothing.
+#
+#   python -m src.ddsp.monitor_sweep --root results/ddsp/emt13_pre results/ddsp/emt13 \
+#       --metrics spec_w param zmax sat train val nmse ratio g03
+#
+# THE COMPARISON THIS FILE IS FOR, and it is not val:
+#
+#   python -m src.emt.perparam --root results/ddsp/emt13 --metric perr spread corr --at 10000
+#   python -m src.emt.perparam --root results/ddsp/emt12 --metric perr spread corr --at 10000
+#
+# T60_DC and T60_ratio side by side. Better in emt12 means the extra second
+# bought the decay evidence it was supposed to; equal means it did not.
+#
+# val_loss is still the base-vs-linear check within emt13 -- same function, same
+# 991 clips -- but it is NOT comparable to emt12's, which runs over twice the
+# STFT frames.
+#
+# Then the real IRs, --input-level median required as always:
+#   PLATE_PARAM_SPACE=emt13 python -m src.ddsp.eval_real_ir --wav-dir data/EMT-140 \
+#       --arms results/ddsp/emt13/L1_STFT results/ddsp/emt13/L1_STFT_hyb1e2 \
+#              results/ddsp/emt13/L1_STFT_eps1e2 \
+#       --input-level median --train-dir data/train-emt13 \
+#       --render-duration 4.0 --prior 10 --out emt13_listen
+#   python -m src.ddsp.eval_convolved --dir emt13_listen \
+#       --dry data/dry/m5_dona_straight.wav --out emt13_conv
+#
+# No comment line here may begin with the word "stage": gpu_queue matches
+# ^#\s*STAGE[:\s] case-insensitively. The two above are real barriers.
