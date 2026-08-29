@@ -54,8 +54,14 @@ from urllib.parse import parse_qs
 
 
 def safe(s: str) -> str:
-    """webMUSHRA's testId reaches the filesystem; keep it to a path segment."""
-    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(s))[:64] or "unnamed"
+    """webMUSHRA's testId reaches the filesystem; keep it to a path segment.
+
+    The character class alone is not enough: it permits "." and "..", which as
+    a whole segment walk out of the results directory. Only matters once the
+    server is bound to something other than localhost, which --host allows.
+    """
+    out = re.sub(r"[^A-Za-z0-9_.-]", "_", str(s))[:64]
+    return "unnamed" if out.strip(".") == "" else out
 
 
 def flatten(session: dict) -> tuple[list[str], list[dict]]:
