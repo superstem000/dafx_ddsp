@@ -59,22 +59,22 @@ OUT=${OUT:-data}
 #            eager mode: 1e9 vs 2e8 moved log by 8.51%. Compiled, Inductor
 #            fuses the chunk kernel and chunk_elems is a plain memory knob
 #            again -- which is the only reason changing it here is safe. It is
-#            8e8 for emt13, emt12 and emt10, 1e9 for emt11. The knob is memory,
-#            not FLOPs: total work is B*n_pad*Ts whatever it is set to, and
+#            8e8 for emt12 and emt10, 1e9 for emt13 and emt11. The knob is
+#            memory, not FLOPs: total work is B*n_pad*Ts whatever it is, and
 #            chunk_elems only decides how many launches that is split across.
 #            emt12 runs 8e8 because its 2.0 s training tensor is 8.7 GB and
 #            12.0 + 8.7 = 20.7 GB does not leave margin on a 23 GB card;
-#            9.6 + 8.7 = 18.3 does. emt13 holds 8e8 despite halving that tensor,
-#            because it is emt12's control and a changed knob is a second
-#            variable. Re-run src.ddsp.diag_gt_floor after any change to it.
-#            THIS DEFAULT SUITS emt13, emt12 and emt10 -- with SPACE=emt11 pass
-#            NUMERICS with 1000000000 to match scripts/jobs_emt11.txt.
+#            9.6 + 8.7 = 18.3 does. emt13 halves that tensor back to 4.3 GB so
+#            12.0 + 4.3 = 16.3 fits and 1e9 is the faster split. Re-run
+#            src.ddsp.diag_gt_floor after any change to it. THE DEFAULT BELOW IS
+#            emt13's and emt11's -- with SPACE=emt12 or emt10 pass NUMERICS with
+#            800000000 to match their jobs files.
 #
 # So --batch-size is pinned to eps_ladder.sh's BATCH=64 rather than left at
 # make_dataset's default of 32. Under compile the two are interchangeable; if
 # compile is ever dropped they are not, and a silent 32/64 split between the
 # targets and the renders is exactly the confound above.
-NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 800000000 --mode-bucket 1024 --batch-size 64"}
+NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --batch-size 64"}
 
 echo "$SPACE: fmax=$FMAX  grid=$GRID  duration=${DUR}s"
 echo "      train $N_TRAIN -> $OUT/train-$SPACE   val $N_VAL -> $OUT/val-$SPACE"
