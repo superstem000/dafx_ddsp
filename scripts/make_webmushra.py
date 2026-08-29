@@ -5,9 +5,10 @@
 
 Then, on the machine that holds webMUSHRA:
 
-    cp -r mushra_emt11/configs/* <webmushra>/configs/
-    cd <webmushra> && php -S 0.0.0.0:8000
-    # open http://<host>:8000/?config=emt11.yaml
+    cp -r mushra_emt11/configs/* ~/webMUSHRA/configs/
+    python scripts/mushra_server.py --root ~/webMUSHRA
+    # ssh -L 8000:localhost:8000 <user>@<host>, then
+    # http://localhost:8000/?config=emt11.yaml
 
 WHY webMUSHRA RATHER THAN scripts/make_mushra.py. That one is a good single
 listener self-test and says so in its own docstring: one seed baked into the
@@ -240,15 +241,26 @@ def main() -> int:
     print(f"""
 Next, on the machine that will serve it:
 
-  git clone https://github.com/audiolabs/webMUSHRA.git
-  cp -r {out}/configs/* webMUSHRA/configs/
-  cd webMUSHRA && chmod -R a+w results && php -S 0.0.0.0:8000
-  # then open  http://<host>:8000/?config={args.id}.yaml
+  git clone https://github.com/audiolabs/webMUSHRA.git   # once
+  cp -r {out}/configs/* ~/webMUSHRA/configs/
+  python scripts/mushra_server.py --root ~/webMUSHRA
+
+then tunnel in from wherever you are listening and open the config:
+
+  ssh -L 8000:localhost:8000 <user>@<host>
+  # http://localhost:8000/?config={args.id}.yaml
+
+mushra_server.py replaces webMUSHRA's PHP result service -- same POST, same
+CSVs, no PHP and no root -- and serves the static files itself. If the box does
+have PHP, `cd webMUSHRA && chmod -R a+w results && php -S localhost:8000` is
+equivalent.
 
 DO A COMPLETE DUMMY SESSION BEFORE ANYONE ELSE TOUCHES IT, and check three
 things -- all three fail silently:
-  1. a CSV appears in webMUSHRA/results/ when you finish. If not, it is the
-     permissions on that directory, every time.
+  1. a CSV appears in webMUSHRA/results/{args.id}/ when you finish. Under
+     mushra_server.py the terminal prints a line the moment it arrives, so
+     silence there means the finish page is not set writeResults: true. Under
+     php -S it is the permissions on results/, every time.
   2. six sliders per trial, not seven. Seven means webMUSHRA inserts the
      hidden reference itself and the hidden_ref lines should come out.
   3. trial order differs between two sessions. If it does not, the nested
