@@ -192,37 +192,45 @@ def main() -> int:
         "      compare the same instant rather than remembering it. Every",
         "      slider must be moved before you can continue. There is no time",
         "      limit, but the whole test should take about 20 minutes.",
-        # A nested page array beginning with `random` is webMUSHRA's idiom for
-        # shuffling a SUBSET -- the manual documents `random` as the first
-        # element of a pages array, and putting it at the top level would
-        # shuffle the welcome and finish pages too. VERIFY on the dummy run
-        # that trial order differs between two sessions; if it does not,
-        # flatten this and accept fixed page order. With two listeners and
-        # nine trials the per-page `randomize` below matters far more.
-        "  - - random",
     ]
+    # PAGE ORDER IS FIXED, and that is a measured decision rather than an
+    # oversight. The manual documents `random` as the first element of a pages
+    # array; a NESTED array beginning with `random`, which would shuffle only
+    # the trials and leave the welcome and finish pages in place, is not
+    # supported -- webMUSHRA reads the inner list as a page, finds no `type`,
+    # and dies with "Error: Type not specified". Putting `random` at the top
+    # level instead would shuffle the instructions and the finish page into the
+    # middle of the test, which is worse than a fixed order.
+    #
+    # What is lost is small. Page order guards against fatigue and learning
+    # effects across trials, which matter for a panel; CONDITION order within a
+    # trial is what guards against a listener learning that slot C is always
+    # the log arm, and that is `randomize: true` below, per page, documented,
+    # and kept. If you later need page order shuffled for a real panel, the
+    # robust way is one config file per listener with `chosen` pre-shuffled --
+    # deterministic, recorded, and not dependent on an undocumented feature.
     for stem in chosen:
         L += [
-            "    - type: mushra",
-            f"      id: {stem}",
-            f"      name: {stem.replace('_', ' ')}",
-            "      showWaveform: true",
-            "      enableLooping: true",
+            "  - type: mushra",
+            f"    id: {stem}",
+            f"    name: {stem.replace('_', ' ')}",
+            "    showWaveform: true",
+            "    enableLooping: true",
             # strict forces every slider to be moved, so an untouched slider
             # cannot be silently exported as a genuine 0 -- which is the flaw
             # in make_mushra.py's sliders starting at 0.
-            "      strict: true",
-            "      randomize: true",
-            "      createAnchor35: true",
-            "      createAnchor70: true",
-            f"      reference: {audio_rel}/{stem}__target.wav",
-            "      stimuli:",
+            "    strict: true",
+            "    randomize: true",
+            "    createAnchor35: true",
+            "    createAnchor70: true",
+            f"    reference: {audio_rel}/{stem}__target.wav",
+            "    stimuli:",
             # Explicit hidden reference -- see the docstring. Drop this line if
             # the dummy run shows seven sliders rather than six.
-            f"        hidden_ref: {audio_rel}/{stem}__target.wav",
+            f"      hidden_ref: {audio_rel}/{stem}__target.wav",
         ]
         for a in arms:
-            L.append(f"        {a}: {audio_rel}/{stem}__{a}.wav")
+            L.append(f"      {a}: {audio_rel}/{stem}__{a}.wav")
     L += [
         "  - type: finish",
         "    name: Thank you",
@@ -263,8 +271,9 @@ things -- all three fail silently:
      php -S it is the permissions on results/, every time.
   2. six sliders per trial, not seven. Seven means webMUSHRA inserts the
      hidden reference itself and the hidden_ref lines should come out.
-  3. trial order differs between two sessions. If it does not, the nested
-     `random` is not doing anything -- harmless here, but know which it is.
+  3. CONDITION order differs between two sessions -- the slot the same arm
+     lands in should move. That is `randomize: true`. Page order is fixed by
+     design; see the note in this script above the mushra pages.
 
 Then back the results up off the box after every session.""")
     return 0
