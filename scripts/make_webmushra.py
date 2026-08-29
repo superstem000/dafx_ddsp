@@ -112,6 +112,10 @@ def main() -> int:
                         "total-energy convention and needs nothing.")
     p.add_argument("--target-db", type=float, default=-23.0,
                    help="LUFS (or dBFS RMS) every stimulus is matched to")
+    p.add_argument("--mono", action="store_true",
+                   help="write single-channel. The default duplicates the "
+                        "channel because webMUSHRA plays a 1-channel buffer "
+                        "in the left ear only.")
     p.add_argument("--title", default=None)
     args = p.parse_args()
 
@@ -158,10 +162,23 @@ def main() -> int:
         print(f"  peak after matching {peak_after:.3f} -- applying a common "
               f"{20 * np.log10(head):+.2f} dB to every stimulus")
 
+    # DUAL MONO, and it is not cosmetic. The plate has one pickup so every
+    # stimulus is genuinely one channel, but webMUSHRA's Web Audio graph routes
+    # a 1-channel buffer to output channel 0 only -- measured: it plays in the
+    # LEFT EAR ALONE. A listener judging a monaural signal presented to one ear
+    # is not judging what the metric measured, and the anchors webMUSHRA builds
+    # itself would come out the same way. Duplicating the channel puts it back
+    # in the middle of the head; it adds no spatial information, which is the
+    # right call anyway since a real EMT-140 has two pickups and stereo width
+    # would be a cue that has nothing to do with what the losses differ on.
+    # --mono writes single-channel if some other player needs it.
     for (stem, tag), (x, sr) in loaded.items():
-        sf.write(audio_dir / f"{stem}__{tag}.wav", (x * head).astype(np.float32),
-                 sr, subtype="PCM_24")
-    print(f"  wrote {len(loaded)} stimuli to {audio_dir}")
+        y = (x * head).astype(np.float32)
+        if not args.mono:
+            y = np.stack([y, y], axis=-1)
+        sf.write(audio_dir / f"{stem}__{tag}.wav", y, sr, subtype="PCM_24")
+    ch = "mono" if args.mono else "dual-mono (both ears)"
+    print(f"  wrote {len(loaded)} stimuli to {audio_dir}  [{ch}]")
 
     # --- the config -------------------------------------------------------
     title = args.title or f"EMT-140 plate resynthesis -- {args.id}"
