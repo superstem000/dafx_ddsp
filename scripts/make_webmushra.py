@@ -208,14 +208,6 @@ def main() -> int:
         "      the cause of the difference. Use headphones in a quiet room.",
         "      One of the versions IS the reference and one is a lowpassed",
         "      anchor; neither is labelled.",
-        "  - type: generic",
-        "    id: instructions",
-        "    name: Before you start",
-        "    content: >",
-        "      Switching between versions keeps the playback position, so",
-        "      compare the same instant rather than remembering it. Every",
-        "      slider must be moved before you can continue. There is no time",
-        "      limit, but the whole test should take about 20 minutes.",
     ]
     # PAGE ORDER IS FIXED, and that is a measured decision rather than an
     # oversight. The manual documents `random` as the first element of a pages
@@ -266,16 +258,17 @@ def main() -> int:
         ]
         for a in arms:
             L.append(f"      {a}: {audio_rel}/{stem}__{a}.wav")
-    # THE QUESTIONNAIRE IS WHAT MAKES A SECOND LISTENER USABLE. webMUSHRA
-    # mints a fresh uuid per page load, so it identifies a SESSION, not a
-    # person: without this, one listener who ran it twice and two listeners who
-    # ran it once are indistinguishable in the results, and there is no way to
-    # tell after the fact. The fields land in session.participant and
-    # mushra_server.py flattens them to participant_* columns.
+    # ONE QUESTION, AND IT IS THE ONE THAT MAKES A SECOND LISTENER USABLE.
+    # webMUSHRA mints a fresh uuid per page load, so it identifies a SESSION,
+    # not a person: without a name, one listener who ran it twice and two
+    # listeners who ran it once are indistinguishable in the results, with no
+    # way to tell after the fact. It lands in session.participant and
+    # mushra_server.py flattens it to a participant_listener column.
     #
-    # It sits on the finish page because that is where webMUSHRA puts it, which
-    # means it is answered AFTER the ratings -- fine for an identifier, and it
-    # keeps the listener from spending attention on forms before the trials.
+    # Playback device is deliberately NOT asked. It is standard for a remote
+    # panel of unknown listeners, where it is the only defence against someone
+    # rating on laptop speakers; this panel is a handful of people in one lab
+    # who know what the test is, so it would be a form field nobody reads.
     L += [
         "  - type: finish",
         "    name: Thank you",
@@ -286,9 +279,6 @@ def main() -> int:
         "      - type: text",
         "        label: Your name or initials",
         "        name: listener",
-        "      - type: text",
-        "        label: Headphones or speakers used",
-        "        name: playback",
         "",
     ]
 
