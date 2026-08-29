@@ -662,6 +662,41 @@ PLATE_EMT13 = dict(
     composite=PLATE_EMT12["composite"],
 )
 
+# ===========================================================================
+# emt14: emt11, with the crossfade ending at 5000 instead of 6250. Nothing else.
+#
+# THE ONE CLEAN TEST OF THE SCHEDULE. --param-ramp-frac went 0.375 -> 0.25 for
+# emt12 on request, and emt13 inherited it -- but BOTH of those also changed
+# three bounds, so "does ending the crossfade at 5000 help" has never actually
+# been asked. This asks it: PLATE_EMT14 IS PLATE_EMT11, the same object rather
+# than a copy, and the duration, grid, chunk_elems, pins, steps, LR schedule
+# and clip count are emt11's too. One flag differs.
+#
+# WHY IT IS WORTH A RUN. Linear ties across emt11, emt12 and emt13 -- 2/2/2 on
+# the six real-audio metrics -- so four bound changes over two campaigns bought
+# the arm under test nothing. What has never been isolated is the schedule, and
+# there is a specific reason to suspect it: the earlier end means 1250 FEWER
+# steps carrying any parameter anchor, and emt13's in-domain ratio sat at 0.33
+# where emt12's read 0.12 mid-run. If the anchor time is what costs, this shows
+# it against emt11 directly.
+#
+# WHAT IT COULD ALSO SHOW, and this is the reason to want it rather than fear
+# it: the crossfade ending at 50% of the run restores Masuda & Saito's shape
+# exactly (they hold 50 epochs of 400 and crossfade over 50-200), where emt11's
+# 6250 was 62.5%. And it buys 5000 pure-spectral steps against emt11's 3750,
+# starting them at 70% of peak lr rather than 46% -- the harsher test of
+# whether the solution survives without the anchor, which is the question the
+# whole project turns on.
+#
+# THE DATASET IS emt11's DISTRIBUTION EXACTLY. Same box, same duration, same
+# grid, same seed -- so data/train-emt14 comes out bit-identical to the
+# data/train-emt11 that was deleted for disk. Regenerate it with
+# `src/emt/gen.sh`; nothing else needs to change.
+FMAX_EMT14 = FMAX_EMT11
+FIXED_MODE_GRID_EMT14 = FIXED_MODE_GRID_EMT11
+DURATION_EMT14 = DURATION_EMT11
+PLATE_EMT14 = PLATE_EMT11
+
 NUMERICS = {
     "emt7": dict(fmax=FMAX, grid=FIXED_MODE_GRID, duration=DURATION),
     "emt8": dict(fmax=FMAX_EMT8, grid=FIXED_MODE_GRID_EMT8, duration=DURATION_EMT8),
@@ -670,6 +705,7 @@ NUMERICS = {
     "emt11": dict(fmax=FMAX_EMT11, grid=FIXED_MODE_GRID_EMT11, duration=DURATION_EMT11),
     "emt12": dict(fmax=FMAX_EMT12, grid=FIXED_MODE_GRID_EMT12, duration=DURATION_EMT12),
     "emt13": dict(fmax=FMAX_EMT13, grid=FIXED_MODE_GRID_EMT13, duration=DURATION_EMT13),
+    "emt14": dict(fmax=FMAX_EMT14, grid=FIXED_MODE_GRID_EMT14, duration=DURATION_EMT14),
 }
 
 

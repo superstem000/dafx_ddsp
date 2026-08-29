@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Generate the emt13 IR datasets, train and val, under one pin and one ceiling.
+# Generate the emt14 IR datasets, train and val, under one pin and one ceiling.
 #
 #   src/emt/gen.sh                    # 24576 train + 991 val, ~4.5 GB at 1.0 s
-#   SPACE=emt12 src/emt/gen.sh        # the SAME box at 2.0 s, ~9.0 GB
-#   SPACE=emt11 src/emt/gen.sh        # wider rho/Ly, 1.0 s, ~4.5 GB
+#   SPACE=emt13 src/emt/gen.sh        # narrower rho/Ly, T60_DC to 8.0, 1.0 s
+#   SPACE=emt12 src/emt/gen.sh        # emt13's box at 2.0 s, ~9.0 GB
+#   SPACE=emt11 src/emt/gen.sh        # emt14's box exactly -- same data
 #   SPACE=emt10 src/emt/gen.sh        # loss_F1 and fp/op searched, seven params
 #   SPACE=emt9 src/emt/gen.sh         # rho fixed, six parameters
 #   SPACE=emt8 src/emt/gen.sh         # the 22 kHz ceiling, kept runnable
@@ -29,7 +30,7 @@ cd "$(cd "$HERE/../.." && pwd)"
 # SPACE picks which entry of space.py's NUMERICS table to read, so the values
 # cannot drift between generation and training now that the file holds two
 # spaces. It is also what PLATE_PARAM_SPACE is set to below.
-SPACE=${SPACE:-emt13}
+SPACE=${SPACE:-emt14}
 read -r FMAX GRID DUR <<< "$(SPACE="$SPACE" python3 - <<'PY'
 import os
 ns = {}
@@ -66,9 +67,9 @@ OUT=${OUT:-data}
 #            12.0 + 8.7 = 20.7 GB does not leave margin on a 23 GB card;
 #            9.6 + 8.7 = 18.3 does. emt13 halves that tensor back to 4.3 GB so
 #            12.0 + 4.3 = 16.3 fits and 1e9 is the faster split. Re-run
-#            src.ddsp.diag_gt_floor after any change to it. THE DEFAULT BELOW IS
-#            emt13's and emt11's -- with SPACE=emt12 or emt10 pass NUMERICS with
-#            800000000 to match their jobs files.
+#            src.ddsp.diag_gt_floor after any change to it. THE DEFAULT BELOW
+#            SUITS emt14, emt13 and emt11 -- with SPACE=emt12 or emt10 pass
+#            NUMERICS with 800000000 to match their jobs files.
 #
 # So --batch-size is pinned to eps_ladder.sh's BATCH=64 rather than left at
 # make_dataset's default of 32. Under compile the two are interchangeable; if
