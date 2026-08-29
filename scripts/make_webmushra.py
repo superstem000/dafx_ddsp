@@ -57,13 +57,20 @@ WHAT IT DELIBERATELY DOES NOT DO.
   the room is for; over the network it would matter and the hidden-reference
   post-screen becomes the defence.
 
-THE HIDDEN REFERENCE. webMUSHRA's manual documents `reference` as the reference
-stimulus and `stimuli` as the rated conditions, and does NOT say whether the
-reference is also inserted among them automatically. Standard MUSHRA requires
-it, so this script writes it into `stimuli` EXPLICITLY as hidden_ref. VERIFY ON
-THE DUMMY RUN: count the sliders. Six (3 arms + 2 anchors + 1 hidden ref) means
-webMUSHRA is not auto-inserting and this is correct; seven means it is, and the
-hidden_ref line should be dropped from the generated YAML.
+FIVE CONDITIONS PER TRIAL: the three arms, the hidden reference, one anchor.
+
+  THE HIDDEN REFERENCE IS webMUSHRA'S. Its manual documents `reference` and
+  `stimuli` separately and never says whether the reference is also inserted
+  among the rated conditions. It is -- measured in the browser: listing it in
+  `stimuli` as well gave seven sliders rather than six. So `stimuli` holds the
+  arms only.
+
+  ONE ANCHOR, not BS.1534's two. The 7 kHz mid anchor calibrates the top of the
+  scale where codec conditions crowd near transparent; here nothing is near
+  transparent (1.6-2.0 x saturation) and the source is a male voice with almost
+  nothing above 7 kHz, so a 7 kHz lowpass of it is very nearly the reference.
+  It would sit beside the hidden reference, calibrate nothing, and cost a
+  slider and a listen on all nine trials.
 """
 
 from __future__ import annotations
@@ -238,13 +245,24 @@ def main() -> int:
             # in make_mushra.py's sliders starting at 0.
             "    strict: true",
             "    randomize: true",
+            # ONE ANCHOR, not two. BS.1534 specifies a 3.5 kHz low anchor and a
+            # 7 kHz mid anchor, but the mid anchor exists to calibrate the top
+            # of the scale where codec conditions cluster near transparent, and
+            # neither half of that applies here. These conditions sit at 1.6-2.0
+            # x saturation, nowhere near the reference, and the source is a male
+            # voice with almost no energy above 7 kHz -- so a 7 kHz lowpass of
+            # it is very nearly the reference itself. It would sit next to the
+            # hidden reference, calibrate nothing, and cost a slider and a
+            # listen on every trial. make_mushra.py drops it for diffsynth on
+            # the same grounds, arrived at from Nyquist rather than from the
+            # source's bandwidth.
             "    createAnchor35: true",
-            "    createAnchor70: true",
             f"    reference: {audio_rel}/{stem}__target.wav",
             "    stimuli:",
-            # Explicit hidden reference -- see the docstring. Drop this line if
-            # the dummy run shows seven sliders rather than six.
-            f"      hidden_ref: {audio_rel}/{stem}__target.wav",
+            # NO EXPLICIT hidden_ref. webMUSHRA inserts the reference among the
+            # conditions itself -- undocumented, and measured in the browser:
+            # listing it here as well produced SEVEN sliders (3 arms + two
+            # copies of the reference + 2 anchors) instead of six.
         ]
         for a in arms:
             L.append(f"      {a}: {audio_rel}/{stem}__{a}.wav")
@@ -286,8 +304,9 @@ things -- all three fail silently:
      mushra_server.py the terminal prints a line the moment it arrives, so
      silence there means the finish page is not set writeResults: true. Under
      php -S it is the permissions on results/, every time.
-  2. six sliders per trial, not seven. Seven means webMUSHRA inserts the
-     hidden reference itself and the hidden_ref lines should come out.
+  2. FIVE sliders per trial: 3 arms, the hidden reference webMUSHRA inserts
+     itself, and one 3.5 kHz anchor. Six or seven means an anchor or a
+     reference is being added twice.
   3. CONDITION order differs between two sessions -- the slot the same arm
      lands in should move. That is `randomize: true`. Page order is fixed by
      design; see the note in this script above the mushra pages.
