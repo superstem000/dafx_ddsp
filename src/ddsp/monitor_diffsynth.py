@@ -18,6 +18,11 @@ differently, which is exactly the ambiguity worth not repeating.
     python -m src.ddsp.monitor_diffsynth --table
     python -m src.ddsp.monitor_diffsynth --root results/diffsynth --rows 16
 
+Reads each run's TensorBoard event files, and falls back to the scalars.csv
+ds_export_scalars.py writes beside them when those have been deleted -- which
+they have been, for the whole magnitude family. See _load_csv. The only things
+that fall back with it are wall-clock elapsed and the progress view's rate.
+
 Trajectories are shown at milestones across the whole run, not as the last few
 epochs. Adjacent epochs differ by noise -- val_ood/lsd moves ~0.1 between
 neighbours while a run's total improvement may be ~2 -- so reading recent rows
@@ -30,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import csv
 import glob
 import json
 import os
@@ -107,7 +113,95 @@ SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 CACHE_VERSION = 5
 
 
+def _max_epochs(run_dir: str) -> int | None:
+    """max_epochs from hydra's own dump of the resolved config.
+
+    So the progress column is right for both the 200-epoch pretrains and the
+    400-epoch ploss and resumes without being told which is which.
+    """
+    cfg = os.path.join(run_dir, ".hydra", "config.yaml")
+    if os.path.exists(cfg):
+        try:
+            import yaml
+            return yaml.safe_load(open(cfg))["trainer"]["max_epochs"]
+        except Exception:
+            pass
+    return None
+
+
+def _load_csv(run_dir: str) -> dict | None:
+    """Series from scalars.csv, for runs whose event files have been deleted.
+
+    results/diffsynth is mostly TensorBoard event files -- AudioLogger writes 8
+    clips and a 15x30in figure for train, val_id and val_ood every epoch -- so
+    they are the first thing a disk cleanup takes, and taking them removed the
+    only thing this tool could read. ds_export_scalars.py had already written
+    scalars.csv into each run directory for the paper bundle: one row per step,
+    every scalar the run logged, ~100-200 KB for 400 epochs. The numbers
+    survived; only the reader was missing.
+
+    NOT .monitor_cache.json, which holds the same numbers and is right there.
+    It is keyed on the event files' size and mtime, so it self-invalidates the
+    moment they are gone -- by design, since a cache that outlives its source
+    is how a stale number gets into a paper. scalars.csv is a documented record
+    rather than an accelerator, and it does not change when TAGS does.
+
+    WHAT IS LOST WITH THE EVENT FILES, and it is only two things: wall-clock
+    elapsed (the CSV carries no timestamps, so the progress view's rate column
+    reads zero) and any tag ds_export_scalars did not run late enough to catch.
+    Every number --table reports is here.
+    """
+    path = os.path.join(run_dir, "scalars.csv")
+    if not os.path.exists(path):
+        return None
+    # The CSV is wide -- step, epoch, then one column per tag -- and named by
+    # diffsynth's tags, so invert TAGS to get back to this tool's short keys.
+    want = {t: k for k, t in TAGS.items()}
+    want.update({"epoch": "_epoch", "lw/param_w": "param_w",
+                 "lw/sw_w": "sw_w", "train/total": "train"})
+    series: dict[str, dict[int, float]] = {}
+    rows = 0
+    with open(path, newline="") as fh:
+        rd = csv.DictReader(fh)
+        cols = [c for c in (rd.fieldnames or []) if c and c != "step"]
+        for row in rd:
+            try:
+                step = int(row["step"])
+            except (TypeError, ValueError):
+                continue
+            rows += 1
+            for t in cols:
+                v = row.get(t)
+                if v is None or v == "":
+                    continue
+                if t in want:
+                    key = want[t]
+                elif t.startswith("val_id/param_group/"):
+                    key = "pg:" + t[len("val_id/param_group/"):]
+                else:
+                    continue
+                try:
+                    series.setdefault(key, {})[step] = float(v)
+                except ValueError:
+                    continue
+    if not series:
+        return None
+    return {
+        "series": series,
+        "steps": sorted({s for d in series.values() for s in d}),
+        "elapsed": 0.0,
+        "n_ev": rows,
+        "max_epochs": _max_epochs(run_dir),
+    }
+
+
 def load(run_dir: str) -> dict | None:
+    tb = os.path.join(run_dir, "tb_logs")
+    files = sorted(glob.glob(os.path.join(tb, "**", "events.out.tfevents.*"),
+                             recursive=True))
+    if not files:
+        return _load_csv(run_dir)
+
     try:
         from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
     except ImportError:
@@ -116,11 +210,6 @@ def load(run_dir: str) -> dict | None:
             "  pip install tensorboard\n"
             "(it is in external/diffsynth/requirements-modern.txt)"
         )
-    tb = os.path.join(run_dir, "tb_logs")
-    files = sorted(glob.glob(os.path.join(tb, "**", "events.out.tfevents.*"),
-                             recursive=True))
-    if not files:
-        return None
 
     # Parsing is slow because the event files are mostly not scalars: AudioLogger
     # writes 8 audio clips and a 15x30in figure for train, val_id and val_ood
@@ -166,23 +255,12 @@ def load(run_dir: str) -> dict | None:
     ev = ea.Scalars(ref)
     steps = sorted({s for d in series.values() for s in d})
 
-    # max_epochs comes from hydra's own dump of the resolved config, so the
-    # progress column is right for both the 200-epoch pretrains and the
-    # 400-epoch ploss and resumes without being told which is which.
-    max_epochs = None
-    cfg = os.path.join(run_dir, ".hydra", "config.yaml")
-    if os.path.exists(cfg):
-        try:
-            import yaml
-            max_epochs = yaml.safe_load(open(cfg))["trainer"]["max_epochs"]
-        except Exception:
-            pass
     out = {
         "series": series,
         "steps": steps,
         "elapsed": (ev[-1].wall_time - ev[0].wall_time) if len(ev) > 1 else 0.0,
         "n_ev": len(ev),
-        "max_epochs": max_epochs,
+        "max_epochs": _max_epochs(run_dir),
     }
     try:
         with open(cache_path, "w") as fh:
