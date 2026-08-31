@@ -313,6 +313,12 @@ def main() -> None:
     p.add_argument("--device", default="cpu")
     p.add_argument("--csv", default=None, metavar="PATH",
                    help="Also write the per-clip scores.")
+    p.add_argument("--render", type=int, default=0, metavar="N",
+                   help="Write the first N clips of each folder as target plus "
+                        "one resynthesis per arm, so the numbers can be checked "
+                        "by ear. THE SAME CLIPS FOR EVERY ARM, since the sample "
+                        "was drawn once before any model loaded.")
+    p.add_argument("--render-out", default="folder_audio", metavar="DIR")
     args = p.parse_args()
 
     dev = args.device
@@ -380,6 +386,7 @@ def main() -> None:
 
     rows = []
     per_arm: dict[str, dict[str, dict[str, float]]] = {}
+    renders: dict[tuple[str, str], "np.ndarray"] = {}
     shown = False
     for arm in args.arms:
         model, cfg, note = load_model(os.path.join(args.root, arm),
@@ -446,6 +453,14 @@ def main() -> None:
             acc[g] = e
             for mname, (num, den, k) in e.items():
                 rows.append((arm, g, mname, num, den, k))
+            if args.render:
+                # A separate forward on the first N clips rather than keeping
+                # every batch's output: the scoring loop runs under no_grad and
+                # discards, and holding 50 clips x 3 arms x 4 folders of audio
+                # to render 3 of them is not worth the memory.
+                with torch.no_grad():
+                    o, _ = model({"audio": x[:args.render].to(dev)})
+                renders[(g, arm)] = o.cpu().numpy()
         per_arm[arm] = {
             g: {m: ((num / den if den else float("nan")) if args.norm == "sat"
                     else (num / k if k else float("nan")))
@@ -492,6 +507,39 @@ def main() -> None:
               "  what a model conveying nothing about the target would score.\n"
               "  Near 1.0 means the arm is telling us nothing on this material\n"
               "  however large or small the raw value looks.")
+
+    if args.render and renders:
+        import soundfile as sf
+        os.makedirs(args.render_out, exist_ok=True)
+        # ONE headroom gain across every file written, not per-file limiting.
+        # An arm that gets the overall level wrong should sound like it does --
+        # that is a real difference between these arms and normalising it away
+        # would hide it -- so the only scaling is whatever it takes to keep the
+        # loudest single file inside full scale, applied to all of them.
+        pk = 0.0
+        for g in groups:
+            pk = max(pk, float(np.abs(audio[g][:args.render].numpy()).max()))
+        for v in renders.values():
+            pk = max(pk, float(np.abs(v).max()))
+        head = min(1.0, 0.99 / pk) if pk > 0 else 1.0
+        n = 0
+        for g, files in groups.items():
+            for i, src in enumerate(files[:args.render]):
+                stem = os.path.splitext(os.path.basename(src))[0][:60]
+                base = os.path.join(args.render_out, f"{g[:24]}__{stem}")
+                sf.write(f"{base}__target.wav",
+                         audio[g][i].numpy() * head, args.sr)
+                n += 1
+                for arm in per_arm:
+                    v = renders.get((g, arm))
+                    if v is None or i >= v.shape[0]:
+                        continue
+                    sf.write(f"{base}__{arm}.wav", v[i] * head, args.sr)
+                    n += 1
+        print(f"\nwrote {n} wav(s) to {args.render_out}  "
+              f"(one common gain {head:.3f}, levels otherwise as scored"
+              + (f", after the --folder-peak match" if args.folder_peak
+                 else ", unnormalised") + ")")
 
     if args.csv:
         import csv as _csv
