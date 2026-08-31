@@ -282,6 +282,17 @@ def main() -> None:
                         "has no gradient and a log one has all of it. 60 is the "
                         "generous setting that matches the ACTIVE column's own "
                         "criterion; 40 and below start discarding real decay.")
+    p.add_argument("--trim-pad", action="store_true",
+                   help="Drop the zero padding THIS SCRIPT added, and nothing "
+                        "else. The folder is truncated to its longest clip's "
+                        "own original duration, rounded up to a whole STFT "
+                        "frame -- so every clip keeps all of its real content "
+                        "and the only samples removed are ones that were never "
+                        "in the file. No threshold, no free parameter, and "
+                        "nothing to tune after seeing the answer, which is what "
+                        "--trim-db cannot say for itself. On a folder read at "
+                        "its full --length this is a no-op, so the in-domain "
+                        "set is an exact control.")
     p.add_argument("--trim-db", type=float, default=0.0, metavar="DB",
                    help="Cut the trailing silence off the AUDIO before the "
                         "model sees it, rather than masking it out of the score "
@@ -387,7 +398,13 @@ def main() -> None:
                 gain = args.folder_peak / med
                 x = x * gain
                 peaks = [p * gain for p in peaks]
-        if args.trim_db > 0:
+        keep = None
+        if args.trim_pad:
+            # What the files actually contained. `raws` is recorded by
+            # load_clip before any padding, so this needs no threshold: the
+            # samples removed are exactly the ones the script invented.
+            keep = int(np.ceil(max(raws) * args.sr / 256.0)) * 256
+        elif args.trim_db > 0:
             # The folder's longest active clip sets the window, so nothing is
             # cut off any clip -- only the tail that every clip has already
             # fallen silent in. Rounded up to a whole hop, and never below one
@@ -399,6 +416,7 @@ def main() -> None:
                 nz = np.nonzero(np.abs(row) >= pk * thr)[0] if pk > 0 else []
                 ends.append(int(nz[-1]) + 1 if len(nz) else 0)
             keep = int(np.ceil(max(ends) / 256.0)) * 256
+        if keep is not None:
             keep = min(x.shape[1], max(1024, keep))
             x = x[:, :keep]
             # `active` has to be recomputed against the window that is actually
@@ -408,6 +426,9 @@ def main() -> None:
                 pk = float(np.abs(row).max())
                 acts.append(float((np.abs(row) >= pk * 10.0 ** (-60.0 / 20.0)
                                    ).sum()) / row.shape[0] if pk > 0 else 0.0)
+            if args.trim_pad and keep < int(round(max(raws) * args.sr)):
+                print(f"  NOTE: {g} rounded {max(raws):.3f}s down to "
+                      f"{keep / args.sr:.3f}s to reach a whole frame")
         audio[g] = torch.tensor(x, dtype=torch.float32)
         # A clip that came back at exactly --length was cut there by librosa's
         # duration=; anything shorter got padded. Both counts, because the two
