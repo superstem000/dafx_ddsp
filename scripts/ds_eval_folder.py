@@ -83,6 +83,17 @@ import ds_mfcc_check as mc                               # noqa: E402
 AUDIO_EXT = (".wav", ".aiff", ".aif", ".flac", ".ogg", ".mp3")
 
 
+_WIN: dict[str, "torch.Tensor"] = {}
+
+
+def _linmag(x, device: str):
+    """Per-bin magnitude on the same 1024/256 grid ds_ood_subset masks from."""
+    if device not in _WIN:
+        _WIN[device] = torch.hann_window(1024, device=device)
+    return torch.stft(x, 1024, hop_length=256, window=_WIN[device],
+                      center=True, return_complex=True).abs()
+
+
 def audio_files(d: str) -> list[str]:
     """Every audio file under d, recursively, in a stable order.
 
@@ -257,6 +268,28 @@ def main() -> None:
                         "`length` -- 4.0 for every run in this project -- "
                         "because the estimator's frame count follows it.")
     p.add_argument("--sr", type=int, default=16000)
+    p.add_argument("--active-db", type=float, default=0.0, metavar="DB",
+                   help="Score only frames whose energy is within this many dB "
+                        "of the TARGET's loudest frame; 0 scores whole clips. "
+                        "A silent frame is silent in target and resynthesis "
+                        "alike and clamps to the same floor, so it adds nothing "
+                        "to the numerator while still counting in the mean -- "
+                        "which ranks partly by note length. The synthetic "
+                        "training set measures 0.995 active at 60 dB and the "
+                        "Juno bass packs 0.19, so without this the comparison "
+                        "is between clips that are 80% silence and clips that "
+                        "are none, and silence is exactly where a linear loss "
+                        "has no gradient and a log one has all of it. 60 is the "
+                        "generous setting that matches the ACTIVE column's own "
+                        "criterion; 40 and below start discarding real decay.")
+    p.add_argument("--folder-peak", type=float, default=None, metavar="P",
+                   help="ONE gain per folder, putting that folder's MEDIAN peak "
+                        "at P. This is the level match to use: it removes the "
+                        "systematic offset between a sample pack and the "
+                        "training set while leaving the clip-to-clip level "
+                        "spread intact, so the saturation denominator keeps "
+                        "meaning what it meant. The synthetic set's median peak "
+                        "is 0.496, so --folder-peak 0.5 matches it.")
     p.add_argument("--peak", type=float, default=None, metavar="P",
                    help="Rescale every clip to this peak. OFF by default, "
                         "matching WaveParamDataset, which passes librosa.load "
@@ -269,7 +302,13 @@ def main() -> None:
                         "own, so absolute level does reach the network and a "
                         "pack mastered hotter than the synthetic data is a "
                         "systematic offset. Run it both ways: if the ranking "
-                        "moves, the result is about level, not about the loss.")
+                        "moves, the result is about level, not about the loss. "
+                        "CONFOUNDED WITH THE DENOMINATOR under --norm sat: "
+                        "giving every clip an identical peak removes the "
+                        "level difference BETWEEN clips too, which shrinks "
+                        "saturation and raises every ratio for a reason that "
+                        "has nothing to do with the model. Prefer "
+                        "--folder-peak, which does not.")
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--device", default="cpu")
     p.add_argument("--csv", default=None, metavar="PATH",
@@ -295,7 +334,7 @@ def main() -> None:
 
     # Read the audio once too, for the same reason.
     print(f"{'folder':<28}{'clips':>7}{'raw_s':>8}{'trunc':>7}{'pad':>6}"
-          f"{'active':>9}{'peak':>9}")
+          f"{'active':>9}{'peak':>9}{'gain':>8}")
     audio: dict[str, torch.Tensor] = {}
     for g, files in groups.items():
         ys, acts, peaks, raws = [], [], [], []
@@ -305,20 +344,39 @@ def main() -> None:
             acts.append(a)
             peaks.append(pk)
             raws.append(raw)
-        audio[g] = torch.tensor(np.stack(ys), dtype=torch.float32)
+        x = np.stack(ys)
+        # ONE gain for the folder, applied after every clip is read, so the
+        # clip-to-clip level spread -- and with it the saturation denominator --
+        # survives while the pack's systematic offset from the training set
+        # does not. Per-clip normalisation would flatten both; see --peak.
+        gain = 1.0
+        if args.folder_peak is not None:
+            med = float(np.median(peaks))
+            if med > 0:
+                gain = args.folder_peak / med
+                x = x * gain
+                peaks = [p * gain for p in peaks]
+        audio[g] = torch.tensor(x, dtype=torch.float32)
         # A clip that came back at exactly --length was cut there by librosa's
         # duration=; anything shorter got padded. Both counts, because the two
         # failure modes read very differently in the scores.
         trunc = sum(1 for r in raws if r >= args.length - 1e-6)
         print(f"{g:<28}{len(files):>7}{np.median(raws):>8.2f}{trunc:>7}"
               f"{len(files) - trunc:>6}{np.median(acts):>9.3f}"
-              f"{np.median(peaks):>9.3f}")
+              f"{np.median(peaks):>9.3f}{gain:>8.2f}")
     print("  raw_s  median seconds actually read, before padding\n"
           "  trunc  clips at least --length long, cut to the first --length s\n"
           "  pad    clips shorter than --length, zero-padded at the end\n"
           "  active fraction of the window within 60 dB of the clip's own peak;\n"
           "         low means the score is mostly about the silence\n"
-          "  peak   median, UNNORMALISED unless --peak was passed\n")
+          "  peak   median AFTER gain; unnormalised unless --peak/--folder-peak\n"
+          "  gain   the single per-folder gain --folder-peak applied\n")
+    if args.active_db > 0:
+        print(f"  scoring only frames within {args.active_db:g} dB of each "
+              f"TARGET's loudest frame.\n  The mask comes from the target for "
+              f"both sides: taking it from an arm's own\n  output would grade "
+              f"an arm that under-synthesises on fewer frames,\n  biasing the "
+              f"comparison in exactly the direction under dispute.\n")
 
     rows = []
     per_arm: dict[str, dict[str, dict[str, float]]] = {}
@@ -362,11 +420,29 @@ def main() -> None:
                 with torch.no_grad():
                     out, _ = model({"audio": tgt})
                 oth = tgt.roll(1, dims=0)
+                m = None
+                if args.active_db > 0:
+                    fe = _linmag(tgt, dev).sum(dim=1)
+                    m = fe >= fe.amax(dim=1, keepdim=True) * 10.0 ** (
+                        -args.active_db / 20.0)
                 for mname, fn in metrics.items():
                     a, b, c = fn(tgt), fn(out), fn(oth)
-                    e[mname][0] += float((a - b).abs().sum())
-                    e[mname][1] += float((a - c).abs().sum())
-                    e[mname][2] += a.numel()
+                    mm = m
+                    if mm is not None and mm.shape[-1] != a.shape[-1]:
+                        # The cepstrum and the raw spectrogram can differ by a
+                        # frame of padding; index rather than assume they match.
+                        j = (torch.arange(a.shape[-1], device=dev)
+                             * mm.shape[-1] // a.shape[-1])
+                        mm = mm[:, j]
+                    if mm is None:
+                        e[mname][0] += float((a - b).abs().sum())
+                        e[mname][1] += float((a - c).abs().sum())
+                        e[mname][2] += a.numel()
+                    else:
+                        w = mm[:, None, :].expand_as(a)
+                        e[mname][0] += float(((a - b).abs() * w).sum())
+                        e[mname][1] += float(((a - c).abs() * w).sum())
+                        e[mname][2] += float(w.sum())
             acc[g] = e
             for mname, (num, den, k) in e.items():
                 rows.append((arm, g, mname, num, den, k))
