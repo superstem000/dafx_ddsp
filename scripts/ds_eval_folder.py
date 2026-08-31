@@ -282,6 +282,31 @@ def main() -> None:
                         "has no gradient and a log one has all of it. 60 is the "
                         "generous setting that matches the ACTIVE column's own "
                         "criterion; 40 and below start discarding real decay.")
+    p.add_argument("--trim-db", type=float, default=0.0, metavar="DB",
+                   help="Cut the trailing silence off the AUDIO before the "
+                        "model sees it, rather than masking it out of the score "
+                        "afterwards. The folder is truncated to the longest "
+                        "clip's last sample within this many dB of its own "
+                        "peak, rounded up to a whole STFT frame, so no clip "
+                        "loses content and the batch stays rectangular. 0 is "
+                        "off.\n"
+                        "DIFFERENT FROM --active-db, and the difference is the "
+                        "point. Masking still hands the estimator 3 s of "
+                        "silence and merely declines to score what it does "
+                        "there; trimming means it never sees the silence at "
+                        "all. Those answer different questions -- 'is the "
+                        "score about the note' versus 'is the silence itself "
+                        "throwing the model off' -- and the second is the one "
+                        "worth asking once an arm is audibly generating sound "
+                        "in the padding.\n"
+                        "IT ALSO LEAVES THE TRAINING LENGTH, deliberately. "
+                        "Every run here trained on 4.0 s windows. The estimator "
+                        "is a conv stack into a GRU over frames and "
+                        "EstimatorSynth takes its render length from "
+                        "conditioning['audio'].shape[1] (model.py:148), so a "
+                        "shorter clip runs correctly -- but it is off the "
+                        "training distribution in a second way while removing "
+                        "the first, and any result under it has to say so.")
     p.add_argument("--folder-peak", type=float, default=None, metavar="P",
                    help="ONE gain per folder, putting that folder's MEDIAN peak "
                         "at P. This is the level match to use: it removes the "
@@ -339,8 +364,8 @@ def main() -> None:
         groups[os.path.basename(os.path.normpath(d))] = files
 
     # Read the audio once too, for the same reason.
-    print(f"{'folder':<28}{'clips':>7}{'raw_s':>8}{'trunc':>7}{'pad':>6}"
-          f"{'active':>9}{'peak':>9}{'gain':>8}")
+    print(f"{'folder':<28}{'clips':>7}{'raw_s':>8}{'win_s':>8}{'trunc':>7}"
+          f"{'pad':>6}{'active':>9}{'peak':>9}{'gain':>8}")
     audio: dict[str, torch.Tensor] = {}
     for g, files in groups.items():
         ys, acts, peaks, raws = [], [], [], []
@@ -362,15 +387,38 @@ def main() -> None:
                 gain = args.folder_peak / med
                 x = x * gain
                 peaks = [p * gain for p in peaks]
+        if args.trim_db > 0:
+            # The folder's longest active clip sets the window, so nothing is
+            # cut off any clip -- only the tail that every clip has already
+            # fallen silent in. Rounded up to a whole hop, and never below one
+            # FFT, or the STFT has no frames to give.
+            thr = 10.0 ** (-args.trim_db / 20.0)
+            ends = []
+            for row in x:
+                pk = float(np.abs(row).max())
+                nz = np.nonzero(np.abs(row) >= pk * thr)[0] if pk > 0 else []
+                ends.append(int(nz[-1]) + 1 if len(nz) else 0)
+            keep = int(np.ceil(max(ends) / 256.0)) * 256
+            keep = min(x.shape[1], max(1024, keep))
+            x = x[:, :keep]
+            # `active` has to be recomputed against the window that is actually
+            # scored, or the column describes a clip nobody evaluated.
+            acts = []
+            for row in x:
+                pk = float(np.abs(row).max())
+                acts.append(float((np.abs(row) >= pk * 10.0 ** (-60.0 / 20.0)
+                                   ).sum()) / row.shape[0] if pk > 0 else 0.0)
         audio[g] = torch.tensor(x, dtype=torch.float32)
         # A clip that came back at exactly --length was cut there by librosa's
         # duration=; anything shorter got padded. Both counts, because the two
         # failure modes read very differently in the scores.
         trunc = sum(1 for r in raws if r >= args.length - 1e-6)
-        print(f"{g:<28}{len(files):>7}{np.median(raws):>8.2f}{trunc:>7}"
+        print(f"{g:<28}{len(files):>7}{np.median(raws):>8.2f}"
+              f"{audio[g].shape[1] / args.sr:>8.2f}{trunc:>7}"
               f"{len(files) - trunc:>6}{np.median(acts):>9.3f}"
               f"{np.median(peaks):>9.3f}{gain:>8.2f}")
     print("  raw_s  median seconds actually read, before padding\n"
+          "  win_s  the window actually scored, after any --trim-db\n"
           "  trunc  clips at least --length long, cut to the first --length s\n"
           "  pad    clips shorter than --length, zero-padded at the end\n"
           "  active fraction of the window within 60 dB of the clip's own peak;\n"
