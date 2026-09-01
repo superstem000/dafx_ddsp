@@ -282,6 +282,24 @@ def main() -> None:
                         "has no gradient and a log one has all of it. 60 is the "
                         "generous setting that matches the ACTIVE column's own "
                         "criterion; 40 and below start discarding real decay.")
+    p.add_argument("--active-max", type=float, default=1.0, metavar="F",
+                   help="Keep only clips whose ACTIVE fraction is at most this. "
+                        "The synthetic set's MEDIAN occupancy is 0.995, but "
+                        "sus_level is drawn uniform on [0,1], so its low tail "
+                        "may already contain the sparse clips the Juno packs "
+                        "are made of. Scoring the arms on that tail tests "
+                        "whether occupancy is the mechanism WITHOUT "
+                        "regenerating anything -- and if the in-domain ordering "
+                        "survives there, it is not, and a redistributed "
+                        "dataset would buy nothing.")
+    p.add_argument("--active-min", type=float, default=0.0, metavar="F",
+                   help="The other end, for the matching control: the same "
+                        "folder's DENSE clips, so the comparison is within one "
+                        "dataset rather than against another.")
+    p.add_argument("--scan", type=int, default=4000, metavar="N",
+                   help="With an active filter on, how many files to examine "
+                        "before giving up on reaching --n. Loading is the cost; "
+                        "the whole 20000-clip set is a few minutes.")
     p.add_argument("--trim-pad", action="store_true",
                    help="Drop the zero padding THIS SCRIPT added, and nothing "
                         "else. The folder is truncated to its longest clip's "
@@ -364,28 +382,71 @@ def main() -> None:
     # exactly the same clips. Drawing per arm would make the comparison between
     # different audio, which is the mistake ds_compare_audio exists to avoid.
     rng = random.Random(args.seed)
+    filtering = args.active_min > 0.0 or args.active_max < 1.0
     groups: dict[str, list[str]] = {}
+    scan_order: dict[str, list[str]] = {}
     for d in args.dirs:
         files = audio_files(d)
         if not files:
             raise SystemExit(f"no audio files under {d} "
                              f"(looked for {', '.join(AUDIO_EXT)})")
-        if args.n and len(files) > args.n:
-            files = sorted(rng.sample(files, args.n))
-        groups[os.path.basename(os.path.normpath(d))] = files
+        g = os.path.basename(os.path.normpath(d))
+        if filtering:
+            # A clip's ACTIVE fraction is only known once it is read, so the
+            # selection cannot be made up front: walk a shuffled order and keep
+            # what passes. Deliberately a SEPARATE path from the unfiltered
+            # one, which still draws with rng.sample -- the two consume the RNG
+            # differently, and reusing this path unfiltered would silently
+            # change which clips every earlier run was computed on.
+            order = files[:]
+            rng.shuffle(order)
+            scan_order[g] = order
+            groups[g] = []
+        else:
+            groups[g] = (sorted(rng.sample(files, args.n))
+                         if args.n and len(files) > args.n else files)
 
     # Read the audio once too, for the same reason.
     print(f"{'folder':<28}{'clips':>7}{'raw_s':>8}{'win_s':>8}{'trunc':>7}"
-          f"{'pad':>6}{'active':>9}{'peak':>9}{'gain':>8}")
+          f"{'pad':>6}{'act_p10':>9}{'active':>9}{'act_p90':>9}{'peak':>9}"
+          f"{'gain':>8}")
     audio: dict[str, torch.Tensor] = {}
-    for g, files in groups.items():
-        ys, acts, peaks, raws = [], [], [], []
-        for f in files:
+    for g in list(groups):
+        ys, acts, peaks, raws, keep_f = [], [], [], [], []
+        scanned = 0
+        for f in (scan_order[g] if filtering else groups[g]):
+            if args.n and len(keep_f) >= args.n:
+                break
+            if filtering and scanned >= args.scan:
+                break
+            scanned += 1
             y, a, pk, raw = load_clip(f, args.sr, args.length, args.peak)
+            if filtering and not (args.active_min <= a <= args.active_max):
+                continue
+            keep_f.append(f)
             ys.append(y)
             acts.append(a)
             peaks.append(pk)
             raws.append(raw)
+        if filtering:
+            # Sorted so the roll-by-one saturation partner is a neighbouring
+            # file rather than a shuffle artefact, matching the unfiltered path.
+            o = sorted(range(len(keep_f)), key=lambda i: keep_f[i])
+            keep_f = [keep_f[i] for i in o]
+            ys = [ys[i] for i in o]
+            acts = [acts[i] for i in o]
+            peaks = [peaks[i] for i in o]
+            raws = [raws[i] for i in o]
+            groups[g] = keep_f
+            print(f"  {g}: scanned {scanned}, kept {len(keep_f)} with active "
+                  f"in [{args.active_min:g}, {args.active_max:g}]")
+            if len(keep_f) < 2:
+                raise SystemExit(
+                    f"{g}: only {len(keep_f)} clip(s) passed the active filter "
+                    f"in {scanned} scanned. Saturation needs a partner, so "
+                    f"there is nothing to divide by -- widen the band or raise "
+                    f"--scan.")
+        files = groups[g]
         x = np.stack(ys)
         # ONE gain for the folder, applied after every clip is read, so the
         # clip-to-clip level spread -- and with it the saturation denominator --
@@ -436,14 +497,19 @@ def main() -> None:
         trunc = sum(1 for r in raws if r >= args.length - 1e-6)
         print(f"{g:<28}{len(files):>7}{np.median(raws):>8.2f}"
               f"{audio[g].shape[1] / args.sr:>8.2f}{trunc:>7}"
-              f"{len(files) - trunc:>6}{np.median(acts):>9.3f}"
+              f"{len(files) - trunc:>6}{np.percentile(acts, 10):>9.3f}"
+              f"{np.median(acts):>9.3f}{np.percentile(acts, 90):>9.3f}"
               f"{np.median(peaks):>9.3f}{gain:>8.2f}")
     print("  raw_s  median seconds actually read, before padding\n"
           "  win_s  the window actually scored, after any --trim-db\n"
           "  trunc  clips at least --length long, cut to the first --length s\n"
           "  pad    clips shorter than --length, zero-padded at the end\n"
           "  active fraction of the window within 60 dB of the clip's own peak;\n"
-          "         low means the score is mostly about the silence\n"
+          "         low means the score is mostly about the silence. The p10 and\n"
+          "         p90 columns are there because the MEDIAN hid the question:\n"
+          "         a set at 0.995 median can still have a sparse decile, and\n"
+          "         whether it does decides if occupancy can be tested without\n"
+          "         regenerating anything\n"
           "  peak   median AFTER gain; unnormalised unless --peak/--folder-peak\n"
           "  gain   the single per-folder gain --folder-peak applied\n")
     if args.active_db > 0:

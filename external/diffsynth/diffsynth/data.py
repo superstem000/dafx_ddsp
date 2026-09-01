@@ -23,6 +23,38 @@ class ReiteratableWrapper():
     def __len__(self):
         return self.length
 
+def _check_pairing(audio_files, other_files, base_dir, kind):
+    """Audio and its targets are paired by SORTED INDEX and by nothing else.
+
+    __getitem__ reads raw_files[idx] and param_files[idx] from two independent
+    globs. Nothing ties a clip to its own parameters, so a directory whose two
+    halves disagree -- a merge that renumbered one side, a partial generation,
+    an interrupted copy -- trains every clip against another clip's targets.
+
+    IT DOES NOT RAISE ANYWHERE. The loss still falls, just to a worse floor,
+    which reads as a hard task rather than as a broken dataset. That is the
+    whole reason for this check: the failure has no symptom of its own.
+
+    Compares stems rather than counts, because equal counts is the case that
+    gets through: two shards merged with colliding numbering have exactly as
+    many .wav as .pt and are still wrong.
+    """
+    a = [os.path.splitext(os.path.basename(p))[0] for p in audio_files]
+    b = [os.path.splitext(os.path.basename(p))[0] for p in other_files]
+    if a == b:
+        return
+    if len(a) != len(b):
+        raise AssertionError(
+            f'{base_dir}: {len(a)} audio file(s) but {len(b)} {kind} file(s). '
+            f'They are paired by sorted index, so this cannot be resolved by '
+            f'ignoring the extras -- regenerate, or fix the directory.')
+    i = next(j for j in range(len(a)) if a[j] != b[j])
+    raise AssertionError(
+        f'{base_dir}: audio and {kind} stems diverge at index {i} '
+        f'({a[i]!r} vs {b[i]!r}). They are paired by sorted index, so every '
+        f'clip from here on would be trained against another clip\'s {kind}.')
+
+
 class WaveParamDataset(Dataset):
     def __init__(self, base_dir, sample_rate=16000, length=4.0, params=True, f0=False):
         self.base_dir = base_dir
@@ -39,11 +71,13 @@ class WaveParamDataset(Dataset):
             # all the f0 files should already be written
             # with the same name as the audio
             self.f0_files = sorted(glob.glob(os.path.join(self.f0_dir, '*.pt')))
+            _check_pairing(self.raw_files, self.f0_files, base_dir, 'f0')
         if params:
             self.param_dir = os.path.join(base_dir, 'param')
             assert os.path.exists(self.param_dir)
             # all the files should already be written
             self.param_files = sorted(glob.glob(os.path.join(self.param_dir, '*.pt')))
+            _check_pairing(self.raw_files, self.param_files, base_dir, 'param')
     
     def __getitem__(self, idx):
         raw_path = self.raw_files[idx]
