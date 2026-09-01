@@ -1,4 +1,4 @@
-"""Does the resynthesis SOUND at the right pitch: CREPE on audio, both sides.
+"""Does the resynthesis SOUND at the right pitch: two detectors, both sides.
 
     python scripts/ds_crepe_pitch.py --dirs data/juno/moog-minitaur \
         --arms oct_pre_magx_halfw oct_pre_hybridx oct_pre_logx_halfw \
@@ -11,40 +11,59 @@ pitch in the filename. Two things break it. The label is not the sounding pitch
 model is free to place independently, so when it splits the note between them
 neither BFRQ nor BFRQ*MULT is "the pitch" and reading either one is wrong.
 
-This measures the thing that is actually in question: run CREPE on the TARGET
-audio and on the RESYNTHESIS, and compare. No filename, no parameters, no
+This measures the thing actually in question: estimate the pitch of the TARGET
+audio and of the RESYNTHESIS, and compare. No filename, no parameters, no
 assumption about how many oscillators either side used. If the model conveys
-the pitch by any means -- one oscillator, two, or a beat between them -- CREPE
-hears it, because CREPE hears what a listener hears.
+the pitch by any means -- one oscillator, two, or a beat between them -- an
+audio-domain detector hears it.
 
-WHAT IS REPORTED, per arm and per folder:
+TWO DETECTORS, because on this material they disagree and the disagreement
+matters. On the Moog, CREPE reports the target at 160.7 Hz and the probe at
+77.8 -- an octave apart.
 
-  tgt_hz      median CREPE f0 of the TARGET clips. Sanity check first: this
-              should agree with ds_harmonic_probe's F_hz. If it does not,
-              CREPE is not tracking this material and nothing below means
-              anything
-  tgt_per     median periodicity (confidence) on the target. Below ~0.3 and
-              the same warning applies
+  crepe   torchcrepe, a neural pitch model, on the same hop / fmin / fmax as
+          diffsynth.f0.compute_f0. Trained largely on speech and acoustic
+          instruments; a synth bass near the bottom of its range is exactly
+          where its octave slips live, and it reported only 0.67 periodicity
+          with 64% of frames voiced on this pack
+  probe   ds_harmonic_probe's find_f0, maximising (mean dB at k*F) - (mean dB
+          at (k-1/2)*F). That peaks ONLY at the true fundamental, because a
+          subharmonic's hits and its misses are both real partials and score
+          ~0 -- a structural guarantee about octaves rather than a learned
+          tendency. Validated in this repo: a saw at F scores 87.4 against
+          23.6 for the alternatives, and saw F + saw 2F still picks F
+
+Where they disagree, believe probe. Both are applied identically to target and
+output, so either gives a valid COMPARISON even when its absolute pitch is
+off by an octave; what the disagreement costs is the interpretation of tgt_hz.
+
+WHAT IS REPORTED, per arm, per folder, per detector:
+
+  tgt_hz      median estimated f0 of the TARGET clips
   med_cents   median absolute error in cents, per clip then across clips.
               100 cents is a semitone, 1200 an octave
   within50    per cent of clips inside 50 cents -- audibly in tune
   oct_err     per cent of clips whose error is within 50 cents of a whole
-              number of octaves and at least half an octave out. This is the
-              failure to separate from a random miss: an octave error means
-              the harmonic structure was found and the register was not
+              number of octaves and at least half an octave out: the harmonic
+              structure was found and the register was not. A LOW oct_err
+              beside a large med_cents is worse news than a high one -- it
+              means the misses are arbitrary rather than register slips
   slope       regression of predicted log-f0 on target log-f0, across clips.
               1.0 means the estimate MOVES with the target one for one; 0.0
               means it predicts the same pitch whatever it is handed. This is
               the number that showed the published models were pitch-blind
               (0.2-0.6), and the one to watch
 
-FRAMES ARE GATED BY PERIODICITY on both sides -- an unvoiced frame has no
-pitch to be wrong about, and CREPE returns an arbitrary one there. A clip with
-no surviving frames is dropped and counted in the header rather than silently
-contributing a garbage number.
+CREPE frames are gated by periodicity on BOTH sides -- an unvoiced frame has
+no pitch to be wrong about, and CREPE returns an arbitrary one there. A clip
+with no surviving frames is dropped, which is why n can be well under --n; a
+low n is itself a finding, since it means the resynthesis is not pitched
+enough to track. The probe has no such gate: it is one windowed FFT over the
+clip's active span and always returns something, with a score saying how much
+to believe it.
 
-The per-clip error is a median over frames, not a mean, so one bad frame at a
-note transition cannot move it.
+The per-clip CREPE error is a median over frames, not a mean, so one bad frame
+at a note transition cannot move it.
 """
 
 from __future__ import annotations
@@ -63,6 +82,8 @@ import numpy as np                                       # noqa: E402
 import torch                                             # noqa: E402
 
 from ds_eval_folder import audio_files, load_clip, load_model   # noqa: E402
+from ds_harmonic_probe import spectrum, find_f0           # noqa: E402
+from ds_pitch_error import MIDI_RE, midi_of               # noqa: E402
 
 try:
     import torchcrepe
@@ -70,6 +91,29 @@ except ImportError:                                      # pragma: no cover
     torchcrepe = None
 
 HOP = 128
+
+
+def probe_f0(y: np.ndarray, sr: int, guess: float, span: float):
+    """(F_hz, score_dB) from ds_harmonic_probe's octave-robust detector.
+
+    The alternative to CREPE, and better suited to this material. CREPE is a
+    neural model trained largely on speech and acoustic instruments; a synth
+    bass near the bottom of its range is exactly where its octave slips live,
+    and on the Moog it reports 160.7 Hz where the probe reports 77.8.
+
+    find_f0 maximises (mean dB at k*F) - (mean dB at (k-1/2)*F), which peaks
+    ONLY at the true fundamental: a subharmonic's hits and its misses are both
+    real partials, so it scores ~0. That is a structural guarantee about
+    octaves rather than a learned tendency, which is why it is worth having as
+    a second opinion instead of trusting one estimator.
+
+    The score is the confidence in dB. Tens of dB is a clean harmonic sound; a
+    few dB means the detection should not be believed.
+    """
+    fr, mg = spectrum(y, sr)
+    if fr is None:
+        return None, None
+    return find_f0(fr, mg, guess, span_oct=span)
 
 
 def crepe_f0(audio: torch.Tensor, sr: int, device: str, batch_size: int):
@@ -119,16 +163,31 @@ def main() -> None:
                         "ds_eval_folder was given or the two disagree about "
                         "what the model was shown.")
     p.add_argument("--min-periodicity", type=float, default=0.2, metavar="F",
-                   help="Frames below this on either side are unvoiced and "
-                        "carry no pitch to compare.")
+                   help="crepe only: frames below this on either side are "
+                        "unvoiced and carry no pitch to compare.")
+    p.add_argument("--estimator", default="both",
+                   choices=("crepe", "probe", "both"),
+                   help="Which pitch detector. 'probe' is ds_harmonic_probe's "
+                        "octave-robust one, which is structurally immune to "
+                        "the octave slips CREPE is prone to on bass material; "
+                        "'both' runs each so their agreement is visible.")
+    p.add_argument("--span", type=float, default=3.0, metavar="OCT",
+                   help="probe only: half-width of the search, in octaves, "
+                        "around the guess.")
+    p.add_argument("--anchor", type=float, default=110.0, metavar="HZ",
+                   help="probe only: where the TARGET search starts when the "
+                        "filename carries no MIDI number. The resynthesis is "
+                        "always searched around its own target's detected F.")
+    p.add_argument("--midi-re", default=MIDI_RE,
+                   help="probe only: pulls a MIDI number out of the basename "
+                        "to start the target search closer than --anchor. "
+                        "Only the starting point -- the +-span search and the "
+                        "score decide the answer, so a wrong label costs "
+                        "nothing unless it is more than span octaves out.")
     p.add_argument("--device", default="cuda")
     p.add_argument("--batch-size", type=int, default=512)
     p.add_argument("--csv", default=None, metavar="PATH")
     args = p.parse_args()
-
-    if torchcrepe is None:
-        print("torchcrepe is not installed.  pip install torchcrepe")
-        raise SystemExit(2)
 
     dev = args.device
     rng = random.Random(args.seed)
@@ -153,59 +212,107 @@ def main() -> None:
         folders[g] = (files, np.stack([r[0] for r in raw]) * gain, gain)
         print(f"{g:<26}{len(files):>4} clips   gain {gain:.3f}")
 
-    # CREPE on the targets once -- it does not depend on the arm.
-    tgt_f0 = {}
-    for g, (_files, x, _gain) in folders.items():
-        f0, per = crepe_f0(torch.from_numpy(x).float(), args.sr, dev,
-                           args.batch_size)
-        tgt_f0[g] = (f0, per)
-        voiced = f0[per >= args.min_periodicity]
-        med_hz = float(np.median(voiced)) if voiced.size else float("nan")
-        print(f"{g:<26}target  f0 {med_hz:8.1f} Hz   periodicity "
-              f"{float(np.median(per)):.2f}   voiced frames "
-              f"{100.0 * voiced.size / max(per.size, 1):.0f}%")
+    want_crepe = args.estimator in ("crepe", "both")
+    want_probe = args.estimator in ("probe", "both")
+    if want_crepe and torchcrepe is None:
+        print("torchcrepe is not installed.  pip install torchcrepe   "
+              "(or pass --estimator probe)")
+        raise SystemExit(2)
 
-    print(f"\n{'folder':<22}{'arm':<24}{'n':>4}{'tgt_hz':>9}{'med_cents':>11}"
-          f"{'within50':>10}{'oct_err':>9}{'slope':>8}")
+    # Target pitch, once per folder -- it does not depend on the arm.
+    tgt = {}
+    for g, (files, x, _gain) in folders.items():
+        d = {}
+        if want_crepe:
+            f0, per = crepe_f0(torch.from_numpy(x).float(), args.sr, dev,
+                               args.batch_size)
+            d["crepe"] = (f0, per)
+            voiced = f0[per >= args.min_periodicity]
+            med = float(np.median(voiced)) if voiced.size else float("nan")
+            print(f"{g:<26}target crepe  {med:8.1f} Hz   periodicity "
+                  f"{float(np.median(per)):.2f}   voiced "
+                  f"{100.0 * voiced.size / max(per.size, 1):.0f}%")
+        if want_probe:
+            F, S = [], []
+            for i, f in enumerate(files):
+                m = midi_of(f, args.midi_re) if args.midi_re else None
+                guess = (440.0 * 2.0 ** ((m - 69) / 12.0)) if m is not None \
+                    else args.anchor
+                Fi, si = probe_f0(x[i], args.sr, guess, args.span)
+                F.append(Fi if Fi is not None else np.nan)
+                S.append(si if si is not None else np.nan)
+            d["probe"] = (np.array(F), np.array(S))
+            print(f"{g:<26}target probe  {np.nanmedian(F):8.1f} Hz   score "
+                  f"{np.nanmedian(S):.1f} dB")
+        tgt[g] = d
+
+    print(f"\n{'folder':<20}{'arm':<24}{'est':<7}{'n':>4}{'tgt_hz':>9}"
+          f"{'med_cents':>11}{'within50':>10}{'oct_err':>9}{'slope':>8}")
     rows = []
+
+    def emit(folder, arm, est, per_clip):
+        """per_clip: list of [abs_cents, signed_cents, target_hz]."""
+        if not per_clip:
+            print(f"{folder[:20]:<20}{arm:<24}{est:<7}  nothing measurable")
+            return
+        a = np.array(per_clip)
+        off = a[:, 0]
+        # An octave error is a NEAR-MISS on a whole number of octaves, and far
+        # enough out that it is not just an in-tune estimate.
+        oct_e = 100.0 * float(((np.abs(off - 1200 * np.round(off / 1200)) <= 50)
+                               & (off >= 600)).mean())
+        lg_t = np.log2(a[:, 2])
+        lg_o = lg_t + a[:, 1] / 1200.0
+        slope = (float(np.polyfit(lg_t, lg_o, 1)[0])
+                 if len(lg_t) > 2 and np.ptp(lg_t) > 1e-6 else float("nan"))
+        print(f"{folder[:20]:<20}{arm:<24}{est:<7}{len(a):>4}"
+              f"{np.median(a[:, 2]):>9.1f}{np.median(off):>11.1f}"
+              f"{100.0 * float((off <= 50).mean()):>9.0f}%{oct_e:>8.0f}%"
+              f"{slope:>8.2f}")
+
     for arm in args.arms:
         model, _cfg, note = load_model(os.path.join(args.root, arm),
                                        args.ckpt, dev)
         if model is None:
-            print(f"{'':<22}{arm:<24}  skipped -- {note}")
+            print(f"{'':<20}{arm:<24}  skipped -- {note}")
             continue
         for g, (files, x, _gain) in folders.items():
-            ft, pt = tgt_f0[g]
             with torch.no_grad():
                 out, _ = model({"audio": torch.from_numpy(x).float().to(dev)})
-            fo, po = crepe_f0(out.detach().cpu(), args.sr, dev,
-                              args.batch_size)
-            acc, lg_t, lg_o = [], [], []
-            for i, f in enumerate(files):
-                a, signed, hz = clip_cents(ft[i], pt[i], fo[i], po[i],
-                                           args.min_periodicity)
-                if a is None:
-                    continue
-                acc.append([a, hz])
-                lg_t.append(np.log2(hz))
-                lg_o.append(np.log2(hz) + signed / 1200.0)
-                rows.append([arm, g, os.path.basename(f), f"{hz:.2f}",
-                             f"{signed:.1f}", f"{a:.1f}"])
-            if not acc:
-                print(f"{g[:22]:<22}{arm:<24}  no voiced frames on either side")
-                continue
-            a = np.array(acc)
-            med = float(np.median(a[:, 0]))
-            w50 = 100.0 * float((a[:, 0] <= 50).mean())
-            # An octave error is a NEAR-MISS on a whole number of octaves, and
-            # far enough out that it is not just an in-tune estimate.
-            off = a[:, 0]
-            oct_e = 100.0 * float(((np.abs(off - 1200 * np.round(off / 1200))
-                                    <= 50) & (off >= 600)).mean())
-            slope = (float(np.polyfit(lg_t, lg_o, 1)[0])
-                     if len(lg_t) > 2 and np.ptp(lg_t) > 1e-6 else float("nan"))
-            print(f"{g[:22]:<22}{arm:<24}{len(a):>4}{np.median(a[:, 1]):>9.1f}"
-                  f"{med:>11.1f}{w50:>9.0f}%{oct_e:>8.0f}%{slope:>8.2f}")
+            out = out.detach().cpu()
+
+            if want_crepe:
+                ft, pt = tgt[g]["crepe"]
+                fo, po = crepe_f0(out, args.sr, dev, args.batch_size)
+                acc = []
+                for i, f in enumerate(files):
+                    a, signed, hz = clip_cents(ft[i], pt[i], fo[i], po[i],
+                                               args.min_periodicity)
+                    if a is None:
+                        continue
+                    acc.append([a, signed, hz])
+                    rows.append([arm, g, "crepe", os.path.basename(f),
+                                 f"{hz:.2f}", f"{signed:.1f}", f"{a:.1f}"])
+                emit(g, arm, "crepe", acc)
+
+            if want_probe:
+                Ft, _St = tgt[g]["probe"]
+                on = out.numpy()
+                acc = []
+                for i, f in enumerate(files):
+                    if not np.isfinite(Ft[i]):
+                        continue
+                    # Searched around the TARGET's own F, so the two sides are
+                    # given the same window rather than each finding its own.
+                    Fo, _so = probe_f0(on[i], args.sr, float(Ft[i]), args.span)
+                    if Fo is None:
+                        continue
+                    signed = 1200.0 * float(np.log2(Fo / Ft[i]))
+                    acc.append([abs(signed), signed, float(Ft[i])])
+                    rows.append([arm, g, "probe", os.path.basename(f),
+                                 f"{Ft[i]:.2f}", f"{signed:.1f}",
+                                 f"{abs(signed):.1f}"])
+                emit(g, arm, "probe", acc)
 
     print("\n  med_cents  median |error| in cents; 100 = a semitone, 1200 = an octave\n"
           "  within50   per cent of clips audibly in tune\n"
@@ -214,15 +321,19 @@ def main() -> None:
           "  slope      predicted log-f0 regressed on target log-f0 ACROSS clips.\n"
           "             1.0 = the estimate moves with the target; 0.0 = it\n"
           "             predicts one pitch regardless of what it is given\n"
-          "  Check tgt_hz against ds_harmonic_probe's F_hz before reading any of\n"
-          "  it: if CREPE and the harmonic probe disagree about the target's own\n"
-          "  pitch, the measurement is not about the model.")
+          "  est        which detector. crepe is a neural pitch model, prone to\n"
+          "             octave slips on bass; probe is ds_harmonic_probe's\n"
+          "             hits-minus-half-multiples search, structurally immune\n"
+          "             to them. Where the two disagree, believe probe -- but\n"
+          "             a large disagreement is itself worth looking at, since\n"
+          "             both are applied identically to target and output.")
 
     if args.csv:
         import csv as _csv
         with open(args.csv, "w", newline="") as fh:
             w = _csv.writer(fh)
-            w.writerow(["arm", "folder", "file", "tgt_hz", "cents", "abs_cents"])
+            w.writerow(["arm", "folder", "est", "file", "tgt_hz",
+                        "cents", "abs_cents"])
             w.writerows(rows)
         print(f"\nwrote {args.csv}")
 
