@@ -37,6 +37,20 @@ Where they disagree, believe probe. Both are applied identically to target and
 output, so either gives a valid COMPARISON even when its absolute pitch is
 off by an octave; what the disagreement costs is the interpretation of tgt_hz.
 
+THE PROBE SEARCH IS ANCHORED, at --anchor +- --span octaves, the same window
+for the target and for every resynthesis. It must not be centred on each
+clip's own target: find_f0 always returns its argmax, so for a resynthesis
+with no real harmonic structure the answer comes from wherever the window is,
+and a window that follows the target makes the two correlate for reasons that
+have nothing to do with the model -- which shows up as a slope near 1.0
+sitting next to a median error of more than an octave. The default window is
+31.6-2024 Hz, i.e. FREQ_RANGE, so nothing the model can emit falls outside it.
+
+out_conf is the median score of the detections ON THE RESYNTHESIS, and it is
+the column that says whether the rest of that row means anything: the probe
+has no voicing gate and will report a confident-looking pitch for noise. Tens
+of dB is a real harmonic sound; single digits is the detector shrugging.
+
 WHAT IS REPORTED, per arm, per folder, per detector:
 
   tgt_hz      median estimated f0 of the TARGET clips
@@ -83,7 +97,6 @@ import torch                                             # noqa: E402
 
 from ds_eval_folder import audio_files, load_clip, load_model   # noqa: E402
 from ds_harmonic_probe import spectrum, find_f0           # noqa: E402
-from ds_pitch_error import MIDI_RE, midi_of               # noqa: E402
 
 try:
     import torchcrepe
@@ -173,17 +186,21 @@ def main() -> None:
                         "'both' runs each so their agreement is visible.")
     p.add_argument("--span", type=float, default=3.0, metavar="OCT",
                    help="probe only: half-width of the search, in octaves, "
-                        "around the guess.")
-    p.add_argument("--anchor", type=float, default=110.0, metavar="HZ",
-                   help="probe only: where the TARGET search starts when the "
-                        "filename carries no MIDI number. The resynthesis is "
-                        "always searched around its own target's detected F.")
-    p.add_argument("--midi-re", default=MIDI_RE,
-                   help="probe only: pulls a MIDI number out of the basename "
-                        "to start the target search closer than --anchor. "
-                        "Only the starting point -- the +-span search and the "
-                        "score decide the answer, so a wrong label costs "
-                        "nothing unless it is more than span octaves out.")
+                        "around --anchor. The default pair covers 31.6-2024 "
+                        "Hz, which is FREQ_RANGE, so nothing the model can "
+                        "emit falls outside the window.")
+    p.add_argument("--anchor", type=float, default=253.0, metavar="HZ",
+                   help="probe only: centre of the search, THE SAME for the "
+                        "target and for every resynthesis. It must not be "
+                        "derived per clip from that clip's target -- a window "
+                        "that moves with the target makes an unpitched "
+                        "resynthesis correlate with it and inflates slope "
+                        "toward 1 for no reason involving the model.")
+    p.add_argument("--min-score", type=float, default=0.0, metavar="DB",
+                   help="probe only: drop clips whose detection scores below "
+                        "this on either side. 0 keeps everything and lets the "
+                        "reported scores speak; ~10 dB is where a detection "
+                        "starts being worth believing.")
     p.add_argument("--device", default="cuda")
     p.add_argument("--batch-size", type=int, default=512)
     p.add_argument("--csv", default=None, metavar="PATH")
@@ -235,22 +252,23 @@ def main() -> None:
         if want_probe:
             F, S = [], []
             for i, f in enumerate(files):
-                m = midi_of(f, args.midi_re) if args.midi_re else None
-                guess = (440.0 * 2.0 ** ((m - 69) / 12.0)) if m is not None \
-                    else args.anchor
-                Fi, si = probe_f0(x[i], args.sr, guess, args.span)
+                Fi, si = probe_f0(x[i], args.sr, args.anchor, args.span)
                 F.append(Fi if Fi is not None else np.nan)
                 S.append(si if si is not None else np.nan)
             d["probe"] = (np.array(F), np.array(S))
+            lo, hi = args.anchor * 2 ** -args.span, args.anchor * 2 ** args.span
             print(f"{g:<26}target probe  {np.nanmedian(F):8.1f} Hz   score "
-                  f"{np.nanmedian(S):.1f} dB")
+                  f"{np.nanmedian(S):.1f} dB   p10-p90 "
+                  f"{np.nanpercentile(F, 10):.0f}-{np.nanpercentile(F, 90):.0f}"
+                  f" Hz   window {lo:.0f}-{hi:.0f} Hz")
         tgt[g] = d
 
     print(f"\n{'folder':<20}{'arm':<24}{'est':<7}{'n':>4}{'tgt_hz':>9}"
-          f"{'med_cents':>11}{'within50':>10}{'oct_err':>9}{'slope':>8}")
+          f"{'med_cents':>11}{'within50':>10}{'oct_err':>9}{'slope':>8}"
+          f"{'out_conf':>10}")
     rows = []
 
-    def emit(folder, arm, est, per_clip):
+    def emit(folder, arm, est, per_clip, conf=None):
         """per_clip: list of [abs_cents, signed_cents, target_hz]."""
         if not per_clip:
             print(f"{folder[:20]:<20}{arm:<24}{est:<7}  nothing measurable")
@@ -265,10 +283,11 @@ def main() -> None:
         lg_o = lg_t + a[:, 1] / 1200.0
         slope = (float(np.polyfit(lg_t, lg_o, 1)[0])
                  if len(lg_t) > 2 and np.ptp(lg_t) > 1e-6 else float("nan"))
+        c = "" if conf is None else f"{np.nanmedian(conf):>9.1f}dB"
         print(f"{folder[:20]:<20}{arm:<24}{est:<7}{len(a):>4}"
               f"{np.median(a[:, 2]):>9.1f}{np.median(off):>11.1f}"
               f"{100.0 * float((off <= 50).mean()):>9.0f}%{oct_e:>8.0f}%"
-              f"{slope:>8.2f}")
+              f"{slope:>8.2f}{c}")
 
     for arm in args.arms:
         model, _cfg, note = load_model(os.path.join(args.root, arm),
@@ -292,27 +311,32 @@ def main() -> None:
                         continue
                     acc.append([a, signed, hz])
                     rows.append([arm, g, "crepe", os.path.basename(f),
-                                 f"{hz:.2f}", f"{signed:.1f}", f"{a:.1f}"])
+                                 f"{hz:.2f}", f"{signed:.1f}", f"{a:.1f}", ""])
                 emit(g, arm, "crepe", acc)
 
             if want_probe:
-                Ft, _St = tgt[g]["probe"]
+                Ft, St = tgt[g]["probe"]
                 on = out.numpy()
-                acc = []
+                acc, conf = [], []
                 for i, f in enumerate(files):
                     if not np.isfinite(Ft[i]):
                         continue
-                    # Searched around the TARGET's own F, so the two sides are
-                    # given the same window rather than each finding its own.
-                    Fo, _so = probe_f0(on[i], args.sr, float(Ft[i]), args.span)
+                    # ANCHORED, not centred on this clip's target. A window
+                    # that follows the target makes an unpitched resynthesis
+                    # correlate with it and fakes a slope near 1.
+                    Fo, so = probe_f0(on[i], args.sr, args.anchor, args.span)
                     if Fo is None:
+                        continue
+                    if args.min_score > 0 and (so < args.min_score
+                                               or St[i] < args.min_score):
                         continue
                     signed = 1200.0 * float(np.log2(Fo / Ft[i]))
                     acc.append([abs(signed), signed, float(Ft[i])])
+                    conf.append(so)
                     rows.append([arm, g, "probe", os.path.basename(f),
                                  f"{Ft[i]:.2f}", f"{signed:.1f}",
-                                 f"{abs(signed):.1f}"])
-                emit(g, arm, "probe", acc)
+                                 f"{abs(signed):.1f}", f"{so:.1f}"])
+                emit(g, arm, "probe", acc, conf)
 
     print("\n  med_cents  median |error| in cents; 100 = a semitone, 1200 = an octave\n"
           "  within50   per cent of clips audibly in tune\n"
@@ -333,7 +357,7 @@ def main() -> None:
         with open(args.csv, "w", newline="") as fh:
             w = _csv.writer(fh)
             w.writerow(["arm", "folder", "est", "file", "tgt_hz",
-                        "cents", "abs_cents"])
+                        "cents", "abs_cents", "score_db"])
             w.writerows(rows)
         print(f"\nwrote {args.csv}")
 
