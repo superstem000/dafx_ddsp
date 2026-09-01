@@ -118,6 +118,17 @@ def summarise(cents: np.ndarray, mult: np.ndarray) -> dict:
     }
 
 
+def slope_of(true_hz: np.ndarray, pred_hz: np.ndarray) -> float:
+    """Octaves of predicted pitch per octave of true pitch.
+
+    1.0 tracks; 0.0 is a constant regardless of input. The single number that
+    says whether an arm is hearing pitch at all, as opposed to being offset.
+    """
+    a = np.log2(np.maximum(true_hz, 1e-6))
+    b = np.log2(np.maximum(pred_hz, 1e-6))
+    return float(np.polyfit(a, b, 1)[0]) if len(a) > 1 else float("nan")
+
+
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -130,6 +141,21 @@ def main() -> None:
                         "'...-<midi>-<velocity>.<ext>'.")
     p.add_argument("--match", default=None, metavar="REGEX",
                    help="Keep only basenames matching, as in ds_eval_folder.")
+    p.add_argument("--trim-pad", action="store_true",
+                   help="Cut the zero padding this script added, so the LAST "
+                        "frame lands inside the note. fill_params reads every "
+                        "static parameter -- f0_hz, M_OSC, MULT, Q_FILT -- from "
+                        "[:, -1:, :], and on a 1.3 s sample in a 4 s window "
+                        "that frame sits 2.7 s into silence. Training never "
+                        "does this: every synthetic clip sounds through the "
+                        "whole window, so the last frame is always in-signal.")
+    p.add_argument("--folder-peak", type=float, default=None, metavar="P",
+                   help="One gain per run, putting the median peak at P. The "
+                        "synthetic set's median is 0.496 and the Juno saw-bass "
+                        "pack's is 0.145, and the estimator's input "
+                        "normalisation is BatchNorm with affine=False, which "
+                        "in eval subtracts the TRAINING mean rather than each "
+                        "clip's own.")
     p.add_argument("--length", type=float, default=4.0)
     p.add_argument("--sr", type=int, default=16000)
     p.add_argument("--batch-size", type=int, default=16)
@@ -160,7 +186,19 @@ def main() -> None:
         print(f"  WARNING: {out} file(s) lie outside harmor's FREQ_RANGE "
               f"(32-2000 Hz) and cannot be reached by any arm")
 
-    x = np.stack([load_clip(f, args.sr, args.length)[0] for f in files])
+    loaded = [load_clip(f, args.sr, args.length) for f in files]
+    x = np.stack([c[0] for c in loaded])
+    peaks = np.array([c[2] for c in loaded])
+    raws = np.array([c[3] for c in loaded])
+    gain = 1.0
+    if args.folder_peak is not None and np.median(peaks) > 0:
+        gain = args.folder_peak / float(np.median(peaks))
+        x = x * gain
+    if args.trim_pad:
+        keep = min(x.shape[1], int(np.ceil(raws.max() * args.sr / 256.0)) * 256)
+        x = x[:, :keep]
+    print(f"  window {x.shape[1] / args.sr:.2f}s  median peak "
+          f"{np.median(peaks) * gain:.3f}  gain {gain:.2f}")
     x = torch.tensor(x, dtype=torch.float32)
 
     # Tertiles of the actual pitch set, so "low/mid/high" means something for
@@ -185,7 +223,7 @@ def main() -> None:
         f0 = np.concatenate(f0s)
         mu = np.concatenate(mus)
         cents = 1200.0 * np.log2(np.maximum(f0, 1e-6) / true_hz)
-        per_arm[arm] = (cents, mu, note)
+        per_arm[arm] = (cents, mu, note, f0)
         for j, f in enumerate(files):
             rows.append((arm, os.path.basename(f), int(midis[j]),
                          f"{true_hz[j]:.3f}", f"{f0[j]:.3f}",
@@ -195,23 +233,26 @@ def main() -> None:
         raise SystemExit("no arm produced results")
 
     print(f"\n=== PITCH, against the filename's MIDI number")
-    print(f"{'arm':<24}{'ckpt':>12}{'med_cents':>11}{'|cents|':>9}"
+    print(f"{'arm':<24}{'ckpt':>12}{'slope':>8}{'med_cents':>11}{'|cents|':>9}"
           f"{'within50':>10}{'oct50':>8}{'med_MULT':>10}{'osc2_semis':>12}")
-    for arm, (cents, mu, note) in per_arm.items():
+    for arm, (cents, mu, note, f0) in per_arm.items():
         s = summarise(cents, mu)
-        print(f"{arm:<24}{note:>12}{s['med']:>11.1f}{s['abs']:>9.1f}"
+        print(f"{arm:<24}{note:>12}{slope_of(true_hz, f0):>8.2f}"
+              f"{s['med']:>11.1f}{s['abs']:>9.1f}"
               f"{s['w50']:>9.0%}{s['o50']:>8.0%}{s['mult']:>10.2f}"
               f"{s['semis']:>12.1f}")
 
     print(f"\n=== BY PITCH BAND   median |cents|, tertiles of this set")
     print(f"{'arm':<24}" + "".join(f"{n + ' (n=' + str(int(m.sum())) + ')':>18}"
                                    for n, m in bands))
-    for arm, (cents, _mu, _n) in per_arm.items():
+    for arm, (cents, _mu, _n, _f) in per_arm.items():
         print(f"{arm:<24}" + "".join(
             f"{np.median(np.abs(cents[m])):>18.1f}" if m.any() else f"{'-':>18}"
             for _n2, m in bands))
 
-    print("\n  med_cents  signed; a consistent sign is a bias, scatter is not\n"
+    print("\n  slope      octaves of PREDICTED pitch per octave of true pitch.\n"
+          "             1.0 tracks, 0.0 is a constant regardless of input\n"
+          "  med_cents  signed; a consistent sign is a bias, scatter is not\n"
           "  within50   inside a quarter tone of the true pitch\n"
           "  oct50      the same after folding out octave errors; the gap\n"
           "             between the two columns IS the octave-error rate\n"
