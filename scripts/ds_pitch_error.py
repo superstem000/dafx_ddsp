@@ -95,9 +95,18 @@ def predict(model, x: torch.Tensor):
         d = proc.param_desc[name]
         v = dag_in[conn[name]]
         out.append(SCALE_FNS[d["type"]](v, d["range"][0], d["range"][1]))
-    # static, so one value per clip: take the last frame.
+    # WHICH OSCILLATOR CARRIES THE SOUND. harmor puts osc 1 at f0 and osc 2 at
+    # f0*mult, and reporting f0 alone calls osc 1 "the pitch" when the model may
+    # have put most of the level on osc 2 -- the two can split the job, one low
+    # and one high. `amplitudes` is per-frame and size n_oscs under sep_amp, so
+    # the mean over frames gives each oscillator's share of the control level.
+    # Control, not rendered energy: the saw and square harmonic profiles do not
+    # sum to the same total, so this is an indication rather than a power split.
+    amp = dag_in[conn["amplitudes"]]
+    a = amp.mean(dim=1).detach().cpu().numpy()          # (B, n_oscs)
+    share = a[:, 0] / np.maximum(a.sum(axis=1), 1e-12)
     return (out[0][:, -1, 0].detach().cpu().numpy(),
-            out[1][:, -1, 0].detach().cpu().numpy())
+            out[1][:, -1, 0].detach().cpu().numpy(), share)
 
 
 def fold(c: np.ndarray) -> np.ndarray:
@@ -226,16 +235,21 @@ def main() -> None:
         if model is None:
             print(f"{arm:<24} skipped: {note}")
             continue
-        f0s, mus = [], []
+        f0s, mus, shs = [], [], []
         with torch.no_grad():
             for i in range(0, x.shape[0], args.batch_size):
-                a, b = predict(model, x[i:i + args.batch_size].to(args.device))
+                a, b, sh = predict(model, x[i:i + args.batch_size].to(args.device))
                 f0s.append(a)
                 mus.append(b)
+                shs.append(sh)
         f0 = np.concatenate(f0s)
         mu = np.concatenate(mus)
+        share = np.concatenate(shs)
         cents = 1200.0 * np.log2(np.maximum(f0, 1e-6) / true_hz)
-        per_arm[arm] = (cents, mu, note, f0)
+        cents2 = 1200.0 * np.log2(np.maximum(f0 * mu, 1e-6) / true_hz)
+        # The oscillator the model actually put the level on, per clip.
+        loud = np.where(share >= 0.5, cents, cents2)
+        per_arm[arm] = (cents, mu, note, f0, cents2, share, loud)
         for j, f in enumerate(files):
             rows.append((arm, os.path.basename(f), int(midis[j]),
                          f"{true_hz[j]:.3f}", f"{f0[j]:.3f}",
@@ -247,7 +261,7 @@ def main() -> None:
     print(f"\n=== PITCH, against the filename's MIDI number")
     print(f"{'arm':<24}{'ckpt':>12}{'slope':>8}{'med_cents':>11}{'|cents|':>9}"
           f"{'within50':>10}{'oct50':>8}{'med_MULT':>10}{'osc2_semis':>12}")
-    for arm, (cents, mu, note, f0) in per_arm.items():
+    for arm, (cents, mu, note, f0, c2, share, loud) in per_arm.items():
         s = summarise(cents, mu)
         print(f"{arm:<24}{note:>12}{slope_of(true_hz, f0):>8.2f}"
               f"{s['med']:>11.1f}{s['abs']:>9.1f}"
@@ -257,10 +271,22 @@ def main() -> None:
     print(f"\n=== BY PITCH BAND   median |cents|, tertiles of this set")
     print(f"{'arm':<24}" + "".join(f"{n + ' (n=' + str(int(m.sum())) + ')':>18}"
                                    for n, m in bands))
-    for arm, (cents, _mu, _n, _f) in per_arm.items():
+    for arm, (cents, _mu, _n, _f, _c2, _sh, _ld) in per_arm.items():
         print(f"{arm:<24}" + "".join(
             f"{np.median(np.abs(cents[m])):>18.1f}" if m.any() else f"{'-':>18}"
             for _n2, m in bands))
+
+    print(f"\n=== BOTH OSCILLATORS   osc1 at f0, osc2 at f0*MULT")
+    print(f"{'arm':<24}{'osc1_cents':>12}{'osc2_cents':>12}{'share1':>9}"
+          f"{'loud_cents':>12}{'loud|cents|':>13}")
+    for arm, (cents, mu, note, f0, c2, share, loud) in per_arm.items():
+        print(f"{arm:<24}{np.median(cents):>12.1f}{np.median(c2):>12.1f}"
+              f"{np.median(share):>9.2f}{np.median(loud):>12.1f}"
+              f"{np.median(np.abs(loud)):>13.1f}")
+    print("  share1      osc 1's share of the mean control amplitude. 0.5 is an\n"
+          "              even split; near 0 means the model put the sound on\n"
+          "              osc 2 and osc1_cents is describing a quiet oscillator\n"
+          "  loud_cents  the error of whichever oscillator carries the level")
 
     print("\n  slope      octaves of PREDICTED pitch per octave of true pitch.\n"
           "             1.0 tracks, 0.0 is a constant regardless of input\n"
