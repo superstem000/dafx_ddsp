@@ -1,75 +1,48 @@
 name: harmor_2oscfree_var
-# h2of.yaml remodelled as a SAMPLED ONE-SHOT rather than as a held key.
+# h2of.yaml with the note placed in a WINDOW of the clip instead of filling it.
 #
-# THE TARGET THIS IS SHAPED AGAINST. A note from a sample library -- the
-# Roland Juno-6 packs, and any instrument library -- has three properties the
-# published generator cannot produce:
+# THE ONE IDEA. Take the note the published generator makes, and put it between
+# t0 and t1 instead of between 0 and 4 s. Inside that window it is exactly the
+# published envelope on a compressed time axis -- same attack, decay, sustain
+# and release draws, same shape, same noise -- and outside it the clip is
+# silent. At t0=0, t1=4 s the two generators are bit-identical. So this is the
+# published task plus one thing: where the note sits in time and how long it
+# lasts. Nothing about the sound itself is redistributed.
 #
-#   It STARTS LATE. The sampler trimmed near the transient, not exactly on it,
-#   so the file opens with a short lead-in of silence. Measured on a Juno-6
-#   saw-bass sample, the onset is about 13% into a 1.31 s file. ADSREnvelope
-#   always began rising at t=0, so no parameter setting could place a note
-#   anywhere but the very start.
+# WHY IT IS NEEDED. Nothing in h2of.yaml can vary duration. The envelope always
+# begins rising at t=0, NOTE_OFF is pinned at 0.75 so the release fires at 3.0 s
+# in all 20000 clips, and the noise term is added outside the A+D+S sum so a
+# finished note never reaches silence. Measured on 400 generated clips, the
+# fraction of the 4 s window within 60 dB of peak spans 0.958 to 0.998: every
+# clip sounds from 0.000 s to 4.000 s. The material this has to transfer to --
+# classic synth bass one-shots, of which the Juno-6 packs are the first -- is
+# nothing like that: a sampler trims near the transient rather than on it, so
+# the file opens with a lead-in, and the note ends when it ends. Measured on the
+# Juno saw-bass pack, occupancy is 0.21.
 #
-#   It ENDS BY DECAYING, never by being cut. There is no key release in a
-#   one-shot: the note's duration IS its attack plus its decay, and a shorter
-#   note is shorter because both were shorter. h2of's note_off is a key
-#   release, which truncates whatever the note was doing -- the wrong event
-#   entirely, and varying it models the wrong thing.
+# WHAT REPLACED WHAT. An earlier version of this config approximated the same
+# effect with five separate knobs -- a delay parameter, multiplicative envelope
+# noise, SU_A pinned to 0, a floor on attack+decay, and a power bias on those
+# draws. Each was defensible and together they were a different envelope
+# distribution, which would have made "same task, different loss" hard to
+# defend. The time warp does all of it with one, and preserves the published
+# shape distribution exactly.
 #
-#   Its LENGTH IS NOT FIXED. h2of pins note_off at 0.75, so every note in the
-#   published set releases at the same instant, 3.0 s into a 4.0 s window.
+# THE MODEL IS UNTOUCHED, and can be: save_params below is byte-identical to
+# h2of.yaml's, the model synth configs/synth/h2of.yaml has no envelopes at all,
+# and START and LENGTH appear in no save_params list. The same three arms train
+# on this data with no edit -- they do need retraining, since the existing
+# checkpoints learned the old distribution.
 #
-# WHAT THAT MAKES THIS CONFIG. delay -> attack -> decay -> silence, with the
-# rest of the window silent, and every one of delay, attack and decay drawn per
-# clip. Three changes from h2of.yaml, each doing one thing:
-#
-#   noise_mode: mul       so silence is silence. h2of adds the envelope noise
-#                         OUTSIDE the A+D+S sum, so a finished note still sits
-#                         at randn*noise_mag -- median -26 dB below its own
-#                         peak. Measured on 400 clips of the generated h2of
-#                         set, occupancy of the 4 s window spans 0.958 to
-#                         0.998: no note ever ends, whatever its parameters.
-#                         Multiplicative noise keeps the jitter DURING the note
-#                         at the same relative depth and lets the tail reach
-#                         zero. Setting NOISE_A to 0 would have done the first
-#                         half and also removed the jitter, confounding note
-#                         length with a change in low-level structure -- which
-#                         is the exact thing the loss comparison is about.
-#
-#   DELAY                 sampled, shared by enva and envc so the amplitude and
-#                         the filter start together. Bounded by the module's
-#                         delay_range, (0, 0.25) here -- a lead-in up to 1.0 s,
-#                         which is the scale real trims sit at. Unbounded it
-#                         would push notes past the end of the window, which is
-#                         a cut by another name.
-#
-#   SU_A: 0               the amplitude sustain pinned to zero, which is what
-#                         makes the note end naturally. With sus_level 0 the
-#                         decay stage falls all the way to silence at
-#                         delay+attack+decay, and the sustain-and-release
-#                         stages contribute nothing: S = (x - note_off) *
-#                         (-0/release), identically zero. Duration is attack
-#                         plus decay and nothing truncates it.
-#
-#   NOTE_OFF: 1.0         belt and braces on the same point. With SU_A 0 the
-#                         release term is already zero everywhere; pinning
-#                         note_off at the end of the window means it could not
-#                         fire inside the clip even if sus_level were freed.
-#                         It also keeps `attack = attack * note_off` at full
-#                         scale, so the attack can span the whole window.
-#
-# Only the AMPLITUDE sustain is pinned. SU_C, the filter envelope's sustain, is
-# still drawn: a cutoff is a frequency rather than a level, so a filter that
-# settles on a plateau is ordinary and pinning it would remove a timbral
-# parameter for no reason. Amplitude is what decides whether a clip is silent.
-#
-# WHAT IS STILL WRONG WITH IT, so it is not discovered later as a surprise: the
-# decay is LINEAR in amplitude, since D is a straight ramp, where a real note
-# decays exponentially. h2of has the same shape and this config does not change
-# it. It bounds how close the training distribution can get to a real one-shot,
-# and the model side is unaffected -- the estimator predicts `amplitudes` as a
-# free per-frame curve and can represent either.
+# WHAT TIME-SCALING ASSUMES, so it is not discovered later. Warping the whole
+# envelope means a shorter note has a proportionally shorter attack AND decay.
+# Across a LIBRARY OF PATCHES that is roughly right and the measurements point
+# that way -- Juno pulse bass 80 ms attack in a ~1.3 s note, open pad 1152 ms in
+# a note that fills 4 s. Within ONE patch played at different lengths it is
+# wrong: there the attack is a property of the patch and only the decay
+# shortens. ds_source_diag's atk_ms and t20_ms columns measure the generated set
+# against the packs directly, which is how that gets checked rather than
+# assumed.
 
 n_oscs: 2
 max_value: 0.6
@@ -80,29 +53,10 @@ dag:
       _target_: diffsynth.modules.envelope.ADSREnvelope
       max_value: 0.6
       channels: 2
-      noise_mode: mul
-      delay_range: [0.0, 0.25]
-      # 0.5 s at a 4 s window. attack and decay are both uniform on [0,1], so
-      # without a floor the draw admits a 40 ms note, which is a click rather
-      # than a note and nothing in the target material is that short. Applied
-      # to the SUM and taken out of the decay -- see ADSREnvelope.
-      min_dur: 0.125
-      # Biases duration short. attack+decay from two uniforms piles up in the
-      # middle: half the notes would fill the whole window and only 3.1% come
-      # in under 1 s, so a set built to hold short notes would barely hold any.
-      # Squared, that becomes p10 0.51 s, median 2.54 s, 19.6% under 1 s, with
-      # 21.5% still filling the window so the sustained case is not lost.
-      #
-      # ON enva ONLY, not on envc. The amplitude envelope decides how long a
-      # note lasts, which is the thing being fixed; the filter envelope decides
-      # how the timbre moves, and biasing that too would change the timbral
-      # distribution as a second variable. The consequence to watch: a 0.5 s
-      # note now draws its filter sweep from an unbiased distribution, so it
-      # may hear only the first fraction of a slow sweep and sound static where
-      # a real bass closes its filter within the note. ds_source_diag's
-      # cent_10/50/90 columns measure that directly, on the generated set
-      # against the Juno packs, if it turns out to matter.
-      dur_pow: 2.0
+      # 0.5 s to 4.0 s at a 4 s clip. The upper end is 1.0 deliberately: a note
+      # that fills the window is the published case and has to stay reachable,
+      # or the new set would not contain the old one.
+      length_range: [0.125, 1.0]
     connections:
       floor: AMP_FLOOR
       peak: PEAK_A
@@ -112,13 +66,13 @@ dag:
       release: RE_A
       note_off: NOTE_OFF
       noise_mag: NOISE_A
-      delay: DELAY
+      start: START
+      length: LENGTH
   envc:
     config:
       _target_: diffsynth.modules.envelope.ADSREnvelope
       channels: 1
-      noise_mode: mul
-      delay_range: [0.0, 0.25]
+      length_range: [0.125, 1.0]
     connections:
       floor: CUT_FLOOR
       peak: PEAK_C
@@ -128,7 +82,12 @@ dag:
       release: RE_C
       note_off: NOTE_OFF
       noise_mag: NOISE_C
-      delay: DELAY
+      # THE SAME START AND LENGTH as the amplitude envelope, so the filter
+      # sweep is warped by the same factor and the note's timbral movement
+      # stays in step with its level. Two independent windows would put a
+      # filter sweep outside the note.
+      start: START
+      length: LENGTH
   harmor:
     config:
       _target_: diffsynth.modules.harmor.Harmor
@@ -143,18 +102,16 @@ dag:
       cutoff: envc
       q: Q_FILT
 
+# UNCHANGED FROM h2of.yaml. NOTE_OFF stays pinned at 0.75 and now means 75% of
+# the NOTE rather than 75% of the clip, which is exactly what "identical inside
+# the window" requires. SU_A stays drawn.
 fixed_params:
+  NOTE_OFF: 0.75
   AMP_FLOOR: 0
-  SU_A: 0
-  NOTE_OFF: 1.0
-static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C, NOTE_OFF, DELAY]
+static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C, START, LENGTH]
 
-# IDENTICAL to h2of.yaml's, and it has to be: these are dag_summary keys read
-# in BOTH this generator's dag (giving the rendered curve) and the model synth
+# IDENTICAL to h2of.yaml's, and it has to be: these are dag_summary keys read in
+# BOTH this generator's dag (giving the rendered curve) and the model synth
 # h2of.yaml's dag (giving the slot it feeds), which is what lets one list serve
-# both sides. Note that DELAY, SU_A and NOTE_OFF are absent from it, so the
-# model's target set is completely unchanged by any of this -- the model synth
-# has no envelopes at all and consumes amplitude and cutoff as free per-frame
-# curves, which is why the same three arms can be trained on this data without
-# touching a line of the model.
+# both sides.
 save_params: [harmor_amplitudes, harmor_osc_mix, harmor_f0_hz, harmor_f0_mult, harmor_cutoff, harmor_q]

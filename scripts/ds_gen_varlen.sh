@@ -11,11 +11,13 @@
 # the A+D+S sum so a finished note never reaches silence -- measured across 400
 # clips of the generated set, occupancy of the 4 s window spans 0.958 to 0.998.
 #
-# A note from a sample library is a ONE-SHOT: it starts late because the sampler
-# trimmed near the transient rather than on it, and it ends because it decayed,
-# not because a key was released. h2of_var.yaml is that model --
-# delay -> attack -> decay -> silence, with delay, attack and decay drawn per
-# clip -- and the config explains each of the three changes it makes.
+# A note from a sample library sits in a WINDOW of the file: it starts late
+# because the sampler trimmed near the transient rather than on it, and it ends
+# when it ends. h2of_var.yaml is the published envelope placed in such a window
+# -- inside it the note is bit-for-bit the old generator's on a compressed time
+# axis, outside it the clip is silent, and at start=0/length=1 the two
+# generators are identical. So the only thing added is where the note sits and
+# how long it lasts; nothing about the sound itself is redistributed.
 #
 # NOT SHARDED. An earlier version pinned note_off per shard and merged, which
 # brought in gen_dataset's per-invocation numbering and WaveParamDataset's
