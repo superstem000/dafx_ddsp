@@ -17,13 +17,32 @@ name: harmor_2oscfree_var
 # have removed the jitter, confounding note length with a change in low-level
 # structure, which is the exact thing the loss comparison is about.
 #
-# NOTE_OFF stays a fixed parameter here and is set per shard from the command
-# line -- see scripts/ds_gen_varlen.sh. It is not sampled, because
-# ADSREnvelope.forward computes `attack = attack * note_off`, so draws near 0
-# collapse the whole envelope onto t=0 and a uniform draw would spend a
-# noticeable share of the dataset on degenerate clips. Five fixed levels make
-# note length a DISCRETE covariate rather than a continuous one, which is what
-# lets the arm gap be read against occupancy level by level.
+# NOTE_OFF IS SAMPLED HERE, not fixed. h2of.yaml pins it at 0.75, so every note
+# in the published set releases at the same instant; dropping it out of
+# fixed_params makes it an ordinary external parameter drawn uniform on [0,1]
+# like every other, which is the whole point of this config.
+#
+# It was first built as five fixed shards, on the theory that
+# ADSREnvelope.forward computes `attack = attack * note_off` and draws near
+# zero would collapse the envelope onto t=0. Measured, that is not true: at 64
+# clips per level, gen_dataset's `peak < 0.05` filter rejected 7, 16, 15, 7 and
+# 10 clips at NOTE_OFF 0.15 / 0.30 / 0.45 / 0.60 / 0.75 -- no trend, and the
+# shortest level rejects fewer than the middle ones. That filter is driven by
+# the `peak` draw, not by note length.
+#
+# Sampling it also removes the shard merge, which was the only step in the
+# pipeline that could fail silently: gen_dataset numbers from 00000 every
+# invocation and WaveParamDataset pairs audio with param by sorted index across
+# two independent globs. One generation, no renumbering, nothing to verify.
+#
+# Reading the arm gap against note length survives, and improves: bin on the
+# MEASURED occupancy that ds_eval_folder's `active` column reports rather than
+# on nominal NOTE_OFF. Occupancy also depends on sus_level, decay and release,
+# so two clips at one NOTE_OFF are not the same clip length, and the measured
+# quantity is the one the hypothesis is actually about.
+#
+# scripts/ds_gen_varlen.sh still generates fixed levels if LEVELS is set, for a
+# controlled sweep; it puts NOTE_OFF back into fixed_params with --set.
 
 n_oscs: 2
 max_value: 0.6
@@ -73,9 +92,11 @@ dag:
       q: Q_FILT
 
 fixed_params:
-  NOTE_OFF: 0.75
   AMP_FLOOR: 0
-static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C]
+# NOTE_OFF joins the static list because it is now sampled: one value per clip,
+# shared by enva and envc so the amplitude and filter envelopes release
+# together, which is what both connecting to the same NOTE_OFF already meant.
+static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C, NOTE_OFF]
 
 # IDENTICAL to h2of.yaml's, and it has to be: these are dag_summary keys read
 # in BOTH this generator's dag (giving the rendered curve) and the model synth

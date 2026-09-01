@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Generate the variable-note-length diffsynth dataset: five NOTE_OFF shards.
+# Generate the variable-note-length diffsynth dataset.
 #
-#   scripts/ds_gen_varlen.sh                    # 5 x 4000 = 20000 clips
-#   N_PER=64 scripts/ds_gen_varlen.sh           # smoke test, 320 clips
+#   scripts/ds_gen_varlen.sh                    # 20000 clips, NOTE_OFF sampled
+#   N_PER=320 scripts/ds_gen_varlen.sh          # smoke test
 #   DEVICE=cpu scripts/ds_gen_varlen.sh         # no GPU
+#   LEVELS="0.15 0.30 0.45 0.60 0.75" N_PER=4000 scripts/ds_gen_varlen.sh
+#                                               # pinned sweep, five shards
 #
 # WHAT THIS CHANGES, and it is two things, only one of which is the variable.
 #
@@ -45,14 +47,44 @@ cd "$DS"
 
 CONF=${CONF:-configs/synth/dataset/h2of_var.yaml}
 NAME=$(python3 -c "from omegaconf import OmegaConf; print(OmegaConf.load('$CONF').name)")
-LEVELS=${LEVELS:-"0.15 0.30 0.45 0.60 0.75"}
-N_PER=${N_PER:-4000}
+# EMPTY IS THE DEFAULT AND THE RECOMMENDED PATH: h2of_var.yaml samples NOTE_OFF
+# like every other parameter, so one generation produces continuous note
+# lengths and there is no merge to get wrong. Set LEVELS to a list to pin it
+# instead, which puts NOTE_OFF back into fixed_params per shard and brings the
+# renumbering step back with it -- worth it only for a controlled sweep.
+LEVELS=${LEVELS:-}
+N_PER=${N_PER:-20000}
 DEVICE=${DEVICE:-cuda}
 SHARD_ROOT=${SHARD_ROOT:-data/varlen}
 OUT=${OUT:-data/diffsynth_5-6/$NAME}
 
 echo "config   $CONF  (name $NAME)"
-echo "levels   $LEVELS"
+if [[ -z "$LEVELS" ]]; then
+  echo "NOTE_OFF sampled uniform [0,1] -- one generation, no shards, no merge"
+  echo "total    $N_PER  ->  $OUT"
+  df -h . | tail -1
+  echo
+  # gen_dataset writes to <base>/<conf.name>/, so the base is OUT's parent and
+  # OUT's own basename has to BE conf.name -- otherwise the data lands beside
+  # where everything downstream will look for it, with no error.
+  if [[ "$(basename "$OUT")" != "$NAME" ]]; then
+    echo "ERROR: OUT must end in the config's name ($NAME); got $(basename "$OUT")"
+    echo "       gen_dataset.py writes to <base>/<conf.name>/, so it cannot"
+    echo "       produce $OUT. Either rename OUT or change 'name:' in $CONF."
+    exit 1
+  fi
+  rm -rf "$OUT"
+  python -u gen_dataset.py "$(dirname "$OUT")" "$CONF" \
+    --data_size "$N_PER" --save_param --device "$DEVICE"
+  echo
+  echo "Check the occupancy actually varies before training on it:"
+  echo "  python scripts/ds_eval_folder.py --dirs $DS/$OUT \\"
+  echo "      --arms synth_magx_halfw --n 400 --seed 0 --device cpu"
+  echo "act_p10 should now be well below the 0.958 the h2of set reports."
+  exit 0
+fi
+
+echo "levels   $LEVELS   (NOTE_OFF pinned per shard, merge required)"
 echo "per      $N_PER  ->  $(python3 -c "print(len('$LEVELS'.split()) * $N_PER)") total"
 echo "shards   $SHARD_ROOT     merged -> $OUT"
 df -h . | tail -1
