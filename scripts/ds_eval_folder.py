@@ -65,6 +65,7 @@ import argparse
 import glob
 import os
 import random
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -282,6 +283,16 @@ def main() -> None:
                         "has no gradient and a log one has all of it. 60 is the "
                         "generous setting that matches the ACTIVE column's own "
                         "criterion; 40 and below start discarding real decay.")
+    p.add_argument("--match", default=None, metavar="REGEX",
+                   help="Keep only files whose BASENAME matches, applied before "
+                        "sampling so --n draws from the matched set rather than "
+                        "matching a sample. Sample libraries put the pitch in "
+                        "the name -- the Juno packs end "
+                        "'<note><octave>-saw-bass-split-<midi>-<velocity>.aiff' "
+                        "-- so this selects a pitch range without moving files "
+                        "about: --match '-(6[0-9]|7[0-9])-127' takes MIDI 60-79 "
+                        "at full velocity. Prefer the MIDI number to the note "
+                        "name; 'f2' also matches 'f2' anywhere else in the path.")
     p.add_argument("--active-max", type=float, default=1.0, metavar="F",
                    help="Keep only clips whose ACTIVE fraction is at most this. "
                         "The synthetic set's MEDIAN occupancy is 0.995, but "
@@ -391,6 +402,16 @@ def main() -> None:
             raise SystemExit(f"no audio files under {d} "
                              f"(looked for {', '.join(AUDIO_EXT)})")
         g = os.path.basename(os.path.normpath(d))
+        if args.match:
+            # Before the sample, so --n draws from the matched set. Matching
+            # after would give --n files of which only some match.
+            keep = [f for f in files if re.search(args.match, os.path.basename(f))]
+            print(f"  {g}: --match kept {len(keep)} of {len(files)}")
+            if not keep:
+                raise SystemExit(f"{g}: --match {args.match!r} matched nothing. "
+                                 f"First basename is "
+                                 f"{os.path.basename(files[0])!r}")
+            files = keep
         if filtering:
             # A clip's ACTIVE fraction is only known once it is read, so the
             # selection cannot be made up front: walk a shuffled order and keep
