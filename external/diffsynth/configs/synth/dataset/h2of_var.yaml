@@ -82,6 +82,27 @@ dag:
       channels: 2
       noise_mode: mul
       delay_range: [0.0, 0.25]
+      # 0.5 s at a 4 s window. attack and decay are both uniform on [0,1], so
+      # without a floor the draw admits a 40 ms note, which is a click rather
+      # than a note and nothing in the target material is that short. Applied
+      # to the SUM and taken out of the decay -- see ADSREnvelope.
+      min_dur: 0.125
+      # Biases duration short. attack+decay from two uniforms piles up in the
+      # middle: half the notes would fill the whole window and only 3.1% come
+      # in under 1 s, so a set built to hold short notes would barely hold any.
+      # Squared, that becomes p10 0.51 s, median 2.54 s, 19.6% under 1 s, with
+      # 21.5% still filling the window so the sustained case is not lost.
+      #
+      # ON enva ONLY, not on envc. The amplitude envelope decides how long a
+      # note lasts, which is the thing being fixed; the filter envelope decides
+      # how the timbre moves, and biasing that too would change the timbral
+      # distribution as a second variable. The consequence to watch: a 0.5 s
+      # note now draws its filter sweep from an unbiased distribution, so it
+      # may hear only the first fraction of a slow sweep and sound static where
+      # a real bass closes its filter within the note. ds_source_diag's
+      # cent_10/50/90 columns measure that directly, on the generated set
+      # against the Juno packs, if it turns out to matter.
+      dur_pow: 2.0
     connections:
       floor: AMP_FLOOR
       peak: PEAK_A

@@ -6,7 +6,7 @@ def soft_clamp_min(x, min_v, T=100):
     return torch.sigmoid((min_v-x)*T)*(min_v-x)+x
 
 class ADSREnvelope(Processor):
-    def __init__(self, n_frames=250, name='env', min_value=0.0, max_value=1.0, channels=1, noise_mode='add', delay_range=(0.0, 0.25)):
+    def __init__(self, n_frames=250, name='env', min_value=0.0, max_value=1.0, channels=1, noise_mode='add', delay_range=(0.0, 0.25), min_dur=0.0, dur_pow=1.0):
         """noise_mode decides whether a clip can ever fall silent.
 
         'add' is the published behaviour and the default, so every dataset
@@ -41,6 +41,32 @@ class ADSREnvelope(Processor):
         assert noise_mode in ('add', 'mul'), noise_mode
         self.noise_mode = noise_mode
         self.delay_range = tuple(delay_range)
+        # A FLOOR ON attack+decay, as a fraction of the window, and on the SUM
+        # rather than on either term. With sus_level 0 the note's whole
+        # duration is attack+decay, and both are drawn uniform on [0,1], so
+        # nothing stops a 40 ms attack against a 40 ms decay. Flooring `decay`
+        # instead would be the wrong constraint: a Juno-6 saw-bass note reaches
+        # -20 dB in 384 ms, which is a decay of roughly 0.43 s, so a 0.5 s
+        # floor on decay alone would exclude the exact material being matched.
+        # 0.0 disables it, so every config that predates this is unaffected.
+        self.min_dur = float(min_dur)
+        # attack and decay raised to this power before use, which biases NOTE
+        # DURATION short without narrowing its range. Synthesizer.uniform draws
+        # every parameter from U[0,1] and `attack` and `decay` are scaled by
+        # 'sigmoid' over range (0,1), i.e. the identity, so the value arriving
+        # here IS the raw draw and raising it here is exactly raising the draw.
+        #
+        # WHY IT IS NEEDED. With sus_level 0 the duration is attack+decay, and
+        # the sum of two uniforms piles up in the middle: measured over 200k
+        # draws at a 4 s window, the median note fills the window, half of them
+        # fill it exactly, and only 3.1% come in under 1 s -- so a set built to
+        # contain short notes would barely contain any. At 2.0 the same draw
+        # gives p10 0.51 s, median 2.54 s, 19.6% under 1 s and 21.5% still
+        # filling the window, which covers the range without losing the
+        # sustained case. 3.0 over-concentrates short (35.2% under 1 s, only
+        # 11.6% filling), and a log-uniform duration removes window-filling
+        # notes altogether. 1.0 is the identity and the default.
+        self.dur_pow = float(dur_pow)
         self.param_desc = {
                 'floor':        {'size':self.channels, 'range': (0, 1), 'type': 'sigmoid'}, 
                 'peak':         {'size':self.channels, 'range': (0, 1), 'type': 'sigmoid'}, 
@@ -97,7 +123,16 @@ class ADSREnvelope(Processor):
         # silence. delay defaults to 0.0 and a config that does not connect it
         # gets identical output.
         x = torch.clamp(x - delay, min=0.0)
+        if self.dur_pow != 1.0:
+            attack = attack ** self.dur_pow
+            decay = decay ** self.dur_pow
         attack = attack * note_off
+        if self.min_dur > 0.0:
+            # Lengthen the DECAY to make up any shortfall, never the attack: a
+            # one-shot's identity is its transient, and stretching the attack to
+            # reach a minimum length would turn a short percussive note into a
+            # slow swell instead of into a longer percussive note.
+            decay = torch.maximum(decay, self.min_dur - attack)
         A = x / (attack)
         A = torch.clamp(A, max=1.0)
         D = (x - attack) * (sus_level - 1) / (decay+1e-5)
