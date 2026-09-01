@@ -6,7 +6,7 @@ def soft_clamp_min(x, min_v, T=100):
     return torch.sigmoid((min_v-x)*T)*(min_v-x)+x
 
 class ADSREnvelope(Processor):
-    def __init__(self, n_frames=250, name='env', min_value=0.0, max_value=1.0, channels=1, noise_mode='add'):
+    def __init__(self, n_frames=250, name='env', min_value=0.0, max_value=1.0, channels=1, noise_mode='add', delay_range=(0.0, 0.25)):
         """noise_mode decides whether a clip can ever fall silent.
 
         'add' is the published behaviour and the default, so every dataset
@@ -40,6 +40,7 @@ class ADSREnvelope(Processor):
         self.channels = channels
         assert noise_mode in ('add', 'mul'), noise_mode
         self.noise_mode = noise_mode
+        self.delay_range = tuple(delay_range)
         self.param_desc = {
                 'floor':        {'size':self.channels, 'range': (0, 1), 'type': 'sigmoid'}, 
                 'peak':         {'size':self.channels, 'range': (0, 1), 'type': 'sigmoid'}, 
@@ -49,9 +50,19 @@ class ADSREnvelope(Processor):
                 'release':      {'size':self.channels, 'range': (0, 1), 'type': 'sigmoid'},
                 'noise_mag':    {'size':self.channels, 'range': (0, 0.1), 'type': 'sigmoid'},
                 'note_off':     {'size':self.channels, 'range': (0, 1), 'type': 'sigmoid'},
+                # ONSET TIME, absent from the published envelope, which always
+                # begins rising at t=0. A sampled instrument note does not: the
+                # sampler trims near the transient, not exactly on it, so a
+                # one-shot carries a short lead-in of silence. Measured on a
+                # Juno-6 saw-bass sample, the onset sits about 13% into a 1.31 s
+                # file. Unconnected in every config that predates it, and
+                # synthesizer.py:43 builds ext_params from CONNECTIONS, so a
+                # param_desc entry nothing connects is never sampled and those
+                # datasets are bit-identical.
+                'delay':        {'size':self.channels, 'range': self.delay_range, 'type': 'sigmoid'},
                 }
 
-    def forward(self, floor, peak, attack, decay, sus_level, release, noise_mag=0.0, note_off=0.8, n_frames=None):
+    def forward(self, floor, peak, attack, decay, sus_level, release, noise_mag=0.0, note_off=0.8, delay=0.0, n_frames=None):
         """generate envelopes from parameters
 
         Args:
@@ -80,6 +91,12 @@ class ADSREnvelope(Processor):
         # batch, n_frames, 1
         x = torch.linspace(0, 1.0, n_frames)[None, :, None].repeat(batch_size, 1, self.channels)
         x = x.to(attack.device)
+        # The whole envelope shifted right, by clamping the pre-onset region to
+        # x=0 rather than by rolling: at x=0, A=0 and D and S are already
+        # clamped, so the envelope is exactly its value at time zero, which is
+        # silence. delay defaults to 0.0 and a config that does not connect it
+        # gets identical output.
+        x = torch.clamp(x - delay, min=0.0)
         attack = attack * note_off
         A = x / (attack)
         A = torch.clamp(A, max=1.0)

@@ -1,48 +1,75 @@
 name: harmor_2oscfree_var
-# h2of.yaml with ONE difference: the envelope noise is multiplicative, so a
-# clip that has finished its release is actually silent.
+# h2of.yaml remodelled as a SAMPLED ONE-SHOT rather than as a held key.
 #
-# WHY. In h2of.yaml the noise is added outside the A+D+S sum, so once the
-# release completes and A+D+S is exactly 0 the envelope still sits at
-# randn*noise_mag -- between -20 and -60 dB below the clip's own peak, median
-# -26. Measured on 400 clips of the generated h2of set, the fraction of the 4 s
-# window within 60 dB of peak spans 0.958 to 0.998: occupancy is pinned near
-# 1.0 and sus_level, drawn uniform on [0,1], never gets to matter. Shortening a
-# note under that expression changes nothing, because the bed fills the rest of
-# the window regardless.
+# THE TARGET THIS IS SHAPED AGAINST. A note from a sample library -- the
+# Roland Juno-6 packs, and any instrument library -- has three properties the
+# published generator cannot produce:
 #
-# noise_mode: mul scales the noise BY the envelope, keeping the jitter during
-# the note at the same relative depth while silence stays silence. It is the
-# only change from h2of.yaml, deliberately: setting NOISE_A to 0 would also
-# have removed the jitter, confounding note length with a change in low-level
-# structure, which is the exact thing the loss comparison is about.
+#   It STARTS LATE. The sampler trimmed near the transient, not exactly on it,
+#   so the file opens with a short lead-in of silence. Measured on a Juno-6
+#   saw-bass sample, the onset is about 13% into a 1.31 s file. ADSREnvelope
+#   always began rising at t=0, so no parameter setting could place a note
+#   anywhere but the very start.
 #
-# NOTE_OFF IS SAMPLED HERE, not fixed. h2of.yaml pins it at 0.75, so every note
-# in the published set releases at the same instant; dropping it out of
-# fixed_params makes it an ordinary external parameter drawn uniform on [0,1]
-# like every other, which is the whole point of this config.
+#   It ENDS BY DECAYING, never by being cut. There is no key release in a
+#   one-shot: the note's duration IS its attack plus its decay, and a shorter
+#   note is shorter because both were shorter. h2of's note_off is a key
+#   release, which truncates whatever the note was doing -- the wrong event
+#   entirely, and varying it models the wrong thing.
 #
-# It was first built as five fixed shards, on the theory that
-# ADSREnvelope.forward computes `attack = attack * note_off` and draws near
-# zero would collapse the envelope onto t=0. Measured, that is not true: at 64
-# clips per level, gen_dataset's `peak < 0.05` filter rejected 7, 16, 15, 7 and
-# 10 clips at NOTE_OFF 0.15 / 0.30 / 0.45 / 0.60 / 0.75 -- no trend, and the
-# shortest level rejects fewer than the middle ones. That filter is driven by
-# the `peak` draw, not by note length.
+#   Its LENGTH IS NOT FIXED. h2of pins note_off at 0.75, so every note in the
+#   published set releases at the same instant, 3.0 s into a 4.0 s window.
 #
-# Sampling it also removes the shard merge, which was the only step in the
-# pipeline that could fail silently: gen_dataset numbers from 00000 every
-# invocation and WaveParamDataset pairs audio with param by sorted index across
-# two independent globs. One generation, no renumbering, nothing to verify.
+# WHAT THAT MAKES THIS CONFIG. delay -> attack -> decay -> silence, with the
+# rest of the window silent, and every one of delay, attack and decay drawn per
+# clip. Three changes from h2of.yaml, each doing one thing:
 #
-# Reading the arm gap against note length survives, and improves: bin on the
-# MEASURED occupancy that ds_eval_folder's `active` column reports rather than
-# on nominal NOTE_OFF. Occupancy also depends on sus_level, decay and release,
-# so two clips at one NOTE_OFF are not the same clip length, and the measured
-# quantity is the one the hypothesis is actually about.
+#   noise_mode: mul       so silence is silence. h2of adds the envelope noise
+#                         OUTSIDE the A+D+S sum, so a finished note still sits
+#                         at randn*noise_mag -- median -26 dB below its own
+#                         peak. Measured on 400 clips of the generated h2of
+#                         set, occupancy of the 4 s window spans 0.958 to
+#                         0.998: no note ever ends, whatever its parameters.
+#                         Multiplicative noise keeps the jitter DURING the note
+#                         at the same relative depth and lets the tail reach
+#                         zero. Setting NOISE_A to 0 would have done the first
+#                         half and also removed the jitter, confounding note
+#                         length with a change in low-level structure -- which
+#                         is the exact thing the loss comparison is about.
 #
-# scripts/ds_gen_varlen.sh still generates fixed levels if LEVELS is set, for a
-# controlled sweep; it puts NOTE_OFF back into fixed_params with --set.
+#   DELAY                 sampled, shared by enva and envc so the amplitude and
+#                         the filter start together. Bounded by the module's
+#                         delay_range, (0, 0.25) here -- a lead-in up to 1.0 s,
+#                         which is the scale real trims sit at. Unbounded it
+#                         would push notes past the end of the window, which is
+#                         a cut by another name.
+#
+#   SU_A: 0               the amplitude sustain pinned to zero, which is what
+#                         makes the note end naturally. With sus_level 0 the
+#                         decay stage falls all the way to silence at
+#                         delay+attack+decay, and the sustain-and-release
+#                         stages contribute nothing: S = (x - note_off) *
+#                         (-0/release), identically zero. Duration is attack
+#                         plus decay and nothing truncates it.
+#
+#   NOTE_OFF: 1.0         belt and braces on the same point. With SU_A 0 the
+#                         release term is already zero everywhere; pinning
+#                         note_off at the end of the window means it could not
+#                         fire inside the clip even if sus_level were freed.
+#                         It also keeps `attack = attack * note_off` at full
+#                         scale, so the attack can span the whole window.
+#
+# Only the AMPLITUDE sustain is pinned. SU_C, the filter envelope's sustain, is
+# still drawn: a cutoff is a frequency rather than a level, so a filter that
+# settles on a plateau is ordinary and pinning it would remove a timbral
+# parameter for no reason. Amplitude is what decides whether a clip is silent.
+#
+# WHAT IS STILL WRONG WITH IT, so it is not discovered later as a surprise: the
+# decay is LINEAR in amplitude, since D is a straight ramp, where a real note
+# decays exponentially. h2of has the same shape and this config does not change
+# it. It bounds how close the training distribution can get to a real one-shot,
+# and the model side is unaffected -- the estimator predicts `amplitudes` as a
+# free per-frame curve and can represent either.
 
 n_oscs: 2
 max_value: 0.6
@@ -54,6 +81,7 @@ dag:
       max_value: 0.6
       channels: 2
       noise_mode: mul
+      delay_range: [0.0, 0.25]
     connections:
       floor: AMP_FLOOR
       peak: PEAK_A
@@ -63,11 +91,13 @@ dag:
       release: RE_A
       note_off: NOTE_OFF
       noise_mag: NOISE_A
+      delay: DELAY
   envc:
     config:
       _target_: diffsynth.modules.envelope.ADSREnvelope
       channels: 1
       noise_mode: mul
+      delay_range: [0.0, 0.25]
     connections:
       floor: CUT_FLOOR
       peak: PEAK_C
@@ -77,6 +107,7 @@ dag:
       release: RE_C
       note_off: NOTE_OFF
       noise_mag: NOISE_C
+      delay: DELAY
   harmor:
     config:
       _target_: diffsynth.modules.harmor.Harmor
@@ -93,14 +124,16 @@ dag:
 
 fixed_params:
   AMP_FLOOR: 0
-# NOTE_OFF joins the static list because it is now sampled: one value per clip,
-# shared by enva and envc so the amplitude and filter envelopes release
-# together, which is what both connecting to the same NOTE_OFF already meant.
-static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C, NOTE_OFF]
+  SU_A: 0
+  NOTE_OFF: 1.0
+static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C, NOTE_OFF, DELAY]
 
 # IDENTICAL to h2of.yaml's, and it has to be: these are dag_summary keys read
 # in BOTH this generator's dag (giving the rendered curve) and the model synth
 # h2of.yaml's dag (giving the slot it feeds), which is what lets one list serve
-# both sides. The model synth is unchanged by any of this -- it has no
-# envelopes at all, and consumes amplitude and cutoff as free per-frame curves.
+# both sides. Note that DELAY, SU_A and NOTE_OFF are absent from it, so the
+# model's target set is completely unchanged by any of this -- the model synth
+# has no envelopes at all and consumes amplitude and cutoff as free per-frame
+# curves, which is why the same three arms can be trained on this data without
+# touching a line of the model.
 save_params: [harmor_amplitudes, harmor_osc_mix, harmor_f0_hz, harmor_f0_mult, harmor_cutoff, harmor_q]
