@@ -45,6 +45,7 @@ def describe(path: str) -> None:
     fixed = OmegaConf.to_container(conf.get("fixed_params") or {}, resolve=True)
     static = set(conf.get("static_params") or [])
     saved = list(conf.get("save_params") or [])
+    quant = OmegaConf.to_container(conf.get("quantize_params") or {}, resolve=True)
 
     nodes = []
     for name, v in conf.dag.items():
@@ -94,6 +95,8 @@ def describe(path: str) -> None:
         seen.add(key)
         kind = "static" if key in static else "per-frame"
         extra = f"  [{kind}]" if key in sizes else ""
+        if key in quant:
+            extra += "  drawn only from " + str(list(quant[key]))
         print(f"  {key:<12}{feeds:<18}{str(n):>5}  {rng:<18}{scale}{extra}{mark}")
 
     print(f"\n  ext_param_size = {sum(sizes.values())}"
@@ -103,6 +106,12 @@ def describe(path: str) -> None:
         print(f"  fixed: " + ", ".join(
             f"{k}={v}" if v is not None else f"{k}=<conditioning>"
             for k, v in fixed.items()))
+    if quant:
+        print("  quantize_params: " + ", ".join(f"{k}={list(v)}"
+                                                for k, v in quant.items())
+              + "  -- generation only, values in NATURAL units. The parameter"
+              " stays external\n    and normalised, so the model is unchanged;"
+              " only which values reach the data.")
     if saved:
         print(f"  save_params ({len(saved)}): " + ", ".join(saved))
     else:
