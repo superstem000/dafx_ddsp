@@ -311,6 +311,22 @@ def main() -> None:
                    help="With an active filter on, how many files to examine "
                         "before giving up on reaching --n. Loading is the cost; "
                         "the whole 20000-clip set is a few minutes.")
+    p.add_argument("--mask-pad", action="store_true",
+                   help="Give the model the full --length window, padding and "
+                        "all, but SCORE only the frames that came from the "
+                        "file. Exact, not a threshold: load_clip records each "
+                        "clip's real duration before padding, so the boundary "
+                        "is known rather than estimated.\n"
+                        "DIFFERENT FROM --trim-pad, which removes the padding "
+                        "from the input as well. That changes what the "
+                        "estimator sees and takes it off the 4 s training "
+                        "length; this leaves the input exactly as the model "
+                        "expects and only declines to average over frames the "
+                        "target never had. Use --trim-pad to ask whether the "
+                        "silence throws the model off, and --mask-pad to ask "
+                        "how well it did on the note.\n"
+                        "Combines with --active-db, which then further removes "
+                        "the quiet tail INSIDE the file.")
     p.add_argument("--trim-pad", action="store_true",
                    help="Drop the zero padding THIS SCRIPT added, and nothing "
                         "else. The folder is truncated to its longest clip's "
@@ -432,6 +448,7 @@ def main() -> None:
           f"{'pad':>6}{'act_p10':>9}{'active':>9}{'act_p90':>9}{'peak':>9}"
           f"{'gain':>8}")
     audio: dict[str, torch.Tensor] = {}
+    raw_frac: dict[str, "np.ndarray"] = {}
     for g in list(groups):
         ys, acts, peaks, raws, keep_f = [], [], [], [], []
         scanned = 0
@@ -512,6 +529,8 @@ def main() -> None:
                 print(f"  NOTE: {g} rounded {max(raws):.3f}s down to "
                       f"{keep / args.sr:.3f}s to reach a whole frame")
         audio[g] = torch.tensor(x, dtype=torch.float32)
+        # Fraction of the scored window that came from the file, per clip.
+        raw_frac[g] = np.clip(np.array(raws) * args.sr / x.shape[1], 0.0, 1.0)
         # A clip that came back at exactly --length was cut there by librosa's
         # duration=; anything shorter got padded. Both counts, because the two
         # failure modes read very differently in the scores.
@@ -588,6 +607,16 @@ def main() -> None:
                     fe = _linmag(tgt, dev).sum(dim=1)
                     m = fe >= fe.amax(dim=1, keepdim=True) * 10.0 ** (
                         -args.active_db / 20.0)
+                if args.mask_pad:
+                    # Frame centres, as a fraction of the window, against each
+                    # clip's own real duration. Built on the same 1024/256 grid
+                    # the active mask uses so the two can be ANDed directly.
+                    nf = _linmag(tgt, dev).shape[-1]
+                    pos = (torch.arange(nf, device=dev)[None, :] + 0.5) / nf
+                    fr = torch.tensor(raw_frac[g][lo:hi], device=dev,
+                                      dtype=pos.dtype)[:, None]
+                    mp = pos <= fr
+                    m = mp if m is None else (m & mp)
                 for mname, fn in metrics.items():
                     a, b, c = fn(tgt), fn(out), fn(oth)
                     mm = m
