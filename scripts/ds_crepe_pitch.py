@@ -73,13 +73,22 @@ HOP = 128
 
 
 def crepe_f0(audio: torch.Tensor, sr: int, device: str, batch_size: int):
-    """(f0_hz, periodicity), both [batch, frames], on the same settings as
-    diffsynth.f0.compute_f0 so this and the training-time estimator agree."""
-    f0, per = torchcrepe.predict(
-        audio, sr, hop_length=HOP, pad=False, device=device,
-        batch_size=batch_size, model="full", fmin=32.0, fmax=2000.0,
-        return_periodicity=True)
-    return f0, per
+    """(f0_hz, periodicity) as [clips, frames] numpy, same settings as
+    diffsynth.f0.compute_f0 so this and the training-time estimator agree.
+
+    ONE CLIP PER CALL. torchcrepe.predict takes (1, samples) and frames it
+    internally; handing it (50, 64000) does not mean a batch of 50, it means
+    25000 frames pushed through conv1 in one go, which asks for 24 GiB.
+    """
+    f0s, pers = [], []
+    for i in range(audio.shape[0]):
+        f, p = torchcrepe.predict(
+            audio[i:i + 1], sr, hop_length=HOP, pad=False, device=device,
+            batch_size=batch_size, model="full", fmin=32.0, fmax=2000.0,
+            return_periodicity=True)
+        f0s.append(f[0].cpu().numpy())
+        pers.append(p[0].cpu().numpy())
+    return np.stack(f0s), np.stack(pers)
 
 
 def clip_cents(f_tgt, p_tgt, f_out, p_out, thresh):
@@ -113,7 +122,7 @@ def main() -> None:
                    help="Frames below this on either side are unvoiced and "
                         "carry no pitch to compare.")
     p.add_argument("--device", default="cuda")
-    p.add_argument("--batch-size", type=int, default=2048)
+    p.add_argument("--batch-size", type=int, default=512)
     p.add_argument("--csv", default=None, metavar="PATH")
     args = p.parse_args()
 
@@ -149,7 +158,6 @@ def main() -> None:
     for g, (_files, x, _gain) in folders.items():
         f0, per = crepe_f0(torch.from_numpy(x).float(), args.sr, dev,
                            args.batch_size)
-        f0, per = f0.cpu().numpy(), per.cpu().numpy()
         tgt_f0[g] = (f0, per)
         voiced = f0[per >= args.min_periodicity]
         med_hz = float(np.median(voiced)) if voiced.size else float("nan")
@@ -170,8 +178,8 @@ def main() -> None:
             ft, pt = tgt_f0[g]
             with torch.no_grad():
                 out, _ = model({"audio": torch.from_numpy(x).float().to(dev)})
-            fo, po = crepe_f0(out.detach().cpu(), args.sr, dev, args.batch_size)
-            fo, po = fo.cpu().numpy(), po.cpu().numpy()
+            fo, po = crepe_f0(out.detach().cpu(), args.sr, dev,
+                              args.batch_size)
             acc, lg_t, lg_o = [], [], []
             for i, f in enumerate(files):
                 a, signed, hz = clip_cents(ft[i], pt[i], fo[i], po[i],
