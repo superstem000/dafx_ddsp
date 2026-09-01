@@ -156,6 +156,17 @@ def main() -> None:
                         "normalisation is BatchNorm with affine=False, which "
                         "in eval subtracts the TRAINING mean rather than each "
                         "clip's own.")
+    p.add_argument("--midi-offset", type=float, default=0.0, metavar="SEMIS",
+                   help="Added to the filename's MIDI number before converting "
+                        "to Hz. A patch does not necessarily sound at its "
+                        "written pitch: ds_harmonic_probe measures the Juno "
+                        "saw-bass pack with its partial at f0/2 LOUDER than the "
+                        "one at the labelled f0 (+4.4 dB), and a harmonic "
+                        "profile matching an ideal saw whose fundamental is "
+                        "f0/2, so that pack sounds an OCTAVE DOWN -- a DCO set "
+                        "to 16'. Pass -12 for it. Verify with the probe rather "
+                        "than assuming; the slope is unaffected either way, but "
+                        "the error size and which end is worst both are.")
     p.add_argument("--length", type=float, default=4.0)
     p.add_argument("--sr", type=int, default=16000)
     p.add_argument("--batch-size", type=int, default=16)
@@ -175,9 +186,10 @@ def main() -> None:
             midis.append(m)
     if not files:
         raise SystemExit(f"no files with a MIDI number matching {args.midi_re!r}")
-    midis = np.array(midis, dtype=float)
+    midis = np.array(midis, dtype=float) + args.midi_offset
     true_hz = 440.0 * 2.0 ** ((midis - 69.0) / 12.0)
-    print(f"{len(files)} file(s), MIDI {int(midis.min())}-{int(midis.max())}, "
+    print(f"{len(files)} file(s), MIDI {midis.min():g}-{midis.max():g} "
+          f"(offset {args.midi_offset:+g}), "
           f"{true_hz.min():.1f}-{true_hz.max():.1f} Hz")
     # FREQ_RANGE is (32, 2000): a target outside it cannot be predicted at all,
     # and would read as a large error that is really a bound.
