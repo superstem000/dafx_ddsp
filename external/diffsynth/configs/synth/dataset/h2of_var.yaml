@@ -1,0 +1,85 @@
+name: harmor_2oscfree_var
+# h2of.yaml with ONE difference: the envelope noise is multiplicative, so a
+# clip that has finished its release is actually silent.
+#
+# WHY. In h2of.yaml the noise is added outside the A+D+S sum, so once the
+# release completes and A+D+S is exactly 0 the envelope still sits at
+# randn*noise_mag -- between -20 and -60 dB below the clip's own peak, median
+# -26. Measured on 400 clips of the generated h2of set, the fraction of the 4 s
+# window within 60 dB of peak spans 0.958 to 0.998: occupancy is pinned near
+# 1.0 and sus_level, drawn uniform on [0,1], never gets to matter. Shortening a
+# note under that expression changes nothing, because the bed fills the rest of
+# the window regardless.
+#
+# noise_mode: mul scales the noise BY the envelope, keeping the jitter during
+# the note at the same relative depth while silence stays silence. It is the
+# only change from h2of.yaml, deliberately: setting NOISE_A to 0 would also
+# have removed the jitter, confounding note length with a change in low-level
+# structure, which is the exact thing the loss comparison is about.
+#
+# NOTE_OFF stays a fixed parameter here and is set per shard from the command
+# line -- see scripts/ds_gen_varlen.sh. It is not sampled, because
+# ADSREnvelope.forward computes `attack = attack * note_off`, so draws near 0
+# collapse the whole envelope onto t=0 and a uniform draw would spend a
+# noticeable share of the dataset on degenerate clips. Five fixed levels make
+# note length a DISCRETE covariate rather than a continuous one, which is what
+# lets the arm gap be read against occupancy level by level.
+
+n_oscs: 2
+max_value: 0.6
+
+dag:
+  enva:
+    config:
+      _target_: diffsynth.modules.envelope.ADSREnvelope
+      max_value: 0.6
+      channels: 2
+      noise_mode: mul
+    connections:
+      floor: AMP_FLOOR
+      peak: PEAK_A
+      attack: AT_A
+      decay: DE_A
+      sus_level: SU_A
+      release: RE_A
+      note_off: NOTE_OFF
+      noise_mag: NOISE_A
+  envc:
+    config:
+      _target_: diffsynth.modules.envelope.ADSREnvelope
+      channels: 1
+      noise_mode: mul
+    connections:
+      floor: CUT_FLOOR
+      peak: PEAK_C
+      attack: AT_C
+      decay: DE_C
+      sus_level: SU_C
+      release: RE_C
+      note_off: NOTE_OFF
+      noise_mag: NOISE_C
+  harmor:
+    config:
+      _target_: diffsynth.modules.harmor.Harmor
+      sample_rate: 16000
+      sep_amp: true
+      n_oscs: 2
+    connections:
+      amplitudes: enva
+      osc_mix: M_OSC
+      f0_hz: BFRQ
+      f0_mult: MULT
+      cutoff: envc
+      q: Q_FILT
+
+fixed_params:
+  NOTE_OFF: 0.75
+  AMP_FLOOR: 0
+static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C]
+
+# IDENTICAL to h2of.yaml's, and it has to be: these are dag_summary keys read
+# in BOTH this generator's dag (giving the rendered curve) and the model synth
+# h2of.yaml's dag (giving the slot it feeds), which is what lets one list serve
+# both sides. The model synth is unchanged by any of this -- it has no
+# envelopes at all, and consumes amplitude and cutoff as free per-frame curves.
+save_params: [harmor_amplitudes, harmor_osc_mix, harmor_f0_hz, harmor_f0_mult, harmor_cutoff, harmor_q]

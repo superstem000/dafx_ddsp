@@ -25,9 +25,21 @@ if __name__ == "__main__":
     # 'cuda' was hardcoded below. Made switchable so a small dataset can be
     # generated -- and the whole pipeline smoke-tested -- with no free GPU.
     parser.add_argument('--device',     type=str,   default='cuda')
+    # Dotlist overrides on the synth config, so a set of shards differing in
+    # one fixed parameter needs one config rather than one config each:
+    #   --set fixed_params.NOTE_OFF=0.15
+    # Five near-identical YAML files is how the pin and the ceiling drift apart
+    # in the first place; one file plus a visible override is auditable.
+    parser.add_argument('--set',        nargs='*',  default=[], metavar='K=V')
     args = parser.parse_args()
 
     conf = OmegaConf.load(args.synth_conf)
+    if args.set:
+        conf = OmegaConf.merge(conf, OmegaConf.from_dotlist(args.set))
+    # Echoed because a shard is identified by this and by nothing else in the
+    # output; a shard generated with the wrong NOTE_OFF is indistinguishable
+    # from a right one after the fact.
+    print('fixed_params:', OmegaConf.to_container(conf.fixed_params, resolve=True))
     synth = construct_synth_from_conf(conf).to(args.device)
 
     audio_dir, param_dir = make_dirs(args.dataset_dir, conf.name)
