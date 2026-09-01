@@ -1,7 +1,7 @@
 """Every parameter a synth config exposes: what is drawn, what is pinned, what is saved.
 
     python scripts/ds_param_list.py external/diffsynth/configs/synth/dataset/h2of.yaml
-    python scripts/ds_param_list.py external/diffsynth/configs/synth/dataset/h2of_var.yaml \
+    python scripts/ds_param_list.py external/diffsynth/configs/synth/dataset/h2of.yaml \
                                     external/diffsynth/configs/synth/h2of.yaml
 
 WHY A TOOL AND NOT A LIST IN A DOCSTRING. The answer is spread over four
@@ -16,9 +16,10 @@ Reads them the same way Synthesizer.__init__ does -- ext_params is
 `connections` minus processor outputs minus fixed_params, and ext_param_sizes
 is built with dict.update() walking the dag in order, so a key shared by two
 processors takes the size of the LAST one to claim it. That ordering
-dependence is real and worth seeing rather than inferring: h2of_var wires
-START and LENGTH to both envelopes, and envc's size 1 overwrites enva's 2,
-which is what makes one window apply to both oscillators.
+dependence is real and worth seeing rather than inferring: in h2of, AMP and
+M_OSC are wired to enva (channels 2) while BFRQ comes from envc (channels 1),
+so a key shared between the two envelopes would silently take the size of
+whichever is written later in the dag.
 
 SCALE tells you what the drawn 0..1 actually becomes. 'sigmoid' is linear
 interpolation across the range; 'freq_sigmoid' is perceptual, so a uniform
