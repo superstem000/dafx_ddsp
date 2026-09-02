@@ -547,6 +547,14 @@ def main() -> None:
                         "predicted, WITHIN one arm -- across arms every "
                         "predicted quantity co-varies, so group medians cannot "
                         "attribute the difference to any one of them.")
+    p.add_argument("--spread", action="store_true",
+                   help="Per-clip score distribution per arm, plus the paired "
+                        "clip-by-clip comparison. The folder mean answers "
+                        "'which arm is better on average'; this answers "
+                        "whether one arm's BEST clips beat another's best, "
+                        "which a mean cannot show and which is the question "
+                        "when one arm is suspected of being uniformly "
+                        "mediocre and another high-variance.")
     p.add_argument("--render", type=int, default=0, metavar="N",
                    help="Write the first N clips of each folder as target plus "
                         "one resynthesis per arm, so the numbers can be checked "
@@ -852,7 +860,7 @@ def main() -> None:
                     e[mname][0] += float(pn.sum())
                     e[mname][1] += float(pd.sum())
                     e[mname][2] += float(pk.sum())
-                    if args.csv_clips:
+                    if args.csv_clips or args.spread:
                         # Per clip, so a correlation can be run INSIDE one arm.
                         # Across arms every predicted quantity co-varies --
                         # share2, mix1, mix2 all move together -- so three group
@@ -959,6 +967,67 @@ def main() -> None:
               f"(one common gain {head:.3f}, levels otherwise as scored"
               + (f", after the --folder-peak match" if args.folder_peak
                  else ", unnormalised") + ")")
+
+    if args.spread:
+        # The folder number is sum(num)/sum(den) over clips -- a ratio of
+        # totals, which the loudest clips dominate. Per clip it is num/den on
+        # that clip alone, against that clip's OWN saturation denominator, so
+        # the columns below are comparable across arms clip for clip.
+        for mname in metrics:
+            for g in groups:
+                have = [a for a in args.arms if (a, g, mname) in per_clip]
+                if not have:
+                    continue
+                sc = {a: {i: n / d for i, (n, d, _k) in
+                          per_clip[(a, g, mname)].items() if d > 0}
+                      for a in have}
+                print(f"\n=== {mname}: per-clip arm/saturation, {g}")
+                print(f"{'arm':<24}{'n':>4}" + "".join(
+                    f"{c:>9}" for c in ("best", "p10", "p25", "med", "p75",
+                                        "p90", "worst", "<1.0")))
+                for a in have:
+                    v = sorted(sc[a].values())
+                    q = lambda f: v[min(len(v) - 1, int(f * (len(v) - 1) + .5))]
+                    print(f"{a:<24}{len(v):>4}{v[0]:>9.3f}{q(.10):>9.3f}"
+                          f"{q(.25):>9.3f}{q(.50):>9.3f}{q(.75):>9.3f}"
+                          f"{q(.90):>9.3f}{v[-1]:>9.3f}"
+                          f"{100.0 * sum(1 for z in v if z < 1.0) / len(v):>8.0f}%")
+
+                # PAIRED, on the clips both arms scored. Independent columns
+                # above cannot say whether one arm is better BECAUSE it wins
+                # the same clips or because it wins different ones.
+                if len(have) > 1:
+                    print(f"\n  paired, clip by clip -- 'row wins' = per cent "
+                          f"of shared clips where the ROW scores lower")
+                    print(f"{'':<24}" + "".join(f"{a[:18]:>20}" for a in have))
+                    for a in have:
+                        cells = []
+                        for b in have:
+                            if a == b:
+                                cells.append(f"{'-':>20}")
+                                continue
+                            sh = sorted(set(sc[a]) & set(sc[b]))
+                            if not sh:
+                                cells.append(f"{'-':>20}")
+                                continue
+                            w = sum(1 for i in sh if sc[a][i] < sc[b][i])
+                            md = sorted(sc[a][i] - sc[b][i] for i in sh)
+                            m = md[len(md) // 2]
+                            cells.append(f"{100.0 * w / len(sh):>13.0f}% "
+                                         f"{m:+.2f}")
+                        print(f"{a:<24}" + "".join(cells))
+                    print("  second number is the median per-clip DIFFERENCE "
+                          "row minus column; negative means the row is ahead")
+
+        print("\n  best/worst are the single best and worst clip, so they are\n"
+              "  the CEILING and floor rather than the average. An arm can\n"
+              "  have a worse median and a better best: that is a high-variance\n"
+              "  arm that sometimes finds the structure, against one that is\n"
+              "  uniformly mediocre. The folder mean cannot distinguish those\n"
+              "  two and neither can any single quantile.\n"
+              "  <1.0 is the per cent of clips beating saturation -- clips\n"
+              "  where the arm conveyed something about ITS OWN target rather\n"
+              "  than about the folder in general.")
 
     if args.csv_clips:
         import csv as _csv
