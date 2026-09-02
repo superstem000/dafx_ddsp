@@ -512,7 +512,15 @@ def main() -> None:
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--device", default="cpu")
     p.add_argument("--csv", default=None, metavar="PATH",
-                   help="Also write the per-clip scores.")
+                   help="Also write the per-arm, per-folder scores.")
+    p.add_argument("--csv-clips", default=None, metavar="PATH",
+                   help="Write one row PER CLIP: arm, folder, file, metric, "
+                        "num, den, n. num/den is that clip's own score against "
+                        "saturation. Pair it with ds_osc_usage --csv on the "
+                        "same files to correlate a score with what the model "
+                        "predicted, WITHIN one arm -- across arms every "
+                        "predicted quantity co-varies, so group medians cannot "
+                        "attribute the difference to any one of them.")
     p.add_argument("--render", type=int, default=0, metavar="N",
                    help="Write the first N clips of each folder as target plus "
                         "one resynthesis per arm, so the numbers can be checked "
@@ -726,6 +734,7 @@ def main() -> None:
                      else ", MULT left as predicted"))
 
     per_arm: dict[str, dict[str, dict[str, float]]] = {}
+    per_clip: dict[tuple, dict[int, tuple]] = {}
     renders: dict[tuple[str, str], "np.ndarray"] = {}
     shown = False
     for arm in args.arms:
@@ -806,14 +815,27 @@ def main() -> None:
                              * mm.shape[-1] // a.shape[-1])
                         mm = mm[:, j]
                     if mm is None:
-                        e[mname][0] += float((a - b).abs().sum())
-                        e[mname][1] += float((a - c).abs().sum())
-                        e[mname][2] += a.numel()
+                        pn = (a - b).abs().sum(dim=(1, 2))
+                        pd = (a - c).abs().sum(dim=(1, 2))
+                        pk = torch.full_like(pn, float(a[0].numel()))
                     else:
                         w = mm[:, None, :].expand_as(a)
-                        e[mname][0] += float(((a - b).abs() * w).sum())
-                        e[mname][1] += float(((a - c).abs() * w).sum())
-                        e[mname][2] += float(w.sum())
+                        pn = ((a - b).abs() * w).sum(dim=(1, 2))
+                        pd = ((a - c).abs() * w).sum(dim=(1, 2))
+                        pk = w.sum(dim=(1, 2))
+                    e[mname][0] += float(pn.sum())
+                    e[mname][1] += float(pd.sum())
+                    e[mname][2] += float(pk.sum())
+                    if args.csv_clips:
+                        # Per clip, so a correlation can be run INSIDE one arm.
+                        # Across arms every predicted quantity co-varies --
+                        # share2, mix1, mix2 all move together -- so three group
+                        # medians cannot say which one drives the score. Within
+                        # an arm they vary clip to clip independently.
+                        cc = per_clip.setdefault((arm, g, mname), {})
+                        for j in range(pn.shape[0]):
+                            cc[lo + j] = (float(pn[j]), float(pd[j]),
+                                          float(pk[j]))
             acc[g] = e
             for mname, (num, den, k) in e.items():
                 rows.append((arm, g, mname, num, den, k))
@@ -911,6 +933,19 @@ def main() -> None:
               f"(one common gain {head:.3f}, levels otherwise as scored"
               + (f", after the --folder-peak match" if args.folder_peak
                  else ", unnormalised") + ")")
+
+    if args.csv_clips:
+        import csv as _csv
+        with open(args.csv_clips, "w", newline="") as fh:
+            w = _csv.writer(fh)
+            w.writerow(["arm", "folder", "file", "metric", "num", "den", "n"])
+            for (arm, g, mname), cc in per_clip.items():
+                files = groups[g]
+                for i in sorted(cc):
+                    num, den, k = cc[i]
+                    w.writerow([arm, g, os.path.basename(files[i]), mname,
+                                f"{num:.6g}", f"{den:.6g}", f"{k:.6g}"])
+        print(f"\nwrote {args.csv_clips}  (one row per clip)")
 
     if args.csv:
         import csv as _csv
