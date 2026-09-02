@@ -1,0 +1,70 @@
+# The published magnitude family, retrained on the musical-interval dataset.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_fifth.txt
+#
+# WHAT CHANGED. Only the data. configs/synth/dataset/h2of_fifth.yaml draws MULT
+# from {1.5, 2, 3} -- a fifth, an octave, a twelfth -- instead of uniform on
+# (1, 8). The model synth is still h2of.yaml, ext_param_size is still 8, every
+# loss setting below is copied verbatim from jobs_diffsynth_magx.txt and
+# jobs_diffsynth_magx2.txt.
+#
+# WHY 1.5 AND NOT THE OCTAVES h2of_oct USED. That run assumed the Moog pack was
+# an octave pair from BUMP2 = +11 dB alone. Measuring the fundamental showed
+# P1 = -39.7 dB: the detected 103.5 Hz is a phantom nothing plays, and with
+# BUMP2 = 5.0 and BUMP3 = 6.5 both large the pack is a FIFTH, oscillators at 2F
+# and 3F. h2of_oct's {1, 2, 4} did not contain that ratio anywhere.
+#
+# NO UNISON, unlike h2of_oct. At MULT = 1 both oscillators land on the same
+# frequencies, so the audio depends only on the sums of their amplitudes and
+# mixes and the targets are unrecoverable -- and it is the corner the log arms
+# collapsed into (hybridx: 43% of clips at unison, osc 2 at 1% level). With no
+# legal unison, a silent osc 2 is unambiguously wrong.
+#
+# WHAT THIS RUN IS FOR. The headline measurement is ds_osc_usage, not MFCC. On
+# the octave data, IN DOMAIN with the ground truth known, magx_halfw put 86% of
+# its ratio predictions within 50 cents of a legal value at share2 = 0.15,
+# while hybridx and logx_halfw switched osc 2 off entirely (share2 = 0.01 and
+# 0.00) and their ratios went arbitrary as a result -- once osc 2 is silent
+# MULT has no effect on the audio and the spectral loss stops constraining it.
+# That is a log-trained model discarding a supervised component of its own
+# training signal, and it is worth more than an MFCC gap that moves 20% in two
+# epochs. This run asks whether it holds when the intervals match the real
+# material.
+#
+# THE BASE IS RETRAINED, not branched from pre_base or from fif_base's
+# predecessor. Any earlier base saw 50 epochs of a different MULT distribution,
+# and resuming from it would leave every arm initialised on data the experiment
+# is trying to change. One extra 50-epoch job keeps the ladder clean.
+#
+# ID_DIR IS AN ENV VAR, not a hydra override. ds_run.sh already passes
+# data.id_dir and hydra rejects a key given twice rather than taking the last.
+# It is absolute on purpose: ds_run.sh checks the directory exists BEFORE it
+# cds into external/diffsynth, so a relative path is resolved against
+# whatever directory the queue was launched from.
+#
+# The three arms, all at per_term 1/12 so the comparison is weight-matched:
+#   magx_halfw   mag only, sw_w 0.5
+#   hybridx      mag + log, sw_w 1.0
+#   logx_halfw   log only, sw_w 0.5
+#
+# log_eps_v=1e-2 goes with power=1: log_eps adds a fixed constant, and on
+# magnitude the published 1e-4 would put the knee at p = 1e-8, four decades
+# deeper. sqrt(1e-4) = 1e-2 holds it where the paper's loss had it.
+
+# STAGE base
+# 0 -> 50. One card, everything else waits on it.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth scripts/ds_run.sh fif_base pretrain "{gpu}" trainer.max_epochs=50
+
+# STAGE variants
+# 50 -> 200.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth RESUME=fif_base scripts/ds_run.sh fif_pre_magx_halfw pretrain "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth RESUME=fif_base scripts/ds_run.sh fif_pre_hybridx    pretrain "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth RESUME=fif_base scripts/ds_run.sh fif_pre_logx_halfw pretrain "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# STAGE resumes
+# 200 -> 400. synth only. The resume_real arms train on nsynth, which is not
+# what any of this is measured on -- ds_eval_folder scores the SYNTH-stage
+# checkpoints against the Moog pack.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth RESUME=fif_pre_magx_halfw scripts/ds_run.sh fif_synth_magx_halfw resume_synth "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth RESUME=fif_pre_hybridx    scripts/ds_run.sh fif_synth_hybridx    resume_synth "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth RESUME=fif_pre_logx_halfw scripts/ds_run.sh fif_synth_logx_halfw resume_synth "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5

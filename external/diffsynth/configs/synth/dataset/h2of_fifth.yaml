@@ -1,0 +1,102 @@
+name: harmor_2oscfree_fifth
+# used for generating dataset for h2of.yaml -- SAME model synth, same
+# ext_param_size, same heads. Only the distribution the data is drawn from
+# differs, so checkpoints and commands from h2of are unchanged.
+#
+# WHY MUSICAL INTERVALS. In h2of, MULT is drawn uniform on 0..1 and harmor maps
+# it linearly onto (1, 8), so the second oscillator sits at an arbitrary,
+# almost always irrational ratio to the first. Real two-oscillator bass patches
+# do not do that -- they sit at musical intervals.
+#
+# WHY THESE THREE. h2of_oct assumed the Moog Minitaur pack was an octave pair,
+# on the strength of BUMP2 = +11 dB. Measuring the fundamental itself showed
+# otherwise: P1 = -39.7 dB, meaning the detected 103.5 Hz is a PHANTOM nothing
+# plays, with BUMP2 = 5.0 and BUMP3 = 6.5 both large. That is the signature of
+# a FIFTH -- oscillators at 2F and 3F, a ratio of 1.5 -- and it also explains
+# the pack's apparent -12 semis, which was the common subharmonic and not the
+# sounding pitch. A ratio of 1.5 was not in h2of_oct at all.
+#
+#   1.5  a fifth, what the Moog pack measures as
+#   2.0  an octave, the other interval these packs use
+#   3.0  a twelfth, an octave and a fifth
+#
+# UNISON IS DELIBERATELY ABSENT, and not only because no pack measured as one.
+# At MULT = 1 both oscillators land on identical frequencies, so the audio
+# depends only on the SUMS of their amplitudes and mixes -- different parameter
+# settings give bit-identical audio and the targets are unrecoverable. It is
+# also the corner the log-trained arms collapsed into: hybridx predicted unison
+# on 43% of clips with osc 2 at 1% level. With no legal unison, every clip has
+# two separable oscillators and a silent osc 2 is unambiguously wrong, which is
+# what makes ds_osc_usage's share2 column a clean measurement rather than an
+# arguable one.
+#
+# Everything else -- envelopes, occupancy, f0 range, osc_mix, cutoff, q -- is
+# byte-for-byte h2of.
+
+n_oscs: 2
+max_value: 0.6
+
+dag:
+  enva:
+    config:
+      _target_: diffsynth.modules.envelope.ADSREnvelope
+      max_value: 0.6
+      channels: 2
+    connections:
+      floor: AMP_FLOOR
+      peak: PEAK_A
+      attack: AT_A
+      decay: DE_A
+      sus_level: SU_A
+      release: RE_A
+      note_off: NOTE_OFF
+      noise_mag: NOISE_A
+  envc:
+    config:
+      _target_: diffsynth.modules.envelope.ADSREnvelope
+      channels: 1
+    connections:
+      floor: CUT_FLOOR
+      peak: PEAK_C
+      attack: AT_C
+      decay: DE_C
+      sus_level: SU_C
+      release: RE_C
+      note_off: NOTE_OFF
+      noise_mag: NOISE_C
+  harmor:
+    config:
+      _target_: diffsynth.modules.harmor.Harmor
+      sample_rate: 16000
+      sep_amp: true
+      n_oscs: 2
+    connections:
+      amplitudes: enva
+      osc_mix: M_OSC
+      f0_hz: BFRQ
+      f0_mult: MULT
+      cutoff: envc
+      q: Q_FILT
+
+fixed_params:
+  NOTE_OFF: 0.75
+  AMP_FLOOR: 0
+
+static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C]
+
+# Read by gen_dataset.py only, and only by the generation path. Values are in
+# NATURAL units (a MULT of 2.0 means one octave up); gen_dataset inverts the
+# parameter's own scale function to find the 0..1 draw that produces them, so
+# the saved targets stay in the same normalised space every other parameter
+# uses and the model needs no change at all. Each clip picks one value per
+# entry uniformly -- not a snapped uniform draw, which would weight the values
+# by the width of their nearest-neighbour cells instead of equally.
+#
+# In normalised terms, MULT's range is (1, 8) under a linear scale, so these
+# are draws of 0.0714, 0.1429 and 0.2857 -- all in the bottom third of the
+# parameter, which is where real patches live and where the published uniform
+# draw spent only a third of its mass.
+quantize_params:
+  MULT: [1.5, 2.0, 3.0]
+
+save_params: [harmor_amplitudes, harmor_osc_mix, harmor_f0_hz, harmor_f0_mult, harmor_cutoff, harmor_q]
