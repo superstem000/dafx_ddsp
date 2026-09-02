@@ -1,0 +1,72 @@
+# Fundamental GIVEN, MULT CONTINUOUS on (1, 3): does discreteness cause the
+# collapse?
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_f0r13.txt
+#
+# THE FINDING THIS TESTS. f5o_ (f0 given, MULT in {1.5, 2, 3}) had the log arm
+# stop using its second oscillator: share2 median 0.16 on the Moog, 0.00 in
+# domain, 73% of clips under 0.05, harmor_amplitudes 1.0364 -- worse than a
+# constant predictor. It then won mfcc/saturation 0.958 against 1.464 by being
+# a one-oscillator model whose one oscillator is handed the correct pitch.
+#
+# The collapse sits in one cell of the 2x2 and nowhere else:
+#
+#                    MULT continuous (1,8)      MULT discrete {1.5,2,3}
+#   f0 free          published / oct_           fif_   share2 .72/.71/.69
+#   f0 given         f0o_   no collapse         f5o_   share2 .62/.56/.16
+#
+# So it is the interaction, not either factor. This run holds f0 given and
+# makes MULT continuous again, but on (1, 3) rather than (1, 8) so the ratios
+# stay in the register real patches use.
+#
+# THE MECHANISM UNDER TEST. The model's MULT is continuous whatever the data
+# holds. Three legal values give the loss surface three narrow basins with wide
+# dead ground between them, where osc 2's partials align with nothing -- being
+# at 2.2 is nearly as costly as being an octave out. Zeroing osc 2's amplitude
+# makes the MULT error free, which is the cheap escape from a rugged landscape.
+# A continuous draw restores a smooth local gradient, so drifting toward the
+# right ratio should beat muting. If share2 comes back near 0.7 for every arm,
+# discreteness was the trigger. If the log arm is still at 0.16, it was not,
+# and conditioning alone is enough.
+#
+# EITHER ANSWER IS USABLE. Collapse gone means the degenerate strategy is a
+# property of the training distribution and the discrete result should not be
+# the headline. Collapse still there means it survives a smooth landscape, and
+# the log arm abandons an oscillator whenever it is handed a correct one for
+# free -- a stronger claim than the discrete run can make on its own.
+#
+# WHY (1, 3) AND NOT (1, 2). The median must be far from 1.5 or predicting the
+# prior mean scores as if the model found the Moog's fifth, and p_1.5 stops
+# discriminating. (1, 3) has median 2.0, 498 cents from 1.5, while 1.5 sits at
+# the 25th percentile -- well inside, with neighbours on both sides. (1, 2)
+# would put the median exactly on 1.5.
+#
+# NOTHING IN THE MODEL CHANGES. h2of_f0only.yaml is unchanged, ext_param_size
+# is 7 as in f0o_ and f5o_, and MULT's (1, 8) in harmor.py is untouched -- the
+# restriction is on the DRAW, via range_params in h2of_r13.yaml, so every
+# existing checkpoint keeps its meaning. Its own base, since the data
+# distribution differs. No out-of-domain half.
+#
+# GENERATE FIRST:
+#   cd ~/dafx_ddsp/external/diffsynth
+#   python gen_dataset.py data/diffsynth_5-6 configs/synth/dataset/h2of_r13.yaml --data_size 20000 --save_param --device cuda:0
+#   python -c "import torch; print(torch.load('data/diffsynth_5-6/harmor_2oscfree_r13/param/00000.pt').keys())"
+# The second line must print harmor_amplitudes, harmor_osc_mix, harmor_f0_hz,
+# harmor_f0_mult, harmor_cutoff, harmor_q. If it prints enva_peak instead,
+# --save_param did not reach argparse and training dies at the first batch.
+
+# STAGE base
+# 0 -> 50, parameter loss only.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_r13 OOD_DIR=none scripts/ds_run.sh r13_base pretrain_f0only "{gpu}" trainer.max_epochs=50
+
+# STAGE variants
+# 50 -> 200.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_r13 OOD_DIR=none RESUME=r13_base scripts/ds_run.sh r13_pre_magx_halfw pretrain_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_r13 OOD_DIR=none RESUME=r13_base scripts/ds_run.sh r13_pre_hybridx    pretrain_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_r13 OOD_DIR=none RESUME=r13_base scripts/ds_run.sh r13_pre_logx_halfw pretrain_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# STAGE resumes
+# 200 -> 400.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_r13 OOD_DIR=none RESUME=r13_pre_magx_halfw scripts/ds_run.sh r13_synth_magx_halfw resume_synth_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_r13 OOD_DIR=none RESUME=r13_pre_hybridx    scripts/ds_run.sh r13_synth_hybridx    resume_synth_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_r13 OOD_DIR=none RESUME=r13_pre_logx_halfw scripts/ds_run.sh r13_synth_logx_halfw resume_synth_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
