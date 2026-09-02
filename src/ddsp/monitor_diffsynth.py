@@ -448,28 +448,50 @@ def main() -> None:
               "training\nobjective, MFCC logs mel BAND energies, LSD logs every "
               "bin. Param is the\nonly one independent of that axis, and it "
               "exists in-domain only.\n")
-        print(f"{'run':<18}{'sel':>6}{'epoch':>7}{'Param':>9}"
-              f"{'ID Multi':>10}{'ID MFCC':>9}{'ID LSD':>9}"
-              f"{'OOD Multi':>11}{'OOD MFCC':>10}{'OOD LSD':>9}")
+        # A pitch-conditioned run has no out-of-domain half at all -- the OOD
+        # set is loaded without targets, so it cannot supply the oscillator
+        # pitches -- and then val_ood is absent rather than bad. Drop the
+        # columns instead of printing six nan, and select on val_id/lsd, which
+        # is what train.py monitors for those runs.
+        any_ood = any("ood_lsd" in r["series"] for r in runs.values())
+        head = (f"{'run':<18}{'sel':>6}{'epoch':>7}{'Param':>9}"
+                f"{'ID Multi':>10}{'ID MFCC':>9}{'ID LSD':>9}")
+        if any_ood:
+            head += f"{'OOD Multi':>11}{'OOD MFCC':>10}{'OOD LSD':>9}"
+        print(head)
+        id_only = []
         for name, r in runs.items():
-            sel = r["series"].get("ood_lsd", {})
+            key = "ood_lsd" if "ood_lsd" in r["series"] else "id_lsd"
+            sel = r["series"].get(key, {})
             if not sel:
-                print(f"{name:<18}  (no val_ood/lsd logged yet)")
+                print(f"{name:<18}  (no lsd logged yet)")
                 continue
+            if key == "id_lsd":
+                id_only.append(name)
             best_step = min(sel, key=lambda s: sel[s])
             for tag, step in (("best", best_step), ("final", max(r["steps"]))):
                 ep = epoch_of(r, step, args.steps_per_epoch)
-                print(f"{name:<18}{tag:>6}{ep:>7}"
-                      f"{at(r, step, 'param'):>9.4f}"
-                      f"{at(r, step, 'id_multi'):>10.4f}{at(r, step, 'id_mfcc'):>9.4f}"
-                      f"{at(r, step, 'id_lsd'):>9.3f}"
-                      f"{at(r, step, 'ood_multi'):>11.4f}{at(r, step, 'ood_mfcc'):>10.4f}"
-                      f"{at(r, step, 'ood_lsd'):>9.3f}")
+                row = (f"{name:<18}{tag:>6}{ep:>7}"
+                       f"{at(r, step, 'param'):>9.4f}"
+                       f"{at(r, step, 'id_multi'):>10.4f}"
+                       f"{at(r, step, 'id_mfcc'):>9.4f}"
+                       f"{at(r, step, 'id_lsd'):>9.3f}")
+                if any_ood:
+                    row += (f"{at(r, step, 'ood_multi'):>11.4f}"
+                            f"{at(r, step, 'ood_mfcc'):>10.4f}"
+                            f"{at(r, step, 'ood_lsd'):>9.3f}")
+                print(row)
+        if id_only:
+            print(f"\n  'best' selected on val_id/lsd, not val_ood/lsd, for: "
+                  f"{', '.join(id_only)}\n  -- those runs have no "
+                  f"out-of-domain half. Their out-of-domain number comes from\n"
+                  f"  ds_eval_folder on the real packs, not from here.")
         return
 
+    any_ood = any("ood_lsd" in r["series"] for r in runs.values())
     print(f"{'run':<18}{'epoch':>7}{'of':>6}{'ep/h':>7}{'eta_h':>7}"
-          f"{'param_w':>9}{'sw_w':>7}{'train':>10}"
-          f"{'ID LSD':>9}{'OOD LSD':>9}{'Param':>9}")
+          f"{'param_w':>9}{'sw_w':>7}{'train':>10}{'ID LSD':>9}"
+          + (f"{'OOD LSD':>9}" if any_ood else "") + f"{'Param':>9}")
     for name, r in runs.items():
         last = max(r["steps"])
         ep = epoch_of(r, last, args.steps_per_epoch)
@@ -479,8 +501,9 @@ def main() -> None:
         print(f"{name:<18}{ep:>7}{tot if tot else '?':>6}{eph:>7.1f}{eta:>7.1f}"
               f"{at(r, last, 'param_w'):>9.2f}{at(r, last, 'sw_w'):>7.2f}"
               f"{at(r, last, 'train'):>10.4f}"
-              f"{at(r, last, 'id_lsd'):>9.3f}{at(r, last, 'ood_lsd'):>9.3f}"
-              f"{at(r, last, 'param'):>9.4f}")
+              f"{at(r, last, 'id_lsd'):>9.3f}"
+              + (f"{at(r, last, 'ood_lsd'):>9.3f}" if any_ood else "")
+              + f"{at(r, last, 'param'):>9.4f}")
 
     for key, label in (("ood_lsd", "val_ood/lsd  (what the checkpoint selects on)"),
                        ("id_lsd", "val_id/lsd"),
