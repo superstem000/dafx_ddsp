@@ -1,0 +1,60 @@
+# Fundamental GIVEN, oscillator ratio PREDICTED, on the published dataset.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_f0only.txt
+#
+# THE MIDDLE OF THE THREE, and the one the evidence points to.
+#
+#   both free (published, fif_)   pitch swamps everything on real audio: slope
+#                                 0.4-0.6, 500-600 cents flat, all three arms
+#                                 above saturation on the Moog, and no
+#                                 listening test survives a wrong note
+#   both given (giv_)             a clean negative -- the linear arm loses to
+#                                 both log arms on val_id/mfcc AND on every
+#                                 parameter group. Conditioning MULT deletes
+#                                 the measurement rather than isolating it
+#   f0 given, MULT free           removes the failure that ruins evaluation,
+#                                 keeps the parameter that discriminates
+#
+# MULT was the sharpest discriminator in the published breakdown -- 0.093 magx
+# against 0.177 logx, a 1.90x gap, larger than any other parameter -- and it is
+# where the structure findings live: p_1.5 at 26/18/8% on the Moog, share2 at
+# 0.15/0.01/0.00 in domain. That is what this run protects.
+#
+# THE COUPLING OBJECTION DOES NOT APPLY. Overriding f0 alone at inference made
+# things 27% worse, because the arms had anchored on osc 2 and moving f0
+# dragged the loud oscillator off. That is an artifact of overriding half of a
+# joint decision after the fact; a model TRAINED with f0 supplied learns MULT
+# to suit the fundamental it is handed.
+#
+# PUBLISHED DATASET, UNCHANGED: harmor_2oscfree, MULT uniform on (1, 8). No
+# quantising -- that existed to stop the pair implying a fundamental neither
+# oscillator plays, which needed both free to move together, and a graded cents
+# error on osc 2 cannot saturate the way a 3-way interval accuracy can once f0
+# is given. It also means the interval only matters at evaluation time, so a
+# mis-measured pack cannot invalidate the run.
+#
+# ext_param_size is 7 -- AMP(2), M_OSC(2), MULT(1), CUTOFF(1), Q_FILT(1) -- so
+# it shares a head width with neither the 8-parameter runs nor giv_'s 6, and
+# needs its own base.
+#
+# No out-of-domain half: nsynth has no saved target to take the fundamental
+# from. OOD_DIR=none; train.py monitors val_id/lsd.
+#
+# Three arms at per_term 1/12, settings verbatim from jobs_diffsynth_magx.txt
+# and jobs_diffsynth_magx2.txt.
+
+# STAGE base
+# 0 -> 50, parameter loss only, shared by all three.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none scripts/ds_run.sh f0o_base pretrain_f0only "{gpu}" trainer.max_epochs=50
+
+# STAGE variants
+# 50 -> 200, the paper's crossfade.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none RESUME=f0o_base scripts/ds_run.sh f0o_pre_magx_halfw pretrain_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none RESUME=f0o_base scripts/ds_run.sh f0o_pre_hybridx    pretrain_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none RESUME=f0o_base scripts/ds_run.sh f0o_pre_logx_halfw pretrain_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# STAGE resumes
+# 200 -> 400.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none RESUME=f0o_pre_magx_halfw scripts/ds_run.sh f0o_synth_magx_halfw resume_synth_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none RESUME=f0o_pre_hybridx    scripts/ds_run.sh f0o_synth_hybridx    resume_synth_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none RESUME=f0o_pre_logx_halfw scripts/ds_run.sh f0o_synth_logx_halfw resume_synth_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5

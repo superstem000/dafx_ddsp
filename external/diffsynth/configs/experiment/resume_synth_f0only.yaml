@@ -1,0 +1,56 @@
+# @package _global_
+
+# FUNDAMENTAL GIVEN, RATIO PREDICTED. Identical to resume_synth.yaml except for the
+# synth: h2of_f0only.yaml declares BFRQ as conditioning, so the estimator
+# predicts 7 parameters instead of 8 and osc 1's pitch comes from the batch's
+# own saved target via EstimatorSynth.fill_given. MULT is still predicted.
+#
+# THE DATASET IS THE PUBLISHED ONE, unchanged -- data/diffsynth_5-6/
+# harmor_2oscfree, MULT uniform on (1, 8). Nothing to quantise: restricting
+# MULT existed to stop the pair implying a fundamental neither oscillator
+# plays, which needed both oscillators free to move together.
+#
+# No out-of-domain half. nsynth is loaded with params=False, so those batches
+# carry no target to take the fundamental from, and inventing one for acoustic
+# notes would make val_ood misleading rather than absent. train.py monitors
+# val_id/lsd instead. The out-of-domain number that matters comes from
+# ds_eval_folder on the real packs.
+#
+# NOTE ON THE PARAM LOSS SCALE. param_group_losses skips fixed params but
+# param_loss still divides by the full key count, so five terms are divided by
+# six -- the param term is 5/6 the magnitude it has in the published runs. That
+# is the documented convention and applies identically to every arm, so the
+# comparison is unaffected; the absolute value is not comparable to an
+# 8-parameter run.
+
+defaults:
+  - override /trainer: default.yaml
+  - override /model: default.yaml
+  - override /data: default.yaml
+  - override /synth: h2of_f0only.yaml
+  - override /schedule: switch.yaml
+
+data:
+  id_dir: data/diffsynth_5-6/harmor_2oscfree
+  ood_dir: null
+  batch_size: 64
+  train_type: id
+
+trainer:
+
+# 400, not 200. max_epochs is absolute in Lightning and the checkpoint restores
+# current_epoch=200, so a resume capped at 200 trains nothing and exits looking
+# like a success. The paper's total is 200 pretrain + 200 resume (sec 4.1), so
+# 400 is both the fix and the intended figure.
+  max_epochs: 400
+  gradient_clip_val: 1.0
+
+model:
+  lr: 0.001
+  decay_rate: 0.99
+  estimator:
+    _target_: diffsynth.estimator.MelEstimator
+    hidden_size: 512
+  sw_loss:
+    fft_sizes: [64, 128, 256, 512, 1024, 2048]
+  log_grad: true
