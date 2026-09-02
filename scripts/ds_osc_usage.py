@@ -97,6 +97,35 @@ def predict(model, x: torch.Tensor):
     return mult, share2, mix[:, 0], mix[:, 1]
 
 
+def true_mult(files, base_dir, lo, hi):
+    """The generator's own MULT for each clip, in natural units, or None.
+
+    WHY THIS EXISTS. The in-domain f0_mult error averages over MULT from 1 to
+    8, and everything above 3 is a ratio no instrument plays -- so an arm could
+    be better on all realistic material and still lose the aggregate. That is
+    exactly the ambiguity between logx sitting HIGHER than magx in domain
+    (median 4.91 against 4.56, true 4.5) and LOWER on the Moog (1.84 against
+    2.26, true 1.5): either its error points the useful way by luck, or it is
+    genuinely better at the low end and the mean is dominated by a region that
+    does not matter. Binning by the true value separates those.
+
+    The saved value is the raw 0..1 draw -- Synthesizer.forward seeds `outputs`
+    with the dag inputs and never overwrites them -- so it is scaled here the
+    same way harmor would.
+    """
+    out = []
+    for f in files:
+        stem = os.path.splitext(os.path.basename(f))[0]
+        pt = os.path.join(base_dir, "param", stem + ".pt")
+        if not os.path.exists(pt):
+            return None
+        v = torch.load(pt, map_location="cpu", weights_only=False)
+        if "harmor_f0_mult" not in v:
+            return None
+        out.append(float(v["harmor_f0_mult"].reshape(-1)[-1]) * (hi - lo) + lo)
+    return np.asarray(out)
+
+
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -122,6 +151,18 @@ def main() -> None:
                         "be to count as it. The fifth, octave and twelfth are "
                         "702 / 1200 / 1902 cents apart, so 50 separates them "
                         "with room to spare.")
+    p.add_argument("--true-mult", action="store_true",
+                   help="For a GENERATED folder with a param/ sibling: read "
+                        "each clip's true MULT and report the error against "
+                        "it, binned by that true value. The aggregate f0_mult "
+                        "error averages over 1..8, and everything above 3 is a "
+                        "ratio no instrument plays -- so an arm can be better "
+                        "on all realistic material and still lose the mean.")
+    p.add_argument("--mult-bins", type=float, nargs="+",
+                   default=[1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0], metavar="EDGE",
+                   help="Bin edges on the TRUE ratio. The default splits out "
+                        "unison-to-fifth, fifth-to-octave and octave-to-twelfth "
+                        "-- where every real interval lives -- from the rest.")
     p.add_argument("--both-lo", type=float, default=0.2, metavar="F",
                    help="Minimum share for an oscillator to count as in use, "
                         "for the `both` column.")
@@ -131,6 +172,7 @@ def main() -> None:
 
     rng = random.Random(args.seed)
     folders = {}
+    truth: dict[str, "np.ndarray"] = {}
     for d in args.dirs:
         files = audio_files(d)
         if args.match:
@@ -147,11 +189,28 @@ def main() -> None:
         g = os.path.basename(os.path.normpath(d))
         folders[g] = (files, np.stack([r[0] for r in raw]) * gain)
         print(f"{g:<26}{len(files):>4} clips   gain {gain:.3f}")
+        if args.true_mult:
+            tm = true_mult(files, d, 1.0, 8.0)
+            if tm is None:
+                raise SystemExit(
+                    f"--true-mult needs {d}/param/<stem>.pt carrying "
+                    f"harmor_f0_mult; this looks like a real-audio folder.")
+            truth[g] = tm
+            print(f"{'':<26}true MULT median {np.median(tm):.2f}, "
+                  f"range {tm.min():.2f}-{tm.max():.2f}")
 
     heads = "".join(f"{'p_' + f'{r:g}':>7}" for r in args.ratios)
     print(f"\n{'folder':<20}{'arm':<24}{'n':>4}{'MULT_med':>10}{heads}"
           f"{'other':>7}{'share2':>9}{'both':>7}{'mix1':>7}{'mix2':>7}")
     rows = []
+    bins_acc: dict[str, dict[int, "np.ndarray"]] = {}
+    # Counted once from the targets, not inside the arm loop -- every arm sees
+    # the same clips, so accumulating there multiplied each count by len(arms).
+    bins_n: dict[int, int] = {}
+    for _tm in truth.values():
+        for _i in range(len(args.mult_bins) - 1):
+            _m = ((_tm >= args.mult_bins[_i]) & (_tm < args.mult_bins[_i + 1]))
+            bins_n[_i] = bins_n.get(_i, 0) + int(_m.sum())
     for arm in args.arms:
         model, _cfg, note = load_model(os.path.join(args.root, arm),
                                        args.ckpt, args.device)
@@ -181,6 +240,16 @@ def main() -> None:
                   + "".join(f"{v:>6.0f}%" for v in near)
                   + f"{other:>6.0f}%{np.median(share2):>9.2f}{both:>6.0f}%"
                   f"{np.median(mix1):>7.2f}{np.median(mix2):>7.2f}")
+            if args.true_mult and g in truth:
+                tm = truth[g]
+                cents = 1200.0 * np.log2(np.maximum(mult, 1e-9) / tm)
+                per = bins_acc.setdefault(arm, {})
+                for i in range(len(args.mult_bins) - 1):
+                    m = ((tm >= args.mult_bins[i])
+                         & (tm < args.mult_bins[i + 1]))
+                    if m.any():
+                        per[i] = np.concatenate([per.get(i, np.array([])),
+                                                 cents[m]])
             for i, f in enumerate(files):
                 rows.append([arm, g, os.path.basename(f), f"{mult[i]:.3f}",
                              f"{share2[i]:.3f}", f"{mix1[i]:.3f}",
@@ -201,6 +270,32 @@ def main() -> None:
           "  Control level, not rendered power: the saw and square profiles do\n"
           "  not sum alike and the filter comes after, so share2 indicates the\n"
           "  split rather than measuring it.")
+
+    if args.true_mult and bins_acc:
+        print(f"\n=== MULT against the TRUE value, by true ratio "
+              f"(median |error| in cents; 702 = a fifth out)")
+        edges = args.mult_bins
+        labs = [f"{edges[i]:g}-{edges[i+1]:g}" for i in range(len(edges) - 1)]
+        print(f"{'arm':<24}" + "".join(f"{l:>11}" for l in labs) + f"{'all':>11}")
+        for arm, per in bins_acc.items():
+            cells = []
+            for i in range(len(edges) - 1):
+                v = per.get(i)
+                cells.append(f"{np.median(np.abs(v)):>11.0f}" if v is not None
+                             and len(v) else f"{'-':>11}")
+            allv = np.concatenate([v for v in per.values() if v is not None
+                                   and len(v)]) if per else np.array([])
+            cells.append(f"{np.median(np.abs(allv)):>11.0f}"
+                         if allv.size else f"{'-':>11}")
+            print(f"{arm:<24}" + "".join(cells))
+        print(f"{'n per bin':<24}" + "".join(
+            f"{bins_n.get(i, 0):>11}" for i in range(len(edges) - 1))
+            + f"{sum(bins_n.values()):>11}")
+        print("\n  Every interval a real synth plays is below 3 -- unison,\n"
+              "  fifth (1.5), octave (2), twelfth (3). If one arm wins the low\n"
+              "  bins and loses the high ones, the aggregate f0_mult error is\n"
+              "  dominated by ratios nothing plays and the range is the problem,\n"
+              "  not the loss. If one arm wins everywhere, it simply wins.")
 
     if args.csv:
         import csv as _csv
