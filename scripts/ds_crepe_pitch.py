@@ -17,6 +17,24 @@ assumption about how many oscillators either side used. If the model conveys
 the pitch by any means -- one oscillator, two, or a beat between them -- an
 audio-domain detector hears it.
 
+WITH f0 GIVEN THIS BECOMES A DIFFERENT, SHARPER TEST. When BFRQ is
+conditioning (--force-f0-re, the f5o arms) osc 1 is placed correctly for every
+arm by construction, so nothing here measures "did it guess the pitch". What
+is left is entirely osc 2, and that is the point.
+
+The Moog material is a FIFTH: two oscillators at F and 1.5F, whose lowest
+common series is F/2, because 1.5F = 3*(F/2). The detected fundamental of the
+target is therefore a phantom AN OCTAVE BELOW the note either oscillator
+plays. A resynthesis that renders the pair reproduces that phantom and lands
+near 0 cents. A resynthesis that has silenced osc 2 emits a plain series at F
+and lands +1200.
+
+So on this material med_cents and oct_err read as "did the arm build the
+interval", in the audio domain, with no parameter inspection -- and an arm
+that wins the spectral metric by turning osc 2 off cannot also win here. That
+is the whole value of running it: it is a metric the collapse is expected to
+lose, scored on the same clips.
+
 TWO DETECTORS, because on this material they disagree and the disagreement
 matters. On the Moog, CREPE reports the target at 160.7 Hz and the probe at
 77.8 -- an octave apart.
@@ -95,7 +113,8 @@ sys.path.insert(0, os.path.join(HERE, "..", "external", "diffsynth"))
 import numpy as np                                       # noqa: E402
 import torch                                             # noqa: E402
 
-from ds_eval_folder import audio_files, load_clip, load_model   # noqa: E402
+from ds_eval_folder import (audio_files, forward_forced_f0,    # noqa: E402
+                            load_clip, load_model)
 from ds_harmonic_probe import spectrum, find_f0           # noqa: E402
 
 try:
@@ -201,7 +220,22 @@ def main() -> None:
                         "this on either side. 0 keeps everything and lets the "
                         "reported scores speak; ~10 dB is where a detection "
                         "starts being worth believing.")
+    p.add_argument("--force-f0-re", default=None, metavar="REGEX",
+                   help="Read a MIDI number out of the basename and hand that "
+                        "fundamental to the synth. REQUIRED for the f0-given "
+                        "arms: they declare BFRQ as conditioning, so on real "
+                        "audio there is nothing to synthesise from without it.")
+    p.add_argument("--force-f0-semis", type=float, default=0.0, metavar="S",
+                   help="Transpose the parsed MIDI number before use.")
+    p.add_argument("--force-mult", type=float, default=None, metavar="R",
+                   help="Pin the oscillator ratio too. Only needed for synths "
+                        "that take MULT as conditioning; leaving it off is "
+                        "what makes this eval informative, since the arm's "
+                        "own second oscillator is the whole question.")
     p.add_argument("--device", default="cuda")
+    p.add_argument("--model-batch", type=int, default=16, metavar="N",
+                   help="Clips per estimator forward. Separate from "
+                        "--batch-size, which is CREPE's frame batch.")
     p.add_argument("--batch-size", type=int, default=512)
     p.add_argument("--csv", default=None, metavar="PATH")
     args = p.parse_args()
@@ -228,6 +262,27 @@ def main() -> None:
             gain = args.folder_peak / med if med > 0 else 1.0
         folders[g] = (files, np.stack([r[0] for r in raw]) * gain, gain)
         print(f"{g:<26}{len(files):>4} clips   gain {gain:.3f}")
+
+    # The forced fundamental, per clip, in the same order as folders[g][0].
+    force_f0: dict[str, np.ndarray] = {}
+    if args.force_f0_re:
+        for g, (files, _x, _gain) in folders.items():
+            hz = []
+            for f in files:
+                m = re.search(args.force_f0_re, os.path.basename(f))
+                if not m:
+                    raise SystemExit(
+                        f"--force-f0-re {args.force_f0_re!r} did not match "
+                        f"{os.path.basename(f)!r}")
+                hz.append(440.0 * 2.0 ** ((float(m.group(1))
+                                           + args.force_f0_semis - 69.0) / 12.0))
+            force_f0[g] = np.asarray(hz, dtype=np.float64)
+            print(f"  {g}: --force-f0 {force_f0[g].min():.1f}-"
+                  f"{force_f0[g].max():.1f} Hz "
+                  f"(offset {args.force_f0_semis:+g} semis)"
+                  + (f", MULT pinned to {args.force_mult:g}"
+                     if args.force_mult is not None
+                     else ", MULT left as predicted"))
 
     want_crepe = args.estimator in ("crepe", "both")
     want_probe = args.estimator in ("probe", "both")
@@ -295,10 +350,28 @@ def main() -> None:
         if model is None:
             print(f"{'':<20}{arm:<24}  skipped -- {note}")
             continue
+        null_fixed = [k for k in model.synth.fixed_param_names
+                      if getattr(model.synth, k) is None]
+        if null_fixed and not args.force_f0_re:
+            raise SystemExit(
+                f"{arm} takes {', '.join(null_fixed)} as conditioning, so it "
+                f"has nothing to synthesise from on real audio. Pass "
+                f"--force-f0-re (and --force-mult if MULT is conditioned too).")
         for g, (files, x, _gain) in folders.items():
-            with torch.no_grad():
-                out, _ = model({"audio": torch.from_numpy(x).float().to(dev)})
-            out = out.detach().cpu()
+            chunks = []
+            for lo in range(0, x.shape[0], args.model_batch):
+                tgt = torch.from_numpy(x[lo:lo + args.model_batch]).float().to(dev)
+                with torch.no_grad():
+                    if args.force_f0_re:
+                        o, _ = forward_forced_f0(
+                            model, tgt,
+                            torch.tensor(force_f0[g][lo:lo + args.model_batch],
+                                         device=dev),
+                            args.force_mult)
+                    else:
+                        o, _ = model({"audio": tgt})
+                chunks.append(o.detach().cpu())
+            out = torch.cat(chunks, dim=0)
 
             if want_crepe:
                 ft, pt = tgt[g]["crepe"]
