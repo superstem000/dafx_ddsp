@@ -1,0 +1,39 @@
+# Pitch given, and NO crossfade: straight from the base into pure spectral loss.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_given_noramp.txt
+#
+# WHAT THIS CHANGES against jobs_diffsynth_given.txt: the schedule, and nothing
+# else. switch.yaml ramps param_w 10 -> 0 and sw_w 0 -> 1 across epochs 50-200,
+# so for 150 epochs each arm is optimising a moving blend and no arm is ever at
+# the weights that define it. spec.yaml is param_w 0, sw_w 1.0, constant from
+# the first step -- the arms are themselves immediately.
+#
+# WHY. The conditioned arms sat inside one standard error of each other through
+# epoch 95 on val_id/mfcc (0.7689 / 0.7697 / 0.7749, 2*se 0.004-0.007) with the
+# ramp less than a third applied. Part of that is simply that they had barely
+# begun to differ. Removing the ramp answers whether the arms separate at all
+# on this task, in 150 epochs rather than in 350, and without the confound that
+# a parameter loss is still steering while the spectral loss is being weighed.
+#
+# It also drops the blended parameter loss entirely, which matters here for a
+# reason specific to this run: the saved amplitudes and cutoff targets contain
+# the generator's additive envelope noise -- randn * noise_mag, drawn per clip
+# on (0, 0.1), unrecoverable by construction -- so a parameter loss spends part
+# of its gradient fitting noise. Pure spectral removes that path.
+#
+# schedule=spec makes sw_w a bare float, so the override is schedule.sw_w=0.5
+# and NOT schedule.sw_w.end_v. Getting that wrong silently leaves sw_w at 1.0
+# and unmatches per_term between the arms.
+#
+#   magx_halfw   mag only, sw_w 0.5      per_term 1/12
+#   hybridx      mag + log, sw_w 1.0     per_term 1/12
+#   logx_halfw   log only, sw_w 0.5      per_term 1/12
+#
+# Resumes from giv_base, the same 50-epoch parameter-only base the ramped arms
+# branch from, so this is a one-variable change against them.
+
+# STAGE noramp
+# 50 -> 200, pure spectral throughout.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none RESUME=giv_base scripts/ds_run.sh giv_nr_magx_halfw pretrain_given "{gpu}" schedule=spec schedule.sw_w=0.5 trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none RESUME=giv_base scripts/ds_run.sh giv_nr_hybridx    pretrain_given "{gpu}" schedule=spec trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree OOD_DIR=none RESUME=giv_base scripts/ds_run.sh giv_nr_logx_halfw pretrain_given "{gpu}" schedule=spec schedule.sw_w=0.5 trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0
