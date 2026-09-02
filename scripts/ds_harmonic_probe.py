@@ -29,6 +29,17 @@ So subharmonics and overtones both collapse toward zero and only the true
 fundamental peaks. SCORE is reported as the confidence: a clean harmonic sound
 gives tens of dB, and a few dB means the detection should not be trusted.
 
+ODD MULTIPLES ARE THE EXCEPTION, and the score does not catch them. A candidate
+at 3F has every hit on a real partial (3F, 6F, 9F) and every miss on an empty
+bin (1.5F, 4.5F), so it scores as well as F; 5F and 7F likewise. Inside the
+default +-2 octave window around a correct label this rarely bites, but widen
+the window and the detector walks up to 3F and reports it at full confidence --
+which is exactly what happened when ds_crepe_pitch searched 32-2024 Hz and got
+a bass pack's median "fundamental" at 262 Hz with a 73-1544 Hz spread. find_f0
+therefore tests the argmax's integer divisors afterwards and keeps the lowest
+that still explains the spectrum. Anything measured before that fix, including
+this pack's F = 77.8 and its -12 semis, is worth re-running.
+
 STEP 2, THE OCTAVE OFFSET. SEMIS is 12*log2(F_detected / F_labelled). The Juno
 and Korg bass packs both come back at -12: they sound an octave below their
 written note, a DCO set to 16'. That is a fact about the pack, and it has to be
@@ -97,29 +108,72 @@ def peak_db(freqs, mag, f):
     return 20.0 * np.log10(max(float(mag[lo:hi].max()), 1e-12)) if hi > lo else -120.0
 
 
-def find_f0(freqs, mag, f_guess, f_max=7600.0, span_oct=2.0, step_cents=10.0):
-    """(F, score) maximising harmonics-minus-half-multiples. See module docstring."""
+def _score(freqs, mag, F, f_max=7600.0):
+    """Harmonics minus half-multiples at F, or None if F cannot be scored."""
+    if F < 16.0:
+        return None
+    K = int(min(20, f_max // F))
+    if K < 4:
+        return None
+    hit = np.mean([peak_db(freqs, mag, k * F) for k in range(1, K + 1)])
+    miss = np.mean([peak_db(freqs, mag, (k - 0.5) * F) for k in range(1, K + 1)])
+    return hit - miss
+
+
+def find_f0(freqs, mag, f_guess, f_max=7600.0, span_oct=2.0, step_cents=10.0,
+            divisor_tol=3.0, max_divisor=5):
+    """(F, score) maximising harmonics-minus-half-multiples. See module docstring.
+
+    THE SCORE ALONE IS NOT ENOUGH, and a wide search window exposes it. The
+    half-multiple term rules out F/2 and 2F, which is what it was tested on,
+    but NOT odd multiples. A candidate at 3F has every hit on a real partial
+    (3F, 6F, 9F) and every miss on an empty bin (1.5F, 4.5F), so it scores as
+    well as F does; 5F and 7F likewise. With the original +-2 octave window
+    anchored on a filename's pitch that never mattered, because 3F is 1.58
+    octaves up and rarely reachable from a correct label. Widen the window and
+    the detector walks up to 3F and reports it with full confidence.
+
+    So after taking the argmax, test its integer divisors and keep the LOWEST
+    one that still explains the spectrum within divisor_tol dB. If 3F really
+    does explain it, F explains it at least as well, and F is the answer.
+
+    Testing named divisors rather than "the lowest candidate within tol"
+    deliberately: the 10-cent grid puts many near-equal candidates just below
+    any peak, and taking the lowest of those would drift the estimate down a
+    few cents at a time for no reason.
+
+    divisor_tol=0 restores the pre-fix behaviour.
+    """
     best, best_s = f_guess, -1e9
     n = int(2 * span_oct * 1200 / step_cents) + 1
     for c in np.linspace(-span_oct * 1200, span_oct * 1200, n):
         F = f_guess * 2.0 ** (c / 1200.0)
-        if F < 16.0:
-            continue
-        K = int(min(20, f_max // F))
-        if K < 4:
-            continue
-        hit = np.mean([peak_db(freqs, mag, k * F) for k in range(1, K + 1)])
-        miss = np.mean([peak_db(freqs, mag, (k - 0.5) * F) for k in range(1, K + 1)])
-        if hit - miss > best_s:
-            best, best_s = F, hit - miss
+        s = _score(freqs, mag, F, f_max)
+        if s is not None and s > best_s:
+            best, best_s = F, s
+    if divisor_tol > 0:
+        for d in range(max_divisor, 1, -1):       # lowest F first
+            s = _score(freqs, mag, best / d, f_max)
+            if s is not None and s >= best_s - divisor_tol:
+                return best / d, s
     return best, best_s
 
 
 def structure(freqs, mag, F, f_max=7600.0, K=16):
-    """(alpha, bump2, bump3, bump4, odd_only) from the partial amplitudes at k*F."""
+    """(alpha, P1, bump2, bump3, bump4, odd_only) from the partials at k*F.
+
+    P1 is the residual at k=1: how far the FUNDAMENTAL itself sits above or
+    below the rolloff the rest of the partials follow. It is what separates an
+    octave pair from a fifth. Two oscillators at F and 2F have their lowest
+    common series at F, so partial 1 is real and P1 ~ 0. Two at F and 1.5F have
+    theirs at F/2 -- 1.5F is 3*(F/2) -- so the detected fundamental is a
+    PHANTOM that neither oscillator plays, partial 1 is empty, and P1 goes
+    strongly negative while BUMP2 and BUMP3 are both large. That combination
+    is a fifth, and nothing else produces it.
+    """
     K = int(min(K, f_max // F))
     if K < 6:
-        return (np.nan,) * 5
+        return (np.nan,) * 6
     k = np.arange(1, K + 1)
     a = np.array([peak_db(freqs, mag, kk * F) for kk in k])
     a = a - a[0]
@@ -131,7 +185,7 @@ def structure(freqs, mag, F, f_max=7600.0, K=16):
         on, off = r[(k % n) == 0], r[(k % n) != 0]
         return float(on.mean() - off.mean()) if on.size and off.size else np.nan
     odd, even = r[k % 2 == 1], r[k % 2 == 0]
-    return (float(-slope / 20.0), bump(2), bump(3), bump(4),
+    return (float(-slope / 20.0), float(r[0]), bump(2), bump(3), bump(4),
             float(odd.mean() - even.mean()) if odd.size and even.size else np.nan)
 
 
@@ -148,7 +202,8 @@ def main() -> None:
     args = p.parse_args()
 
     print(f"{'folder':<26}{'n':>4}{'F_hz':>9}{'semis':>8}{'score':>8}"
-          f"{'alpha':>8}{'BUMP2':>8}{'BUMP3':>8}{'BUMP4':>8}{'ODD_ONLY':>10}")
+          f"{'alpha':>8}{'P1':>8}{'BUMP2':>8}{'BUMP3':>8}{'BUMP4':>8}"
+          f"{'ODD_ONLY':>10}")
     rows = []
     for d in args.dirs:
         files = audio_files(d)
@@ -176,7 +231,8 @@ def main() -> None:
             continue
         m = np.nanmedian(np.array(acc), axis=0)
         print(f"{g:<26}{len(acc):>4}{m[0]:>9.1f}{m[1]:>8.1f}{m[2]:>8.1f}"
-              f"{m[3]:>8.2f}{m[4]:>8.1f}{m[5]:>8.1f}{m[6]:>8.1f}{m[7]:>10.1f}")
+              f"{m[3]:>8.2f}{m[4]:>8.1f}{m[5]:>8.1f}{m[6]:>8.1f}{m[7]:>8.1f}"
+              f"{m[8]:>10.1f}")
 
     print("\n  F_hz      fundamental found WITHOUT using the label, by maximising\n"
           "            (dB at k*F) - (dB at (k-1/2)*F), which peaks only at the\n"
@@ -188,11 +244,20 @@ def main() -> None:
           "            clean harmonic sound; a few dB means do not trust F\n"
           "  alpha     rolloff exponent of the partials. An ideal saw is 1.00;\n"
           "            larger means a darker source or a closed filter\n"
+          "  P1        how far the FUNDAMENTAL sits above/below the rolloff the\n"
+          "            other partials follow. ~0 means F is really played. Very\n"
+          "            negative means F is a PHANTOM nothing plays -- which is\n"
+          "            what a FIFTH looks like: oscillators at 2F and 3F, so\n"
+          "            P1 far below zero with BUMP2 and BUMP3 both large.\n"
+          "            An OCTAVE pair instead has P1 ~ 0 and only BUMP2 large\n"
           "  BUMPn     dB by which every n-th partial sits ABOVE the smooth fit.\n"
           "            A second oscillator at n*F does exactly that. Above ~3 dB\n"
           "            is a real second source; near 0 is one oscillator\n"
           "  ODD_ONLY  odd partials above even ones: a square or narrow pulse\n"
           "            rather than a saw\n"
+          "  A fifth is P1 very negative + BUMP2 and BUMP3 both large; an octave is\n"
+          "  P1 ~ 0 + BUMP2 large alone. Read them per FILE, not as a median: a\n"
+          "  pack can be part one and part the other, and the median hides it.\n"
           "  Two oscillators in unison or slightly detuned share every partial\n"
           "  and cannot be separated here at all -- detuning shows as beating,\n"
           "  in ds_source_diag's AM_hz / AM_dep.")
@@ -202,7 +267,7 @@ def main() -> None:
         with open(args.csv, "w", newline="") as fh:
             w = _csv.writer(fh)
             w.writerow(["folder", "file", "label_hz", "F_hz", "semis", "score",
-                        "alpha", "bump2", "bump3", "bump4", "odd_only"])
+                        "alpha", "p1", "bump2", "bump3", "bump4", "odd_only"])
             w.writerows(rows)
         print(f"\nwrote {args.csv}")
 
