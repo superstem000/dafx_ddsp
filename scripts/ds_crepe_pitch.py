@@ -360,16 +360,19 @@ def main() -> None:
         for g, (files, x, _gain) in folders.items():
             chunks = []
             for lo in range(0, x.shape[0], args.model_batch):
-                tgt = torch.from_numpy(x[lo:lo + args.model_batch]).float().to(dev)
+                # NOT `tgt` -- that name holds the per-folder target pitch
+                # estimates for the whole run, and shadowing it here read
+                # `tgt[g]["crepe"]` out of an audio tensor.
+                xb = torch.from_numpy(x[lo:lo + args.model_batch]).float().to(dev)
                 with torch.no_grad():
                     if args.force_f0_re:
                         o, _ = forward_forced_f0(
-                            model, tgt,
+                            model, xb,
                             torch.tensor(force_f0[g][lo:lo + args.model_batch],
                                          device=dev),
                             args.force_mult)
                     else:
-                        o, _ = model({"audio": tgt})
+                        o, _ = model({"audio": xb})
                 chunks.append(o.detach().cpu())
             out = torch.cat(chunks, dim=0)
 
