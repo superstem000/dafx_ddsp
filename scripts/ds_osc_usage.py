@@ -14,11 +14,12 @@ harmor pins osc 1 to f0 and puts osc 2 at f0*MULT, with a per-oscillator
 amplitude (sep_amp) and a per-oscillator saw<->square blend. So three things
 say how the pair is being used:
 
-  MULT      where osc 2 sits. The oct dataset draws it from {1, 2, 4}, so
-            p_1 / p_2 / p_4 are the fractions of clips the arm places within
-            50 cents of unison, an octave, and two octaves. A model that
-            learned the quantized structure should put nearly all its mass on
-            those three; one that did not will show up in `other`
+  MULT      where osc 2 sits. h2of_fifth draws it from {1.5, 2, 3} -- a
+            fifth, an octave, a twelfth, 702 / 1200 / 1902 cents apart -- so
+            the p_ columns are the fractions of clips the arm places within
+            --tol-cents of each. A model that learned the quantized structure
+            puts nearly all its mass there; one that did not shows up in
+            `other`. Set --ratios to whatever the dataset actually used
   share2    osc 2's share of the mean control amplitude. Near 0 means the
             second oscillator is switched off and the arm is really a
             one-oscillator model whatever MULT says -- which is the thing to
@@ -98,9 +99,18 @@ def main() -> None:
     p.add_argument("--length", type=float, default=4.0)
     p.add_argument("--match", default=None, metavar="REGEX")
     p.add_argument("--folder-peak", type=float, default=None, metavar="P")
+    p.add_argument("--ratios", type=float, nargs="+", default=[1.5, 2.0, 3.0],
+                   metavar="R",
+                   help="The ratios the generator actually draws, so the p_ "
+                        "columns match the dataset. h2of_fifth is 1.5 2 3; "
+                        "h2of_oct was 1 2 4; pass nothing meaningful for the "
+                        "published uniform data, where every p_ column and "
+                        "`other` are noise and only share2 and both apply.")
     p.add_argument("--tol-cents", type=float, default=50.0, metavar="C",
-                   help="How close to 1 / 2 / 4 a predicted MULT has to be to "
-                        "count as that ratio.")
+                   help="How close to a listed ratio a predicted MULT has to "
+                        "be to count as it. The fifth, octave and twelfth are "
+                        "702 / 1200 / 1902 cents apart, so 50 separates them "
+                        "with room to spare.")
     p.add_argument("--both-lo", type=float, default=0.2, metavar="F",
                    help="Minimum share for an oscillator to count as in use, "
                         "for the `both` column.")
@@ -127,9 +137,9 @@ def main() -> None:
         folders[g] = (files, np.stack([r[0] for r in raw]) * gain)
         print(f"{g:<26}{len(files):>4} clips   gain {gain:.3f}")
 
-    print(f"\n{'folder':<20}{'arm':<24}{'n':>4}{'MULT_med':>10}{'p_1':>7}"
-          f"{'p_2':>7}{'p_4':>7}{'other':>7}{'share2':>9}{'both':>7}"
-          f"{'mix1':>7}{'mix2':>7}")
+    heads = "".join(f"{'p_' + f'{r:g}':>7}" for r in args.ratios)
+    print(f"\n{'folder':<20}{'arm':<24}{'n':>4}{'MULT_med':>10}{heads}"
+          f"{'other':>7}{'share2':>9}{'both':>7}{'mix1':>7}{'mix2':>7}")
     rows = []
     for arm in args.arms:
         model, _cfg, note = load_model(os.path.join(args.root, arm),
@@ -141,19 +151,18 @@ def main() -> None:
             with torch.no_grad():
                 mult, share2, mix1, mix2 = predict(
                     model, torch.from_numpy(x).float().to(args.device))
-            near = {}
-            claimed = np.zeros(len(mult), dtype=bool)
-            for r in (1.0, 2.0, 4.0):
+            near, claimed = [], np.zeros(len(mult), dtype=bool)
+            for r in args.ratios:
                 m = np.abs(1200.0 * np.log2(mult / r)) <= args.tol_cents
-                near[r] = 100.0 * float(m.mean())
+                near.append(100.0 * float(m.mean()))
                 claimed |= m
             other = 100.0 * float((~claimed).mean())
             both = 100.0 * float(((share2 >= args.both_lo)
                                   & (share2 <= 1.0 - args.both_lo)
                                   & (mult >= 1.5)).mean())
             print(f"{g[:20]:<20}{arm:<24}{len(mult):>4}{np.median(mult):>10.2f}"
-                  f"{near[1.0]:>6.0f}%{near[2.0]:>6.0f}%{near[4.0]:>6.0f}%"
-                  f"{other:>6.0f}%{np.median(share2):>9.2f}{both:>6.0f}%"
+                  + "".join(f"{v:>6.0f}%" for v in near)
+                  + f"{other:>6.0f}%{np.median(share2):>9.2f}{both:>6.0f}%"
                   f"{np.median(mix1):>7.2f}{np.median(mix2):>7.2f}")
             for i, f in enumerate(files):
                 rows.append([arm, g, os.path.basename(f), f"{mult[i]:.3f}",
@@ -161,9 +170,9 @@ def main() -> None:
                              f"{mix2[i]:.3f}"])
 
     print("\n  MULT_med  median predicted ratio of osc 2 to osc 1\n"
-          "  p_1/2/4   per cent of clips within --tol-cents of unison, an\n"
-          "            octave, two octaves. The oct dataset only ever contains\n"
-          "            those three, so a trained arm should have little `other`\n"
+          "  p_<r>     per cent of clips within --tol-cents of each --ratios value.\n"
+          "            The quantized datasets contain only those, so a trained\n"
+          "            arm should spread evenly over them with little `other`\n"
           "  share2    osc 2's share of the mean control amplitude. Near 0 means\n"
           "            the second oscillator is OFF and the arm is really a\n"
           "            one-oscillator model whatever MULT says -- check this\n"
