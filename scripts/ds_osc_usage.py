@@ -97,6 +97,34 @@ def predict(model, x: torch.Tensor):
     return mult, share2, mix[:, 0], mix[:, 1]
 
 
+def spread_lines(name, v, edges, fmt="{:g}"):
+    """Percentiles and a bin histogram for one predicted quantity.
+
+    A median hides the shape, and the shape is the question: three arms with
+    medians of 1.63, 2.00 and 1.78 could be three tight distributions in
+    different places or three wide ones sitting on top of each other, and those
+    mean opposite things about whether an ordering is real.
+    """
+    v = np.asarray(v, dtype=float)
+    qs = [5, 10, 25, 50, 75, 90, 95]
+    out = [f"    {name:<8}" + "".join(f"p{q}{'':<1}" for q in qs)]
+    out[-1] = (f"    {name:<8}" + "".join(f"{'p'+str(q):>8}" for q in qs)
+               + f"{'IQR':>9}")
+    pc = [np.percentile(v, q) for q in qs]
+    out.append(f"    {'':<8}" + "".join(f"{x:>8.2f}" for x in pc)
+               + f"{pc[4] - pc[2]:>9.2f}")
+    n = len(v)
+    cells = []
+    for i in range(len(edges) - 1):
+        c = int(((v >= edges[i]) & (v < edges[i + 1])).sum())
+        cells.append(f"{100.0 * c / max(n, 1):>6.0f}%")
+    out.append(f"    {'bins':<8}" + "".join(
+        f"{fmt.format(edges[i]) + '-' + fmt.format(edges[i+1]):>7}"
+        for i in range(len(edges) - 1)))
+    out.append(f"    {'':<8}" + "".join(c.rjust(7) for c in cells))
+    return out
+
+
 def true_mult(files, base_dir, lo, hi):
     """The generator's own MULT for each clip, in natural units, or None.
 
@@ -151,6 +179,12 @@ def main() -> None:
                         "be to count as it. The fifth, octave and twelfth are "
                         "702 / 1200 / 1902 cents apart, so 50 separates them "
                         "with room to spare.")
+    p.add_argument("--spread", action="store_true",
+                   help="Percentiles and a histogram of the predicted MULT and "
+                        "share2 per arm, instead of medians alone. Three arms "
+                        "with medians 1.63, 2.00 and 1.78 could be three tight "
+                        "distributions or three wide overlapping ones, and "
+                        "those mean opposite things about the ordering.")
     p.add_argument("--true-mult", action="store_true",
                    help="For a GENERATED folder with a param/ sibling: read "
                         "each clip's true MULT and report the error against "
@@ -250,6 +284,16 @@ def main() -> None:
                     if m.any():
                         per[i] = np.concatenate([per.get(i, np.array([])),
                                                  cents[m]])
+            if args.spread:
+                print(f"  {arm} / {g[:24]}   predicted MULT")
+                for ln in spread_lines("MULT", mult,
+                                       [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 6, 8]):
+                    print(ln)
+                for ln in spread_lines("share2", share2,
+                                       [0, .05, .1, .2, .3, .5, .7, .8, .9, 1.0],
+                                       fmt="{:.2f}"):
+                    print(ln)
+                print()
             for i, f in enumerate(files):
                 rows.append([arm, g, os.path.basename(f), f"{mult[i]:.3f}",
                              f"{share2[i]:.3f}", f"{mix1[i]:.3f}",
