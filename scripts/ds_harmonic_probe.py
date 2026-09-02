@@ -192,6 +192,34 @@ def structure(freqs, mag, F, f_max=7600.0, K=16):
             float(odd.mean() - even.mean()) if odd.size and even.size else np.nan)
 
 
+def top_peaks(freqs, mag, n=12, f_max=2000.0, floor_db=-45.0):
+    """The n strongest spectral peaks below f_max, as [(hz, dB below max)].
+
+    The check that needs no theory at all. Every conclusion about a pack's
+    oscillators rests on find_f0 having located the right comb, and find_f0 can
+    be wrong -- its score compares a candidate's harmonics against its own
+    half-multiples, and for a candidate an octave LOW the half-multiples are
+    quarter-multiples of the truth, all empty, so the difference stays large.
+    The score is therefore biased toward low candidates and cannot be used to
+    audit itself.
+
+    Reading the peak list settles it directly: if the partials are at 45, 68,
+    91, 113 Hz then 22.7 is real and every other harmonic is present; if they
+    are at 45, 91, 136 then the fundamental is 45 and 22.7 was a slip.
+    """
+    lo = 20.0 * np.log10(max(float(mag.max()), 1e-12)) + floor_db
+    m = mag[:len(mag)]
+    idx = [i for i in range(2, len(m) - 1)
+           if m[i] > m[i - 1] and m[i] >= m[i + 1]
+           and freqs[i] <= f_max
+           and 20.0 * np.log10(max(float(m[i]), 1e-12)) >= lo]
+    idx.sort(key=lambda i: -m[i])
+    peaks = [(float(freqs[i]),
+              20.0 * np.log10(float(m[i]) / max(float(mag.max()), 1e-12)))
+             for i in idx[:n]]
+    return sorted(peaks)
+
+
 def classify(p1, b2, b3):
     """One of 'fifth', 'octave', 'single', '?' from the residual shape.
 
@@ -222,6 +250,12 @@ def main() -> None:
     p.add_argument("--sr", type=int, default=16000)
     p.add_argument("--length", type=float, default=4.0)
     p.add_argument("--csv", default=None, metavar="PATH")
+    p.add_argument("--peaks", type=int, default=0, metavar="N",
+                   help="Also print the N strongest partials, in Hz, for the "
+                        "first --peak-files clips of each folder. This is the "
+                        "check that does not depend on find_f0 being right, "
+                        "and nothing else here is independent of it.")
+    p.add_argument("--peak-files", type=int, default=3, metavar="N")
     args = p.parse_args()
 
     print(f"{'folder':<26}{'n':>4}{'F_hz':>9}{'semis':>8}{'score':>8}"
@@ -237,7 +271,7 @@ def main() -> None:
         if not files:
             print(f"{g:<26} no files with a MIDI number")
             continue
-        acc = []
+        acc, shown = [], []
         for f in files:
             lab = 440.0 * 2.0 ** ((midi_of(f, args.midi_re) - 69) / 12.0)
             y, _a, _pk, _raw = load_clip(f, args.sr, args.length)
@@ -246,6 +280,8 @@ def main() -> None:
                 continue
             F, sc = find_f0(fr, mg, lab)
             st = structure(fr, mg, F)
+            if len(shown) < args.peak_files:
+                shown.append((f, (fr, mg, F)))
             acc.append([F, 12.0 * np.log2(F / lab), sc, *st])
             rows.append([g, os.path.basename(f), f"{lab:.2f}", f"{F:.2f}"]
                         + [f"{v:.2f}" for v in acc[-1][1:]]
@@ -253,6 +289,18 @@ def main() -> None:
         if not acc:
             print(f"{g:<26} nothing measurable")
             continue
+        if args.peaks:
+            print()
+            for f, (fr2, mg2, F2) in shown[:args.peak_files]:
+                pk = top_peaks(fr2, mg2, args.peaks)
+                print(f"  {os.path.basename(f)[:52]:<52} F={F2:.1f} Hz")
+                print("    " + "  ".join(f"{hz:.1f}({db:+.0f})" for hz, db in pk))
+                if pk:
+                    base = pk[0][0]
+                    print("    as multiples of the lowest peak "
+                          f"{base:.1f} Hz:  "
+                          + " ".join(f"{hz / base:.2f}" for hz, _d in pk))
+            print()
         kinds = [classify(r[4], r[5], r[6]) for r in acc]
         m = np.nanmedian(np.array(acc), axis=0)
         print(f"{g:<26}{len(acc):>4}{m[0]:>9.1f}{m[1]:>8.1f}{m[2]:>8.1f}"
