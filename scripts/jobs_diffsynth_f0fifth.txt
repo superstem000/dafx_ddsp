@@ -1,0 +1,58 @@
+# Fundamental GIVEN and the ratio DISCRETE: the fourth cell.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_f0fifth.txt
+#
+# THE 2x2 THIS COMPLETES, on the Moog:
+#
+#                        MULT continuous          MULT discrete {1.5,2,3}
+#   f0 free              published / oct_         fif_    p_1.5 26/18/8%
+#   f0 given             f0o_    p_1.5 10/6/4%    THIS RUN
+#
+# fif_ produced the largest real-audio linear advantage anything has -- p_1.5
+# 26% for magx against 8% for logx -- but with f0 also wrong, so the interval
+# accuracy was measured through a pitch error. f0o_ removed the pitch error and
+# the gap shrank to 10/6/4% with everyone bad. This is the clean cell.
+#
+# WHY DISCRETE SHOULD BE THE ONE THAT TRANSFERS. On real audio osc 2 stops
+# being a second voice and becomes a patch: share2 goes from 0.47 in domain to
+# 0.72-0.76 on the Moog, because harmor cannot reproduce a 4-pole ladder with
+# drive using one saw and a 2-pole filter, so the leftover energy has to go
+# somewhere. MULT then lands wherever absorbs that residual rather than at the
+# true interval -- which is why in-domain accuracy at MULT ~ 1.5 does not
+# predict the Moog at all. A discrete training distribution removes those
+# absorbing placements from what the model has ever seen, so the compromise fit
+# is not available and it has to commit to an interval.
+#
+# A TIGHTER RANGE WOULD NOT DO THIS. Uniform on (1,3) has median 2, so it moves
+# every arm's default guess closer to 1.5 and improves all three equally
+# without touching the mechanism. magx already predicts 2.26 on the Moog, which
+# is inside (1,3), so capping the top would barely change it.
+#
+# NOTHING TO GENERATE. harmor_2oscfree_fifth already exists, built for the fif_
+# arms, and h2of_f0only.yaml is a model config independent of which dataset
+# feeds it. This is the f0-given synth pointed at the fifth data.
+#
+# THE RISK IS SATURATION: f0 given AND only three legal ratios may be easy
+# enough that all three arms get it right and the gap compresses. fif_'s 26%
+# says there is headroom, but that was with f0 wrong. If p_1.5 comes back above
+# ~80% for every arm, this cell is answering nothing and the continuous version
+# is the one to keep.
+#
+# ext_param_size 7, same as f0o_, but a different data distribution, so its own
+# base. No out-of-domain half.
+
+# STAGE base
+# 0 -> 50, parameter loss only.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth OOD_DIR=none scripts/ds_run.sh f5o_base pretrain_f0only "{gpu}" trainer.max_epochs=50
+
+# STAGE variants
+# 50 -> 200.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth OOD_DIR=none RESUME=f5o_base scripts/ds_run.sh f5o_pre_magx_halfw pretrain_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth OOD_DIR=none RESUME=f5o_base scripts/ds_run.sh f5o_pre_hybridx    pretrain_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth OOD_DIR=none RESUME=f5o_base scripts/ds_run.sh f5o_pre_logx_halfw pretrain_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# STAGE resumes
+# 200 -> 400.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth OOD_DIR=none RESUME=f5o_pre_magx_halfw scripts/ds_run.sh f5o_synth_magx_halfw resume_synth_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth OOD_DIR=none RESUME=f5o_pre_hybridx    scripts/ds_run.sh f5o_synth_hybridx    resume_synth_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth OOD_DIR=none RESUME=f5o_pre_logx_halfw scripts/ds_run.sh f5o_synth_logx_halfw resume_synth_f0only "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
