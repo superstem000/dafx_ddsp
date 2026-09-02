@@ -174,27 +174,47 @@ def _hz_to_unit(hz, lo_hz: float, hi_hz: float):
     return (util.hz_to_midi(hz) - m_lo) / (m_hi - m_lo)
 
 
-def forward_forced_f0(model, tgt: torch.Tensor, f0_hz: torch.Tensor):
-    """model(tgt), with the estimator's f0_hz replaced by a supplied pitch.
+def forward_forced_f0(model, tgt: torch.Tensor, f0_hz: torch.Tensor,
+                      mult: float | None = None):
+    """model(tgt) with the fundamental -- and optionally the ratio -- supplied.
 
     The point is to price the pitch error before paying for a conditioned
-    RETRAIN. Every arm keeps the amplitude curve, cutoff, resonance, mix and
-    oscillator ratio it predicted; only the fundamental is corrected. What is
-    left in the score afterwards is what conditioning f0 could not fix, so a
-    small gain here says the retrain is not worth 400 epochs and a large one
-    says it is.
+    RETRAIN. Everything not named here is whatever the arm predicted: the
+    amplitude curve, cutoff, resonance and oscillator mix.
 
-    NOT the same as training with f0 conditioned: a model trained with the
-    pitch given would have learned different amplitudes and cutoffs for it.
-    This is an upper bound on the benefit, measured for free.
+    FORCING f0 ALONE MAKES IT WORSE, and the reason is worth stating because it
+    is the whole finding. harmor places osc 1 at f0 and osc 2 at f0*MULT, so
+    the two parameters jointly decide BOTH pitches and the model trades them
+    off. On the Moog the arms put 68% of the level on osc 2 and had it within
+    133 cents of correct while osc 1 was 541 cents flat -- they anchored on the
+    upper oscillator. Raising f0 to the true value with MULT left at ~1.93
+    drags osc 2 from 133 cents wrong to over 400, i.e. it fixes the quiet
+    oscillator by breaking the loud one, and the score got 27% worse.
+
+    So the meaningful upper bound forces BOTH: f0 to the labelled pitch and
+    MULT to the interval the pack actually uses. That is the "no pitch guessing
+    at all" condition, and what remains in the score after it is what a
+    conditioned model could never fix by getting pitch right.
+
+    Still not a simulation of the retrain -- a model trained with the pitch
+    supplied would have learned different amplitudes and cutoffs to go with it.
     """
     est = model.estimate_param({"audio": tgt})
     dag = model.synth.fill_params(est, {"audio": tgt})
     proc, conn = _harmor_of(model.synth)
+
     d = proc.param_desc["f0_hz"]
     slot = dag[conn["f0_hz"]]
     u = _hz_to_unit(f0_hz.to(slot.device), d["range"][0], d["range"][1])
     dag[conn["f0_hz"]] = u.view(-1, 1, 1).expand_as(slot).to(slot.dtype)
+
+    if mult is not None:
+        # MULT is 'sigmoid', i.e. linear on its range, so the inverse is too.
+        d = proc.param_desc["f0_mult"]
+        lo, hi = d["range"]
+        slot = dag[conn["f0_mult"]]
+        dag[conn["f0_mult"]] = torch.full_like(slot, (mult - lo) / (hi - lo))
+
     return model.synth(dag, tgt.shape[1])
 
 
@@ -342,6 +362,15 @@ def main() -> None:
                         "bound on the benefit -- a model trained with the "
                         "pitch given would have learned different amplitudes "
                         "and cutoffs to go with it.")
+    p.add_argument("--force-mult", type=float, default=None, metavar="R",
+                   help="Also pin osc 2's ratio, e.g. 1.5 for the Moog's "
+                        "fifth. Forcing f0 WITHOUT this is misleading: the two "
+                        "jointly place both oscillators and the arms traded "
+                        "them off, putting 68% of the level on osc 2 and "
+                        "getting it within 133 cents while osc 1 was 541 cents "
+                        "flat. Correcting f0 alone then drags the loud "
+                        "oscillator further from the truth, and the score got "
+                        "worse. Pass both for the real upper bound.")
     p.add_argument("--force-f0-semis", type=float, default=0.0, metavar="S",
                    help="Semitones added to the parsed MIDI before use. 0 for "
                         "the Moog, where the label IS the lower oscillator's "
@@ -675,7 +704,10 @@ def main() -> None:
             force_f0[g] = np.asarray(hz, dtype=np.float64)
             print(f"  {g}: --force-f0 {force_f0[g].min():.1f}-"
                   f"{force_f0[g].max():.1f} Hz "
-                  f"(offset {args.force_f0_semis:+g} semis)")
+                  f"(offset {args.force_f0_semis:+g} semis)"
+                  + (f", MULT pinned to {args.force_mult:g}"
+                     if args.force_mult is not None
+                     else ", MULT left as predicted"))
 
     per_arm: dict[str, dict[str, dict[str, float]]] = {}
     renders: dict[tuple[str, str], "np.ndarray"] = {}
@@ -720,7 +752,8 @@ def main() -> None:
                     if args.force_f0_re:
                         out, _ = forward_forced_f0(
                             model, tgt,
-                            torch.tensor(force_f0[g][lo:hi], device=dev))
+                            torch.tensor(force_f0[g][lo:hi], device=dev),
+                            args.force_mult)
                     else:
                         out, _ = model({"audio": tgt})
                 oth = tgt.roll(1, dims=0)
@@ -770,7 +803,8 @@ def main() -> None:
                     if args.force_f0_re:
                         o, _ = forward_forced_f0(
                             model, xr,
-                            torch.tensor(force_f0[g][:args.render], device=dev))
+                            torch.tensor(force_f0[g][:args.render], device=dev),
+                            args.force_mult)
                     else:
                         o, _ = model({"audio": xr})
                 renders[(g, arm)] = o.cpu().numpy()
