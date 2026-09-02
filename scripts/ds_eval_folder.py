@@ -109,7 +109,8 @@ def audio_files(d: str) -> list[str]:
     return sorted(out)
 
 
-def load_clip(path: str, sr: int, length: float, peak_to: float | None = None):
+def load_clip(path: str, sr: int, length: float, peak_to: float | None = None,
+              tail: bool = False):
     """One mono clip at sr, exactly length seconds, plus what was there before.
 
     Returns (audio, active_fraction, peak, raw_seconds).
@@ -134,8 +135,21 @@ def load_clip(path: str, sr: int, length: float, peak_to: float | None = None):
     """
     import librosa
     n = int(round(length * sr))
-    y, _ = librosa.load(path, sr=sr, mono=True, duration=length)
-    raw = y.shape[0] / float(sr)
+    if tail:
+        # The LAST `length` seconds instead of the first: the whole file is
+        # decoded and the end kept. Different material, not a different view of
+        # the same material -- the attack is gone, so what is scored is the
+        # sustain and release, where a two-oscillator patch is beating and a
+        # filter envelope has finished moving. Nothing in the estimator is
+        # anchored to an onset, so it is a fair window; it is simply a harder
+        # and quieter one, and --folder-peak will apply a larger gain to it.
+        y, _ = librosa.load(path, sr=sr, mono=True)
+        raw = y.shape[0] / float(sr)
+        if y.shape[0] > n:
+            y = y[-n:]
+    else:
+        y, _ = librosa.load(path, sr=sr, mono=True, duration=length)
+        raw = y.shape[0] / float(sr)
     peak = float(np.abs(y).max()) if y.size else 0.0
     if peak_to is not None and peak > 0:
         y = y * (peak_to / peak)
@@ -547,6 +561,14 @@ def main() -> None:
                         "predicted, WITHIN one arm -- across arms every "
                         "predicted quantity co-varies, so group medians cannot "
                         "attribute the difference to any one of them.")
+    p.add_argument("--tail", action="store_true",
+                   help="Score the LAST --length seconds of each file rather "
+                        "than the first. The attack is dropped and the sustain "
+                        "and release are kept -- a different window on the same "
+                        "material, and the one where a two-oscillator patch is "
+                        "beating rather than being masked by an onset. The "
+                        "trunc column stays the count of files longer than "
+                        "--length; which end was taken is reported separately.")
     p.add_argument("--spread", action="store_true",
                    help="Per-clip score distribution per arm, plus the paired "
                         "clip-by-clip comparison. The folder mean answers "
@@ -642,7 +664,8 @@ def main() -> None:
             if filtering and scanned >= args.scan:
                 break
             scanned += 1
-            y, a, pk, raw = load_clip(f, args.sr, args.length, args.peak)
+            y, a, pk, raw = load_clip(f, args.sr, args.length, args.peak,
+                                      args.tail)
             if filtering and not (args.active_min <= a <= args.active_max):
                 continue
             keep_f.append(f)
@@ -726,8 +749,10 @@ def main() -> None:
               f"{np.median(peaks):>9.3f}{gain:>8.2f}")
     print("  raw_s  median seconds actually read, before padding\n"
           "  win_s  the window actually scored, after any --trim-db\n"
-          "  trunc  clips at least --length long, cut to the first --length s\n"
-          "  pad    clips shorter than --length, zero-padded at the end\n"
+          + (f"  trunc  clips at least --length long, cut to the LAST "
+             f"--length s (--tail)\n" if args.tail else
+             "  trunc  clips at least --length long, cut to the first --length s\n")
+          + "  pad    clips shorter than --length, zero-padded at the end\n"
           "  active fraction of the window within 60 dB of the clip's own peak;\n"
           "         low means the score is mostly about the silence. The p10 and\n"
           "         p90 columns are there because the MEDIAN hid the question:\n"
