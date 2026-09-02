@@ -1,0 +1,54 @@
+name: harmor_2oscfree_given
+# The published model synth with BOTH oscillator pitches SUPPLIED rather than
+# predicted. Same harmor, same dataset (h2of.yaml's, unchanged, MULT uniform on
+# (1,8)) -- the only difference is which parameters the estimator has to find.
+#
+# WHY. Every failure measured on the real bass packs is pitch. The arms track
+# true pitch at a slope of 0.4-0.6, land 500-600 cents flat, and place osc 2 at
+# a ratio of ~1.9 where the Moog has 1.5 -- and because the two jointly decide
+# both oscillator positions, every audio metric is dominated by that before it
+# can see anything the loss actually controls. All three arms score ABOVE
+# saturation on the Moog: worse than an unrelated clip of the same pack.
+#
+# The question the paper asks is whether a linear loss recovers a sound better
+# than a log one. Pitch estimation is not that question, and this synth removes
+# it: hand over f0 and the ratio, and what remains is the amplitude envelope,
+# the filter and the waveform -- which is what the loss is actually about.
+#
+# NOT A SOFTER TASK. In the published per-group breakdown the two parameters
+# removed here are the two BEST recovered -- f0_hz at 0.012 of constant-
+# predictor error and f0_mult at 0.09-0.18. What stays free is the hard half:
+# amplitudes 0.41-0.54, osc_mix 0.39-0.56, q 0.39-0.41, cutoff 0.17-0.19. The
+# arms differ most exactly where the work still is.
+#
+# null MEANS CONDITIONING, not zero. Synthesizer registers a fixed param with a
+# None value as "added to the dict later", and fill_params then reads it from
+# the conditioning dict instead of from the network output. BFRQ and MULT leave
+# ext_params, so ext_param_size is 6 -- AMP(2), M_OSC(2), CUTOFF(1), Q_FILT(1)
+# -- and the estimator head changes shape. These checkpoints are NOT loadable
+# from, or into, the 8-parameter runs.
+#
+# UNITS: fixed params bypass scaling. Synthesizer.forward marks every input
+# wired to a fixed param as already-scaled, so what arrives here must be real
+# Hz for BFRQ and a real ratio for MULT -- not the 0..1 draw the param files
+# store. EstimatorSynth._fill_given does that conversion through harmor's own
+# param_desc; supplying the normalised value directly would render everything
+# near 32 Hz and raise nothing.
+dag:
+  harmor:
+    config:
+      _target_: diffsynth.modules.harmor.Harmor
+      sample_rate: ${data.sample_rate}
+      sep_amp: true
+      n_oscs: 2
+    connections:
+      amplitudes: AMP
+      osc_mix: M_OSC
+      f0_hz: BFRQ
+      f0_mult: MULT
+      cutoff: CUTOFF
+      q: Q_FILT
+fixed_params:
+  BFRQ: null
+  MULT: null
+static_params: [BFRQ, M_OSC, MULT, Q_FILT]

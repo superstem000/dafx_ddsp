@@ -11,6 +11,7 @@ from diffsynth.modelutils import construct_synth_from_conf
 from diffsynth.schedules import ParamSchedule
 import hydra
 from diffsynth.estimator import F0MelEstimator
+from diffsynth.processor import SCALE_FNS
 
 class ConfigLambdaLR(torch.optim.lr_scheduler.LambdaLR):
     """LambdaLR that can resume from a checkpoint another scheduler wrote.
@@ -137,6 +138,51 @@ class EstimatorSynth(pl.LightningModule):
                 if v.requires_grad == True:
                     v.register_hook(save_grad(k))
 
+    def fill_given(self, conditioning):
+        """Conditioning for fixed params declared `null`, from the saved targets.
+
+        A synth config may declare a parameter as supplied rather than
+        predicted -- `fixed_params: {BFRQ: null}` -- which makes fill_params
+        read it from the conditioning dict. This builds those entries from the
+        batch's own target parameters, so a conditioned run needs no change to
+        the dataset or to the generator: the value is already in the .pt file
+        that the param loss uses.
+
+        THE CONVERSION IS THE POINT. Saved targets are the raw 0..1 draws --
+        Synthesizer.forward seeds `outputs` with the dag inputs and never
+        overwrites them -- while fixed params BYPASS scaling, since forward
+        marks anything wired to one as already-scaled. So the saved value has
+        to be pushed through the processor's own scale function on the way in.
+        Skipping that renders every clip near the bottom of FREQ_RANGE and
+        raises nothing.
+
+        Inert unless a config declares a null fixed param, and it never
+        overwrites a key the caller already supplied -- which is how real audio
+        with no saved targets is handled: pass BFRQ in Hz yourself.
+        """
+        need = [k for k in self.synth.fixed_param_names
+                if getattr(self.synth, k) is None and k not in conditioning]
+        if not need or 'params' not in conditioning:
+            return conditioning
+        # dag_summary is {'harmor_f0_hz': 'BFRQ'}; the targets are keyed by the
+        # left side and the synth by the right.
+        rev = {v: k for k, v in self.synth.dag_summary.items()}
+        out = dict(conditioning)
+        for processor, connections in self.synth.dag:
+            for input_name, key in connections.items():
+                if key not in need or input_name not in processor.param_desc:
+                    continue
+                src = rev.get(key)
+                if src is None or src not in conditioning['params']:
+                    raise KeyError(
+                        f"synth declares {key} as conditioning but the targets "
+                        f"have no {src!r}. Add it to the generator's "
+                        f"save_params and regenerate.")
+                d = processor.param_desc[input_name]
+                out[key] = SCALE_FNS[d['type']](conditioning['params'][src],
+                                                d['range'][0], d['range'][1])
+        return out
+
     def forward(self, conditioning):
         """
         Args:
@@ -146,6 +192,7 @@ class EstimatorSynth(pl.LightningModule):
             torch.Tensor: audio
         """
         audio_length = conditioning['audio'].shape[1]
+        conditioning = self.fill_given(conditioning)
         est_param = self.estimate_param(conditioning)
         params_dict = self.synth.fill_params(est_param, conditioning)
         if self.log_grad is not None:
@@ -158,6 +205,7 @@ class EstimatorSynth(pl.LightningModule):
         """
         Don't render audio
         """
+        conditioning = self.fill_given(conditioning)
         est_param = self.estimate_param(conditioning)
         params_dict = self.synth.fill_params(est_param, conditioning)
         if self.log_grad is not None:

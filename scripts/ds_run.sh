@@ -39,6 +39,11 @@ DS="$ROOT/external/diffsynth"
 # line because this script already sets data.id_dir, and hydra rejects the same
 # key twice rather than taking the last one.
 ID_DIR=${ID_DIR:-$DS/data/diffsynth_5-6/harmor_2oscfree}
+# OOD_DIR=none drops the out-of-domain half entirely. A run that supplies the
+# oscillator pitches as conditioning has to: the OOD set is loaded with
+# params=False, so those batches carry no targets to take the pitches from, and
+# inventing a fundamental for acoustic notes would make val_ood meaningless
+# rather than absent. train.py then monitors val_id/lsd instead.
 OOD_DIR=${OOD_DIR:-$DS/data/nsynth-train}
 if [[ ! -d "$ID_DIR" ]]; then
   echo "ERROR: ID_DIR does not exist: $ID_DIR"
@@ -54,7 +59,12 @@ fi
 # it runs before the cd. That combination cost a queue: all three chorus jobs
 # reached hydra and died on a directory that was right there.
 ID_DIR=$(cd "$ID_DIR" && pwd)
-[[ -d "$OOD_DIR" ]] && OOD_DIR=$(cd "$OOD_DIR" && pwd)
+if [[ "$OOD_DIR" == "none" ]]; then
+  OOD_ARG="data.ood_dir=null"
+else
+  [[ -d "$OOD_DIR" ]] && OOD_DIR=$(cd "$OOD_DIR" && pwd) || true
+  OOD_ARG="data.ood_dir=$OOD_DIR"
+fi
 RUNDIR="$ROOT/results/diffsynth/$NAME"
 
 EXTRA=()
@@ -94,6 +104,7 @@ mkdir -p "$RUNDIR"
 cd "$DS"
 
 echo "=== $NAME  (experiment=$EXP, gpu=$GPU)${RESUME:+  resuming from $RESUME}"
+[[ "$OOD_DIR" == "none" ]] && echo "    no out-of-domain half; val_id only" || true
 echo "    -> $RUNDIR"
 
 # Required by torch for deterministic CUBLAS on CUDA >= 10.2; without it
@@ -103,7 +114,7 @@ export CUBLAS_WORKSPACE_CONFIG=:4096:8
 CUDA_VISIBLE_DEVICES="$GPU" python train.py \
   experiment="$EXP" \
   data.id_dir="$ID_DIR" \
-  data.ood_dir="$OOD_DIR" \
+  "$OOD_ARG" \
   trainer.accelerator=gpu \
   trainer.devices=1 \
   hydra.run.dir="$RUNDIR" \

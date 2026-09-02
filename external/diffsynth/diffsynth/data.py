@@ -98,10 +98,23 @@ class WaveParamDataset(Dataset):
 
 class IdOodDataModule(pl.LightningDataModule):
     def __init__(self, id_dir, ood_dir, train_type, batch_size, sample_rate=16000, length=4.0, num_workers=8, splits=[.8, .1, .1], f0=False):
+        """ood_dir may be None, which drops the out-of-domain half entirely.
+
+        The paper's procedures need it -- Real trains on it and every run logs
+        val_ood -- but an experiment that supplies the oscillator pitches as
+        conditioning cannot use it: the OOD set is loaded with params=False, so
+        those batches carry no targets to take the pitches from. Rather than
+        invent a fundamental for acoustic notes that have nothing to do with
+        the comparison, drop the half. Validation then logs val_id only, and
+        train.py monitors that instead.
+        """
         super().__init__()
         self.id_dir = id_dir
         self.ood_dir = ood_dir
+        self.use_ood = ood_dir is not None
         assert train_type in ['id', 'ood', 'mixed']
+        assert self.use_ood or train_type == 'id', (
+            'train_type={0!r} needs an ood_dir'.format(train_type))
         self.train_type = train_type
         self.splits = splits
         self.sr = sample_rate
@@ -121,6 +134,10 @@ class IdOodDataModule(pl.LightningDataModule):
     def setup(self, stage):
         id_dat = WaveParamDataset(self.id_dir, self.sr, self.l, True, self.f0)
         id_datasets = self.create_split(id_dat)
+        if not self.use_ood:
+            self.id_datasets = id_datasets
+            self.ood_datasets = None
+            return
         # ood should be the same size as in-domain
         ood_dat = WaveParamDataset(self.ood_dir, self.sr, self.l, False, self.f0)
         indices = np.random.choice(len(ood_dat), len(id_dat), replace=False)
@@ -152,10 +169,14 @@ class IdOodDataModule(pl.LightningDataModule):
             b_sampler = ReiteratableWrapper(generator, len(id_batch_samp)+len(ood_batch_samp))
             return DataLoader(self.train_set, batch_sampler=b_sampler, num_workers=self.num_workers)
 
+    def _loaders(self, split):
+        out = [DataLoader(self.id_datasets[split], batch_size=self.batch_size, num_workers=self.num_workers)]
+        if self.use_ood:
+            out.append(DataLoader(self.ood_datasets[split], batch_size=self.batch_size, num_workers=self.num_workers))
+        return out
+
     def val_dataloader(self):
-        return [DataLoader(self.id_datasets["valid"], batch_size=self.batch_size, num_workers=self.num_workers),
-                DataLoader(self.ood_datasets["valid"], batch_size=self.batch_size, num_workers=self.num_workers)]
+        return self._loaders("valid")
 
     def test_dataloader(self):
-        return [DataLoader(self.id_datasets["test"], batch_size=self.batch_size, num_workers=self.num_workers),
-                DataLoader(self.ood_datasets["test"], batch_size=self.batch_size, num_workers=self.num_workers)]
+        return self._loaders("test")

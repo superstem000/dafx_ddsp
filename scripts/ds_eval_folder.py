@@ -178,42 +178,58 @@ def forward_forced_f0(model, tgt: torch.Tensor, f0_hz: torch.Tensor,
                       mult: float | None = None):
     """model(tgt) with the fundamental -- and optionally the ratio -- supplied.
 
-    The point is to price the pitch error before paying for a conditioned
-    RETRAIN. Everything not named here is whatever the arm predicted: the
-    amplitude curve, cutoff, resonance and oscillator mix.
+    TWO ROUTES IN, because the same flag has to serve two kinds of synth.
 
-    FORCING f0 ALONE MAKES IT WORSE, and the reason is worth stating because it
-    is the whole finding. harmor places osc 1 at f0 and osc 2 at f0*MULT, so
-    the two parameters jointly decide BOTH pitches and the model trades them
+    If the synth PREDICTS the parameter (the published h2of), the value is
+    written into the dag slot after fill_params, in NORMALISED units, because
+    harmor will scale whatever sits there.
+
+    If the synth declares it as conditioning (h2of_given's `BFRQ: null`), it
+    goes in through the conditioning dict in NATURAL units instead -- fixed
+    params bypass scaling, and there is no slot to overwrite because the
+    estimator never predicted one. For those models this is not optional: real
+    audio carries no saved targets, so without it fill_params raises.
+
+    FORCING f0 ALONE ON A PREDICTING MODEL MAKES IT WORSE, which is worth
+    knowing before reading such a run. harmor places osc 1 at f0 and osc 2 at
+    f0*MULT, so the two jointly decide both pitches and the model trades them
     off. On the Moog the arms put 68% of the level on osc 2 and had it within
-    133 cents of correct while osc 1 was 541 cents flat -- they anchored on the
-    upper oscillator. Raising f0 to the true value with MULT left at ~1.93
-    drags osc 2 from 133 cents wrong to over 400, i.e. it fixes the quiet
-    oscillator by breaking the loud one, and the score got 27% worse.
-
-    So the meaningful upper bound forces BOTH: f0 to the labelled pitch and
-    MULT to the interval the pack actually uses. That is the "no pitch guessing
-    at all" condition, and what remains in the score after it is what a
-    conditioned model could never fix by getting pitch right.
-
-    Still not a simulation of the retrain -- a model trained with the pitch
-    supplied would have learned different amplitudes and cutoffs to go with it.
+    133 cents of correct while osc 1 was 541 cents flat. Raising f0 with MULT
+    left alone drags the loud oscillator from 133 cents wrong to over 400, and
+    the score got 27% worse. Forcing both cost 4% instead -- better, still
+    negative, because each arm chose its amplitudes and cutoff to suit the
+    positions it predicted. Overriding cannot answer what training answers.
     """
-    est = model.estimate_param({"audio": tgt})
-    dag = model.synth.fill_params(est, {"audio": tgt})
     proc, conn = _harmor_of(model.synth)
+    fixed = set(model.synth.fixed_param_names)
+    f_key, m_key = conn["f0_hz"], conn["f0_mult"]
+    b = tgt.shape[0]
 
-    d = proc.param_desc["f0_hz"]
-    slot = dag[conn["f0_hz"]]
-    u = _hz_to_unit(f0_hz.to(slot.device), d["range"][0], d["range"][1])
-    dag[conn["f0_hz"]] = u.view(-1, 1, 1).expand_as(slot).to(slot.dtype)
+    cond = {"audio": tgt}
+    if f_key in fixed:
+        cond[f_key] = f0_hz.to(tgt.device, tgt.dtype).view(b, 1, 1)
+    if m_key in fixed:
+        if mult is None:
+            raise SystemExit(
+                "this synth takes the oscillator ratio as conditioning, so "
+                "--force-mult is required alongside --force-f0-re")
+        cond[m_key] = torch.full((b, 1, 1), float(mult),
+                                 device=tgt.device, dtype=tgt.dtype)
 
-    if mult is not None:
+    est = model.estimate_param(cond)
+    dag = model.synth.fill_params(est, cond)
+
+    if f_key not in fixed:
+        d = proc.param_desc["f0_hz"]
+        slot = dag[f_key]
+        u = _hz_to_unit(f0_hz.to(slot.device), d["range"][0], d["range"][1])
+        dag[f_key] = u.view(-1, 1, 1).expand_as(slot).to(slot.dtype)
+    if mult is not None and m_key not in fixed:
         # MULT is 'sigmoid', i.e. linear on its range, so the inverse is too.
         d = proc.param_desc["f0_mult"]
         lo, hi = d["range"]
-        slot = dag[conn["f0_mult"]]
-        dag[conn["f0_mult"]] = torch.full_like(slot, (mult - lo) / (hi - lo))
+        slot = dag[m_key]
+        dag[m_key] = torch.full_like(slot, (mult - lo) / (hi - lo))
 
     return model.synth(dag, tgt.shape[1])
 
@@ -718,6 +734,14 @@ def main() -> None:
         if model is None:
             print(f"{arm:<28} skipped: {note}")
             continue
+        if model.synth.fixed_param_names and not args.force_f0_re:
+            null_fixed = [k for k in model.synth.fixed_param_names
+                          if getattr(model.synth, k) is None]
+            if null_fixed:
+                raise SystemExit(
+                    f"{arm} takes {', '.join(null_fixed)} as conditioning, so "
+                    f"it has nothing to synthesise from on real audio. Pass "
+                    f"--force-f0-re (and --force-mult) to supply them.")
         d = describe(cfg)
         if not shown:
             print(f"\n{'arm':<24}{'dom':>5}{'mag_w':>7}{'log_w':>7}{'eps':>8}"
