@@ -66,9 +66,20 @@ def predict(model, x: torch.Tensor):
     Scaled through harmor's own param_desc and the same SCALE_FNS table
     Processor.process uses, so a change to the MULT range cannot desync this
     from what the renderer actually does.
+
+    A CONDITIONED SYNTH still needs a value for every parameter it declares as
+    conditioning, or fill_params dereferences None. The placeholder below is
+    inert rather than merely convenient: estimate_param reads only
+    conditioning['audio'], a conditioned parameter fills its OWN key and no
+    other, and nothing here renders audio -- so the value cannot reach any
+    column this script reports.
     """
-    est = model.estimate_param({"audio": x})
-    dag_in = model.synth.fill_params(est)
+    cond = {"audio": x}
+    for k in model.synth.fixed_param_names:
+        if getattr(model.synth, k) is None:
+            cond[k] = torch.ones(x.shape[0], 1, 1, device=x.device, dtype=x.dtype)
+    est = model.estimate_param(cond)
+    dag_in = model.synth.fill_params(est, cond)
     proc, conn = harmor_of(model.synth)
 
     d = proc.param_desc["f0_mult"]
@@ -146,6 +157,12 @@ def main() -> None:
                                        args.ckpt, args.device)
         if model is None:
             print(f"{'':<20}{arm:<24}  skipped -- {note}")
+            continue
+        _, _conn = harmor_of(model.synth)
+        if _conn["f0_mult"] in model.synth.fixed_param_names:
+            print(f"{'':<20}{arm:<24}  MULT is CONDITIONING for this synth -- "
+                  f"the MULT and p_ columns would report the placeholder, not "
+                  f"a prediction. Skipped.")
             continue
         for g, (files, x) in folders.items():
             with torch.no_grad():
