@@ -283,6 +283,15 @@ def main() -> None:
                         "has no gradient and a log one has all of it. 60 is the "
                         "generous setting that matches the ACTIVE column's own "
                         "criterion; 40 and below start discarding real decay.")
+    p.add_argument("--spread-re", default=None, metavar="REGEX",
+                   help="Pick --n clips spread EVENLY over a number in the "
+                        "basename instead of at random -- capture group 1 is "
+                        "the key, e.g. 'doubles-(\\d+)-' for the Moog pack "
+                        "or '-(\\d+)-127' for the Korg. For a listening set "
+                        "this is what you want: a random draw from a bass "
+                        "pack lands where the pack is dense, which is the "
+                        "bottom of its range. Ignored when an --active filter "
+                        "is on, since that path selects by what it reads.")
     p.add_argument("--match", default=None, metavar="REGEX",
                    help="Keep only files whose BASENAME matches, applied before "
                         "sampling so --n draws from the matched set rather than "
@@ -439,6 +448,29 @@ def main() -> None:
             rng.shuffle(order)
             scan_order[g] = order
             groups[g] = []
+        elif args.spread_re:
+            # EVENLY ACROSS PITCH, not randomly. A random 5 out of a bass pack
+            # lands wherever the pack is dense, and these packs are dense at
+            # the bottom -- which is how the first listening set came out as
+            # five near-identical low notes. Sorting by the filename's pitch
+            # and taking evenly spaced indices gives one clip per region of
+            # the range, so a model that only works at one end is audible.
+            keyed = []
+            for f in files:
+                m = re.search(args.spread_re, os.path.basename(f))
+                if m:
+                    keyed.append((float(m.group(1)), f))
+            if not keyed:
+                raise SystemExit(
+                    f"{g}: --spread-re {args.spread_re!r} matched no basename. "
+                    f"First is {os.path.basename(files[0])!r}")
+            keyed.sort()
+            n = min(args.n, len(keyed)) if args.n else len(keyed)
+            idx = sorted({int(round(i)) for i in
+                          np.linspace(0, len(keyed) - 1, n)})
+            groups[g] = [keyed[i][1] for i in idx]
+            print(f"  {g}: --spread-re picked {len(idx)} of {len(keyed)}, "
+                  "key " + " ".join(f"{keyed[i][0]:g}" for i in idx))
         else:
             groups[g] = (sorted(rng.sample(files, args.n))
                          if args.n and len(files) > args.n else files)
