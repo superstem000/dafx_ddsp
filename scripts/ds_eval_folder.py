@@ -149,6 +149,55 @@ def load_clip(path: str, sr: int, length: float, peak_to: float | None = None):
     return y[:n], active, peak, raw
 
 
+def _harmor_of(synth):
+    """The oscillator node and its connection map, found by capability.
+
+    Defined here rather than imported from ds_pitch_error, which imports FROM
+    this module -- the other direction would be circular.
+    """
+    for processor, connections in synth.dag:
+        if "f0_hz" in processor.param_desc and "f0_mult" in processor.param_desc:
+            return processor, connections
+    raise SystemExit("no processor with f0_hz and f0_mult in this synth")
+
+
+def _hz_to_unit(hz, lo_hz: float, hi_hz: float):
+    """Inverse of util.unit_to_hz: the 0..1 draw that renders as `hz`.
+
+    f0_hz is a NORMAL predicted parameter, not a fixed one, so harmor scales
+    whatever sits in its slot through freq_sigmoid. Writing Hz there directly
+    would be read as a unit value and come out around 32 Hz for everything.
+    freq_sigmoid is linear in MIDI, so the inverse is too.
+    """
+    import diffsynth.util as util
+    m_lo, m_hi = util.hz_to_midi(lo_hz), util.hz_to_midi(hi_hz)
+    return (util.hz_to_midi(hz) - m_lo) / (m_hi - m_lo)
+
+
+def forward_forced_f0(model, tgt: torch.Tensor, f0_hz: torch.Tensor):
+    """model(tgt), with the estimator's f0_hz replaced by a supplied pitch.
+
+    The point is to price the pitch error before paying for a conditioned
+    RETRAIN. Every arm keeps the amplitude curve, cutoff, resonance, mix and
+    oscillator ratio it predicted; only the fundamental is corrected. What is
+    left in the score afterwards is what conditioning f0 could not fix, so a
+    small gain here says the retrain is not worth 400 epochs and a large one
+    says it is.
+
+    NOT the same as training with f0 conditioned: a model trained with the
+    pitch given would have learned different amplitudes and cutoffs for it.
+    This is an upper bound on the benefit, measured for free.
+    """
+    est = model.estimate_param({"audio": tgt})
+    dag = model.synth.fill_params(est, {"audio": tgt})
+    proc, conn = _harmor_of(model.synth)
+    d = proc.param_desc["f0_hz"]
+    slot = dag[conn["f0_hz"]]
+    u = _hz_to_unit(f0_hz.to(slot.device), d["range"][0], d["range"][1])
+    dag[conn["f0_hz"]] = u.view(-1, 1, 1).expand_as(slot).to(slot.dtype)
+    return model.synth(dag, tgt.shape[1])
+
+
 def load_model(run_dir: str, ckpt_name: str, device: str):
     """EstimatorSynth from a run directory, in train.py's construction order.
 
@@ -283,6 +332,22 @@ def main() -> None:
                         "has no gradient and a log one has all of it. 60 is the "
                         "generous setting that matches the ACTIVE column's own "
                         "criterion; 40 and below start discarding real decay.")
+    p.add_argument("--force-f0-re", default=None, metavar="REGEX",
+                   help="Overwrite each arm's PREDICTED fundamental with the "
+                        "MIDI number in capture group 1 of the basename, e.g. "
+                        "'doubles-(\\d+)-'. Everything else the arm predicted "
+                        "is kept. This prices the pitch error before paying "
+                        "for a conditioned retrain: what remains in the score "
+                        "is what conditioning f0 could NOT fix. It is an upper "
+                        "bound on the benefit -- a model trained with the "
+                        "pitch given would have learned different amplitudes "
+                        "and cutoffs to go with it.")
+    p.add_argument("--force-f0-semis", type=float, default=0.0, metavar="S",
+                   help="Semitones added to the parsed MIDI before use. 0 for "
+                        "the Moog, where the label IS the lower oscillator's "
+                        "pitch -- confirmed by ear and by the spectrum. Use it "
+                        "for a robustness sweep (-12, 0, +12), never to search "
+                        "for whichever offset scores best.")
     p.add_argument("--spread-re", default=None, metavar="REGEX",
                    help="Pick --n clips spread EVENLY over a number in the "
                         "basename instead of at random -- capture group 1 is "
@@ -592,6 +657,26 @@ def main() -> None:
               f"comparison in exactly the direction under dispute.\n")
 
     rows = []
+    # The forced fundamental, per clip, in the same order as the audio.
+    # AFTER the read loop: the --active path fills groups[g] while reading,
+    # so building this earlier would see an empty list for those runs.
+    force_f0: dict[str, "np.ndarray"] = {}
+    if args.force_f0_re:
+        for g, files in groups.items():
+            hz = []
+            for f in files:
+                m = re.search(args.force_f0_re, os.path.basename(f))
+                if not m:
+                    raise SystemExit(
+                        f"--force-f0-re {args.force_f0_re!r} did not match "
+                        f"{os.path.basename(f)!r}")
+                hz.append(440.0 * 2.0 ** ((float(m.group(1))
+                                           + args.force_f0_semis - 69.0) / 12.0))
+            force_f0[g] = np.asarray(hz, dtype=np.float64)
+            print(f"  {g}: --force-f0 {force_f0[g].min():.1f}-"
+                  f"{force_f0[g].max():.1f} Hz "
+                  f"(offset {args.force_f0_semis:+g} semis)")
+
     per_arm: dict[str, dict[str, dict[str, float]]] = {}
     renders: dict[tuple[str, str], "np.ndarray"] = {}
     shown = False
@@ -632,7 +717,12 @@ def main() -> None:
                 if tgt.shape[0] < 2:
                     continue          # a one-clip folder; nothing to divide by
                 with torch.no_grad():
-                    out, _ = model({"audio": tgt})
+                    if args.force_f0_re:
+                        out, _ = forward_forced_f0(
+                            model, tgt,
+                            torch.tensor(force_f0[g][lo:hi], device=dev))
+                    else:
+                        out, _ = model({"audio": tgt})
                 oth = tgt.roll(1, dims=0)
                 m = None
                 if args.active_db > 0:
@@ -676,7 +766,13 @@ def main() -> None:
                 # discards, and holding 50 clips x 3 arms x 4 folders of audio
                 # to render 3 of them is not worth the memory.
                 with torch.no_grad():
-                    o, _ = model({"audio": x[:args.render].to(dev)})
+                    xr = x[:args.render].to(dev)
+                    if args.force_f0_re:
+                        o, _ = forward_forced_f0(
+                            model, xr,
+                            torch.tensor(force_f0[g][:args.render], device=dev))
+                    else:
+                        o, _ = model({"audio": xr})
                 renders[(g, arm)] = o.cpu().numpy()
         per_arm[arm] = {
             g: {m: ((num / den if den else float("nan")) if args.norm == "sat"
