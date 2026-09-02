@@ -315,8 +315,34 @@ def build_metrics(names: list[str], device: str, sr: int):
         "db70": lambda: mc.make_mfcc(device, window="hann", log="db",
                                      top_db=70.0, mel_norm="slaney",
                                      mel_scale="slaney", sr=sr),
+        # THE COMPRESSION SWEEP. Identical mel bank, identical DCT, identical
+        # saturation denominator -- the ONLY thing that moves is how hard the
+        # band energies are compressed before the cepstrum:
+        #
+        #   mfcc   log (dB)      full compression
+        #   g0.3   x**0.3        roughly cube-root, the standard power cepstrum
+        #   g0.5   x**0.5        amplitude
+        #   g1.0   x**1.0        linear energy, no compression at all
+        #
+        # This is the paper's own argument applied to the METRIC rather than
+        # the loss. If log compression hides amplitude and level errors, an
+        # evaluation performed in dB hides the same errors, and the arm that
+        # wins under `mfcc` may be winning the compression rather than the
+        # comparison. Reading the four columns as a sweep says whether the
+        # ordering is a fact about the models or a fact about the yardstick.
+        #
+        # It is falsifiable in the useful direction: the thesis predicts the
+        # ordering moves against the log-trained arm as gamma rises. If it
+        # does not move, the claim does not extend to evaluation and that is
+        # worth knowing before a listening test is run, not after.
         "g0.3": lambda: mc.make_mfcc(device, window="hann", log="pow",
                                      gamma=0.3, mel_norm="slaney",
+                                     mel_scale="slaney", sr=sr),
+        "g0.5": lambda: mc.make_mfcc(device, window="hann", log="pow",
+                                     gamma=0.5, mel_norm="slaney",
+                                     mel_scale="slaney", sr=sr),
+        "g1.0": lambda: mc.make_mfcc(device, window="hann", log="pow",
+                                     gamma=1.0, mel_norm="slaney",
                                      mel_scale="slaney", sr=sr),
     }
     bad = [m for m in names if m not in table]
