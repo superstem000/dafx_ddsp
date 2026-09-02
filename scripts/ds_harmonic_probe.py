@@ -40,10 +40,13 @@ therefore tests the argmax's integer divisors afterwards and keeps the lowest
 that still explains the spectrum. Anything measured before that fix, including
 this pack's F = 77.8 and its -12 semis, is worth re-running.
 
-STEP 2, THE OCTAVE OFFSET. SEMIS is 12*log2(F_detected / F_labelled). The Juno
-and Korg bass packs both come back at -12: they sound an octave below their
-written note, a DCO set to 16'. That is a fact about the pack, and it has to be
-established before any pitch error is attributed to a model.
+STEP 2, THE OFFSET, AND A TRAP IN IT. SEMIS is 12*log2(F_detected/F_labelled).
+A -12 does NOT by itself mean the pack sounds an octave below its written note.
+It means the LOWEST COMMON SERIES is an octave below the label -- and for a
+fifth pair that series is a phantom neither oscillator plays. The Moog pack
+reads -12 with P1 = -39.7 dB: its oscillators are at the written note and a
+fifth above it, and the -12 is an artifact of where their common subharmonic
+falls. Read SEMIS together with P1 or it will mislead, as it did here.
 
 STEP 3, HOW MANY OSCILLATORS AND AT WHAT RATIO. Take the partial amplitudes at
 k*F, fit the smooth rolloff every single oscillator has -- dB against log k,
@@ -189,6 +192,26 @@ def structure(freqs, mag, F, f_max=7600.0, K=16):
             float(odd.mean() - even.mean()) if odd.size and even.size else np.nan)
 
 
+def classify(p1, b2, b3):
+    """One of 'fifth', 'octave', 'single', '?' from the residual shape.
+
+    A FIFTH is the only structure that empties the detected fundamental: two
+    oscillators at 1.5:1 have their lowest common series an octave below the
+    lower one, so partial 1 is a phantom (P1 far negative) while multiples of
+    2 AND of 3 both carry real energy. An OCTAVE pair keeps its fundamental
+    (P1 ~ 0) and lifts only the even partials.
+    """
+    if not np.isfinite(p1):
+        return "?"
+    if p1 < -15.0 and b3 > 3.0:
+        return "fifth"
+    if p1 > -10.0 and b2 > 3.0 and b3 < 3.0:
+        return "octave"
+    if p1 > -10.0 and b2 < 3.0 and b3 < 3.0:
+        return "single"
+    return "?"
+
+
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -225,14 +248,19 @@ def main() -> None:
             st = structure(fr, mg, F)
             acc.append([F, 12.0 * np.log2(F / lab), sc, *st])
             rows.append([g, os.path.basename(f), f"{lab:.2f}", f"{F:.2f}"]
-                        + [f"{v:.2f}" for v in acc[-1][1:]])
+                        + [f"{v:.2f}" for v in acc[-1][1:]]
+                        + [classify(acc[-1][4], acc[-1][5], acc[-1][6])])
         if not acc:
             print(f"{g:<26} nothing measurable")
             continue
+        kinds = [classify(r[4], r[5], r[6]) for r in acc]
         m = np.nanmedian(np.array(acc), axis=0)
         print(f"{g:<26}{len(acc):>4}{m[0]:>9.1f}{m[1]:>8.1f}{m[2]:>8.1f}"
               f"{m[3]:>8.2f}{m[4]:>8.1f}{m[5]:>8.1f}{m[6]:>8.1f}{m[7]:>8.1f}"
-              f"{m[8]:>10.1f}")
+              f"{m[8]:>10.1f}   " + "  ".join(
+                  f"{k} {100.0 * kinds.count(k) / len(kinds):.0f}%"
+                  for k in ("octave", "fifth", "single", "?")
+                  if kinds.count(k)))
 
     print("\n  F_hz      fundamental found WITHOUT using the label, by maximising\n"
           "            (dB at k*F) - (dB at (k-1/2)*F), which peaks only at the\n"
@@ -255,6 +283,10 @@ def main() -> None:
           "            is a real second source; near 0 is one oscillator\n"
           "  ODD_ONLY  odd partials above even ones: a square or narrow pulse\n"
           "            rather than a saw\n"
+          "  the tail   per-file classification counts. 'fifth' is P1 < -15 with\n"
+          "            BUMP3 > 3; 'octave' is P1 > -10 with BUMP2 > 3 and BUMP3\n"
+          "            small; 'single' is neither bump. A mixed pack shows here\n"
+          "            and nowhere else, since every other column is a median\n"
           "  A fifth is P1 very negative + BUMP2 and BUMP3 both large; an octave is\n"
           "  P1 ~ 0 + BUMP2 large alone. Read them per FILE, not as a median: a\n"
           "  pack can be part one and part the other, and the median hides it.\n"
@@ -267,7 +299,8 @@ def main() -> None:
         with open(args.csv, "w", newline="") as fh:
             w = _csv.writer(fh)
             w.writerow(["folder", "file", "label_hz", "F_hz", "semis", "score",
-                        "alpha", "p1", "bump2", "bump3", "bump4", "odd_only"])
+                        "alpha", "p1", "bump2", "bump3", "bump4", "odd_only",
+                        "kind"])
             w.writerows(rows)
         print(f"\nwrote {args.csv}")
 
