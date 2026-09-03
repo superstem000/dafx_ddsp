@@ -276,10 +276,23 @@ def main() -> int:
     # trials. Better to drop the trial than to publish a ragged test.
     ragged = [s for s in chosen if any(a not in clips[s] for a in arms)]
     if ragged:
-        print(f"  dropped, missing an arm: {', '.join(ragged)}")
+        print(f"  dropped, missing an arm: {len(ragged)} of {len(chosen)}")
+        for s in ragged[:4]:
+            miss = ", ".join(a for a in arms if a not in clips[s])
+            print(f"    {s}\n      has {', '.join(sorted(clips[s]))}"
+                  f"\n      missing {miss}")
         chosen = [s for s in chosen if s not in ragged]
     if not chosen:
-        raise SystemExit("no trial has all arms")
+        # Almost always a render directory holding two different runs: `arms`
+        # is the UNION over trials, so a stale set of clips rendered from other
+        # checkpoints contributes arm names no current trial has, and every
+        # trial then looks incomplete. Re-render to a fresh --render-out rather
+        # than adding to one.
+        raise SystemExit(
+            f"no trial has all of: {', '.join(arms)}\n"
+            f"That set is the union over trials, so this usually means "
+            f"{args.dir} holds renders from more than one run. Render to an "
+            f"empty directory and point --dir at that.")
     print(f"{len(chosen)} trials x {len(arms)} arms + hidden ref + 1 anchor")
     print(f"  arms: {', '.join(arms)}")
     print(f"  trials: {', '.join(chosen)}")
