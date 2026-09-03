@@ -86,13 +86,76 @@ import soundfile as sf
 
 
 def discover(d: Path):
-    """{ir: {arm: path}} from eval_real_ir's '<ir>__<arm>.wav' naming."""
+    """{trial: {condition: path}} from either renderer's naming.
+
+    TWO LAYOUTS, one rule. eval_real_ir writes '<ir>__<arm>.wav' and
+    ds_eval_folder writes '<folder>__<stem>__<arm>.wav'. Splitting on the LAST
+    '__' handles both: everything before it names the trial, the tail names the
+    condition. The old non-greedy '(.+?)__(.+)' took the FIRST separator
+    instead, which on a diffsynth render made every clip in a folder collapse
+    into one trial called 'moog-minitaur' whose conditions were
+    'doubles-48-1__target', 'doubles-49-2__target' and so on -- nine hundred
+    conditions in one trial rather than nine trials of five.
+
+    Neither renderer puts '__' inside an arm name, so the last separator is
+    unambiguous; a stem may contain one, which is why the split is from the
+    right and not the left.
+    """
     clips: dict = defaultdict(dict)
     for p in sorted(d.glob("*__*.wav")):
-        m = re.match(r"(.+?)__(.+)\.wav$", p.name)
-        if m:
-            clips[m.group(1)][m.group(2)] = p
+        trial, _, cond = p.stem.rpartition("__")
+        if trial:
+            clips[trial][cond] = p
     return {k: v for k, v in clips.items() if "target" in v}
+
+
+def select(clips: dict, groups: str, pick: str, spread_re: str | None,
+           n_trials: int):
+    """The trials to run, chosen deterministically -- never per session.
+
+    WHY NOT RANDOM PER SESSION. With eight listeners, drawing a fresh subset
+    each sitting gives every clip one or two ratings, and then between-listener
+    and between-stimulus variance are inseparable: no per-trial mean exists to
+    compare arms on, and no per-listener offset can be fitted out. Everyone
+    rating the SAME trials is what makes "arm A beat arm B over N listeners" a
+    statement about the arms. Randomisation in MUSHRA belongs at the condition
+    level -- which slider holds which arm -- and webMUSHRA already does that
+    per session with `randomize: true`.
+
+    --spread-re picks n_trials clips spaced evenly along a number in the trial
+    name, rather than n_trials at random. On the Moog that number is the MIDI
+    note, so the register is covered by construction instead of by luck, which
+    on eight draws is not a risk worth taking.
+    """
+    if spread_re:
+        keyed = []
+        for s in sorted(clips):
+            m = re.search(spread_re, s)
+            if m:
+                keyed.append((float(m.group(1)), s))
+        if not keyed:
+            raise SystemExit(f"--spread-re {spread_re!r} matched no trial name; "
+                             f"first is {sorted(clips)[0]!r}")
+        keyed.sort()
+        if n_trials >= len(keyed):
+            return [s for _v, s in keyed]
+        # Even in RANK, not in value: the pack's notes are not equally
+        # populated, and spacing by value would cluster wherever files are
+        # dense. Rank spacing gives one trial per equal share of the range.
+        idx = [round(i * (len(keyed) - 1) / (n_trials - 1))
+               for i in range(n_trials)]
+        return [keyed[i][1] for i in sorted(set(idx))]
+
+    want = [f"{g}_{n}" for g in groups.split(",") for n in pick.split(",")]
+    # eval_real_ir stems carry a prefix (emt_140_bright_2); match on the tail so
+    # the same --pick works whatever the recordings are called.
+    chosen = [s for s in sorted(clips) if any(s.endswith(w) for w in want)]
+    missing = [w for w in want if not any(s.endswith(w) for s in chosen)]
+    if missing:
+        print(f"  not found, skipped: {', '.join(missing)}")
+    if not chosen:
+        raise SystemExit(f"none of {want} under the render directory")
+    return chosen
 
 
 def energy_above(x: np.ndarray, sr: int, fc: float) -> float:
@@ -152,8 +215,23 @@ def main() -> int:
     p.add_argument("--out", type=Path, default=None,
                    help="default mushra_<id>")
     p.add_argument("--pick", default="2,3,4",
-                   help="which numbered file of each group, e.g. 2,3,4")
-    p.add_argument("--groups", default="bright,dark,medium")
+                   help="eval_real_ir layout: which numbered file of each "
+                        "group, e.g. 2,3,4. Ignored when --spread-re is given.")
+    p.add_argument("--groups", default="bright,dark,medium",
+                   help="eval_real_ir layout only.")
+    p.add_argument("--spread-re", default=None, metavar="REGEX",
+                   help="ds_eval_folder layout: choose --trials clips spaced "
+                        "evenly along a number captured from the trial name, "
+                        r"e.g. 'doubles-(\d+)-' for the Moog's MIDI note. "
+                        "Deterministic and identical for every listener -- "
+                        "MUSHRA randomises which SLIDER holds which arm, not "
+                        "which trials you get, and with a handful of listeners "
+                        "a per-session subset leaves each clip with one or two "
+                        "ratings and nothing to average.")
+    p.add_argument("--trials", type=int, default=9, metavar="N",
+                   help="How many trials --spread-re selects. Nine matches "
+                        "the plate test, so the two sittings are comparable "
+                        "in length.")
     p.add_argument("--match", choices=("lufs", "rms"), default="lufs",
                    help="lufs is BS.1770 and needs pyloudnorm; rms is the "
                         "total-energy convention and needs nothing.")
@@ -173,6 +251,15 @@ def main() -> int:
                         "the number is a stated, application-specific "
                         "deviation and keeps the anchor identical across "
                         "trials. Pass 3500 for the standard value.")
+    p.add_argument("--material", default="EMT-140 plate",
+                   help="Names the test in its title bar. Pass e.g. "
+                        "'Moog Minitaur' for the diffsynth version.")
+    p.add_argument("--reference-is", default="a real EMT-140 plate reverb",
+                   metavar="TEXT",
+                   help="How the welcome page describes the reference. The "
+                        "listener is told what they are comparing against, so "
+                        "this has to match the material or the instructions "
+                        "are wrong on their face.")
     p.add_argument("--title", default=None)
     args = p.parse_args()
 
@@ -181,18 +268,18 @@ def main() -> int:
     if not clips:
         raise SystemExit(f"no <ir>__<arm>.wav under {args.dir}")
 
-    want = [f"{g}_{n}" for g in args.groups.split(",")
-            for n in args.pick.split(",")]
-    # eval_real_ir stems carry a prefix (emt_140_bright_2); match on the tail so
-    # the same --pick works whatever the recordings are called.
-    chosen = [s for s in sorted(clips) if any(s.endswith(w) for w in want)]
-    missing = [w for w in want if not any(s.endswith(w) for s in chosen)]
-    if missing:
-        print(f"  not found, skipped: {', '.join(missing)}")
-    if not chosen:
-        raise SystemExit(f"none of {want} under {args.dir}")
+    chosen = select(clips, args.groups, args.pick, args.spread_re, args.trials)
 
     arms = sorted({a for s in chosen for a in clips[s] if a != "target"})
+    # Every trial must offer every arm, or listeners get a different number of
+    # sliders on different pages and the per-arm means are over different
+    # trials. Better to drop the trial than to publish a ragged test.
+    ragged = [s for s in chosen if any(a not in clips[s] for a in arms)]
+    if ragged:
+        print(f"  dropped, missing an arm: {', '.join(ragged)}")
+        chosen = [s for s in chosen if s not in ragged]
+    if not chosen:
+        raise SystemExit("no trial has all arms")
     print(f"{len(chosen)} trials x {len(arms)} arms + hidden ref + 1 anchor")
     print(f"  arms: {', '.join(arms)}")
     print(f"  trials: {', '.join(chosen)}")
@@ -258,7 +345,7 @@ def main() -> int:
     print(f"  wrote {len(loaded)} stimuli to {audio_dir}  [{ch}]")
 
     # --- the config -------------------------------------------------------
-    title = args.title or f"EMT-140 plate resynthesis -- {args.id}"
+    title = args.title or f"{args.material} resynthesis -- {args.id}"
     L = [
         f'testname: "{title}"',
         f"testId: {args.id}",
@@ -272,8 +359,8 @@ def main() -> int:
         "    id: welcome",
         "    name: Welcome",
         "    content: >",
-        "      You will hear a reference recording of a real EMT-140 plate",
-        "      reverb and several versions of it. Rate each version by how",
+        f"      You will hear a reference recording of {args.reference_is}",
+        "      and several versions of it. Rate each version by how",
         "      different it sounds from the reference, on one scale, whatever",
         "      the cause of the difference. Use headphones in a quiet room.",
         "      One of the versions IS the reference and one is a lowpassed",
