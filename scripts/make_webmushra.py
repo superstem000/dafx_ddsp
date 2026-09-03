@@ -95,6 +95,46 @@ def discover(d: Path):
     return {k: v for k, v in clips.items() if "target" in v}
 
 
+def energy_above(x: np.ndarray, sr: int, fc: float) -> float:
+    """Fraction of this signal's energy above fc, as a percentage.
+
+    Reported per trial so the anchor can be checked rather than assumed. This
+    is the number that was wrong in the plate test: BS.1534-3's low anchor is a
+    3.5 kHz lowpass of the reference, which removes an obvious amount from
+    broadband programme material, but the EMT-140's darker settings roll off
+    well below that. Lowpassing them at 3.5 kHz removed nearly nothing, so the
+    anchor reached the listener sounding like the reference. An anchor that is
+    not audibly worse than the reference calibrates nothing -- it adds a slider
+    that gets rated near 100 and compresses the range the arms sit in.
+
+    If this column reads a fraction of a per cent on any trial, the anchor is
+    inaudible there and --anchor-hz needs to come down further.
+    """
+    p = np.abs(np.fft.rfft(x)) ** 2
+    f = np.fft.rfftfreq(x.shape[0], 1.0 / sr)
+    tot = float(p.sum())
+    return 100.0 * float(p[f > fc].sum()) / tot if tot > 0 else 0.0
+
+
+def lowpass(x: np.ndarray, sr: int, fc: float, width_oct: float = 1.0):
+    """Lowpass at fc with a raised-cosine skirt over `width_oct` above it.
+
+    Not a brickwall: zeroing bins outright gives a sinc in the time domain,
+    and on an impulse response the pre-ringing that produces is audible as a
+    distinct artefact rather than as the dullness an anchor is meant to be.
+    The skirt costs nothing and keeps the degradation spectral.
+    """
+    n = x.shape[0]
+    X = np.fft.rfft(x)
+    f = np.fft.rfftfreq(n, 1.0 / sr)
+    hi = fc * 2.0 ** width_oct
+    g = np.ones_like(f)
+    band = (f > fc) & (f < hi)
+    g[band] = 0.5 * (1.0 + np.cos(np.pi * np.log2(f[band] / fc) / width_oct))
+    g[f >= hi] = 0.0
+    return np.fft.irfft(X * g, n)
+
+
 def loudness(x: np.ndarray, sr: int, mode: str) -> float:
     """Return the measured level in dB, by BS.1770 or plain RMS."""
     if mode == "rms":
@@ -123,6 +163,16 @@ def main() -> int:
                    help="write single-channel. The default duplicates the "
                         "channel because webMUSHRA plays a 1-channel buffer "
                         "in the left ear only.")
+    p.add_argument("--anchor-hz", type=float, default=1500.0, metavar="HZ",
+                   help="Low-anchor cutoff, ONE value for every trial. "
+                        "BS.1534-3 specifies 3.5 kHz, which is right for "
+                        "broadband programme material and wrong here: the dark "
+                        "EMT-140 settings have almost no energy above it, so "
+                        "the anchor arrives sounding like the reference and "
+                        "calibrates nothing on exactly those trials. Lowering "
+                        "the number is a stated, application-specific "
+                        "deviation and keeps the anchor identical across "
+                        "trials. Pass 3500 for the standard value.")
     p.add_argument("--title", default=None)
     args = p.parse_args()
 
@@ -143,7 +193,7 @@ def main() -> int:
         raise SystemExit(f"none of {want} under {args.dir}")
 
     arms = sorted({a for s in chosen for a in clips[s] if a != "target"})
-    print(f"{len(chosen)} trials x {len(arms)} arms + hidden ref + 2 anchors")
+    print(f"{len(chosen)} trials x {len(arms)} arms + hidden ref + 1 anchor")
     print(f"  arms: {', '.join(arms)}")
     print(f"  trials: {', '.join(chosen)}")
 
@@ -153,6 +203,7 @@ def main() -> int:
 
     # Pass 1: measure everything, so the headroom gain can be common.
     loaded, peak_after = {}, 0.0
+    above = {}
     for stem in chosen:
         for tag in ["target"] + arms:
             x, sr = sf.read(clips[stem][tag], dtype="float64", always_2d=False)
@@ -161,6 +212,25 @@ def main() -> int:
             g = 10.0 ** ((args.target_db - loudness(x, sr, args.match)) / 20.0)
             loaded[(stem, tag)] = (x * g, sr)
             peak_after = max(peak_after, float(np.abs(x * g).max()))
+            if tag != "target":
+                continue
+            # THE ANCHOR IS BUILT HERE, not by webMUSHRA, purely so the cutoff
+            # is ours to set. It is loudness-matched with everything else --
+            # a lowpass removes energy, and an anchor that also plays quieter
+            # would be rated worse for the wrong reason.
+            above[stem] = energy_above(x, sr, args.anchor_hz)
+            a = lowpass(x, sr, args.anchor_hz)
+            ga = 10.0 ** ((args.target_db - loudness(a, sr, args.match)) / 20.0)
+            loaded[(stem, "anchor")] = (a * ga, sr)
+            peak_after = max(peak_after, float(np.abs(a * ga).max()))
+
+    print(f"  low anchor: {args.anchor_hz:g} Hz lowpass of each reference"
+          + ("  [BS.1534-3 value]" if abs(args.anchor_hz - 3500) < 1
+             else "  [lowered from BS.1534-3's 3500 Hz]"))
+    print(f"{'':<4}{'trial':<28}{'energy above cutoff':>21}")
+    for stem in chosen:
+        flag = "   <-- anchor barely differs" if above[stem] < 1.0 else ""
+        print(f"{'':<4}{stem:<28}{above[stem]:>20.2f}%{flag}")
 
     # ONE gain for the whole test if anything would clip. Per-file limiting
     # would undo the match this script exists to apply.
@@ -248,7 +318,13 @@ def main() -> int:
             # listen on every trial. make_mushra.py drops it for diffsynth on
             # the same grounds, arrived at from Nyquist rather than from the
             # source's bandwidth.
-            "    createAnchor35: true",
+            # createAnchor35 is OFF: the anchor is written by this script at
+            # --anchor-hz and listed among the stimuli below. webMUSHRA's own
+            # anchor is fixed at 3.5 kHz with no way to change it, and on the
+            # dark EMT-140 references that removed so little that the anchor
+            # was indistinguishable from the reference -- the one flaw the
+            # first plate test had.
+            "    createAnchor35: false",
             f"    reference: {audio_rel}/{stem}__target.wav",
             "    stimuli:",
             # NO EXPLICIT hidden_ref. webMUSHRA inserts the reference among the
@@ -258,6 +334,10 @@ def main() -> int:
         ]
         for a in arms:
             L.append(f"      {a}: {audio_rel}/{stem}__{a}.wav")
+        # The anchor rides in as an ordinary stimulus. randomize: true means
+        # its position changes per session and the key is never shown, so it
+        # is as blind as the arms are.
+        L.append(f"      anchor: {audio_rel}/{stem}__anchor.wav")
     # NO QUESTIONNAIRE. This is an instrument a few lab members take one at a
     # time, not software handed to strangers -- so the machinery a panel needs
     # to identify who submitted what is machinery nobody here needs, and asking
@@ -305,8 +385,9 @@ things -- all three fail silently:
      silence there means the finish page is not set writeResults: true. Under
      php -S it is the permissions on results/, every time.
   2. FIVE sliders per trial: 3 arms, the hidden reference webMUSHRA inserts
-     itself, and one 3.5 kHz anchor. Six or seven means an anchor or a
-     reference is being added twice.
+     itself, and the one low anchor this script writes. Six or seven means an
+     anchor or a reference is being added twice -- check createAnchor35 is
+     false, since webMUSHRA would otherwise add a second, fixed 3.5 kHz one.
   3. CONDITION order differs between two sessions -- the slot the same arm
      lands in should move. That is `randomize: true`. Page order is fixed by
      design; see the note in this script above the mushra pages.
