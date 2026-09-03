@@ -217,8 +217,22 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(b"ok")
 
     def log_message(self, fmt, *a):
-        if "POST" in (a[0] if a else ""):
+        # http.server funnels log_error through here too, and it calls
+        # log_message("code %d, message %s", code, message) with an HTTPStatus
+        # in a[0] rather than a request line. `"POST" in HTTPStatus.NOT_FOUND`
+        # raises TypeError, which propagates out of send_error and buries the
+        # 404 it was in the middle of reporting -- a stack trace in the pane
+        # where the useful line would have been the missing filename.
+        first = a[0] if a else ""
+        if isinstance(first, str) and "POST" in first:
             super().log_message(fmt, *a)
+
+    def log_error(self, fmt, *a):
+        # NOT filtered. A missing stimulus is invisible in webMUSHRA -- the
+        # slider simply never plays -- so a 404 is the only warning that a
+        # config points at audio that was not copied across. The GET flood
+        # this class exists to silence is all 200s and does not come here.
+        super().log_message(fmt, *a)
 
 
 def main() -> int:
