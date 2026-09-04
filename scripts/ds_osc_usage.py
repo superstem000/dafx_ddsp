@@ -239,6 +239,13 @@ def main() -> None:
     p.add_argument("--both-lo", type=float, default=0.2, metavar="F",
                    help="Minimum share for an oscillator to count as in use, "
                         "for the `both` column.")
+    p.add_argument("--trim-pad", action="store_true",
+                   help="Drop the zero padding this script added, folder-wide, "
+                        "to the longest clip's own duration. Static params are "
+                        "read from the LAST frame of a unidirectional GRU, so "
+                        "on a padded clip they come from a step preceded by "
+                        "seconds of silence. Pass this to match a "
+                        "ds_eval_folder run that used --trim-pad.")
     p.add_argument("--dump", action="store_true",
                    help="Print EVERY parameter the synth takes, per arm, "
                         "median over clips and in physical units -- including "
@@ -265,7 +272,23 @@ def main() -> None:
             med = float(np.median(nz)) if nz else 0.0
             gain = args.folder_peak / med if med > 0 else 1.0
         g = os.path.basename(os.path.normpath(d))
-        folders[g] = (files, np.stack([r[0] for r in raw]) * gain)
+        x = np.stack([r[0] for r in raw]) * gain
+        if args.trim_pad:
+            # Same rule as ds_eval_folder: the folder is cut to its LONGEST
+            # clip's own original duration, rounded up to a whole STFT frame,
+            # so no clip loses real content and every clip stays the same
+            # length. It matters here and not only for scoring: fill_params
+            # slices every static_param to the LAST frame, and the estimator
+            # is a unidirectional GRU, so on a padded clip MULT, osc_mix,
+            # BFRQ and Q_FILT are read from a step whose recent input has
+            # been digital silence for seconds -- a regime no training clip
+            # contains.
+            keep = int(np.ceil(max(r[3] for r in raw) * args.sr / 256.0)) * 256
+            if keep < x.shape[1]:
+                x = x[:, :keep]
+                print(f"{'':<26}--trim-pad: {x.shape[1] / args.sr:.2f}s "
+                      f"of {args.length:.2f}s kept")
+        folders[g] = (files, x)
         print(f"{g:<26}{len(files):>4} clips   gain {gain:.3f}")
         if args.true_mult:
             tm = true_mult(files, d, 1.0, 8.0)
