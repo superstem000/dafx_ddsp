@@ -1,0 +1,58 @@
+# ONE OSCILLATOR, PITCH PREDICTED: the control for the r13 result.
+#
+#   python scripts/gpu_queue.py --jobs scripts/jobs_diffsynth_1osc.txt
+#
+# WHAT r13 SHOWED. f0 conditioned, MULT free on (1, 3). The log arms silenced
+# the second oscillator -- hybridx at share2 0.05 with 48% of clips under 0.05,
+# its MULT drifting to a median 3.47 with 30% beyond 4, outside anything the
+# data contained, because a ratio multiplying a silent oscillator has no
+# gradient. magx held at share2 0.34, MULT 1.55. On the Moog the listening
+# test put magx first in 10 of 12 trials while MFCC ranked it last.
+#
+# WHAT THIS ISOLATES. With n_oscs 1 there is no oscillator to abandon, so the
+# escape route is closed for every arm. What is left to recover is the
+# amplitude envelope, cutoff, Q, osc_mix and the fundamental. Separation here
+# means the thesis is about parameter estimation generally; convergence means
+# the r13 gap was specifically about the degenerate strategy, which is a
+# narrower claim but a sharper one.
+#
+# THE RISK IS SATURATION. Five parameters, one saw-square blend through one
+# 2-pole filter, and a MelEstimator with 512 hidden units. If every arm comes
+# back with near-perfect parameter recovery the run has answered nothing --
+# read ds_param_breakdown before concluding the losses are equivalent, and if
+# it has saturated, the informative version is h1ofcf (coupled filter) or a
+# shorter schedule rather than this one.
+#
+# GENERATE FIRST -- harmor_1oscfree does not exist yet:
+#   cd ~/dafx_ddsp/external/diffsynth
+#   python gen_dataset.py data/diffsynth_5-6 configs/synth/dataset/h1of.yaml --data_size 20000 --save_param --device cuda:0
+#   python -c "import torch; print(torch.load('data/diffsynth_5-6/harmor_1oscfree/param/00000.pt').keys())"
+# The second line must print harmor_amplitudes, harmor_osc_mix, harmor_f0_hz,
+# harmor_cutoff, harmor_q -- note NO harmor_f0_mult, which has size n_oscs-1 =
+# 0 here. If it prints enva_peak instead, --save_param did not reach argparse
+# and training dies at the first batch.
+#
+# THEN SMOKE TEST ONE ARM BEFORE QUEUEING. A zero-width f0_mult is the thing
+# most likely to break: it is still in the model config's connections, so it
+# becomes an ext param of size 0 and an estimator head of width 0. Run a few
+# epochs and check the loss is finite:
+#   ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_1oscfree OOD_DIR=none scripts/ds_run.sh o1_smoke pretrain_1osc 0 trainer.max_epochs=2
+#
+# ext_param_size 5. Its own base, since the data distribution differs from
+# every other run. No out-of-domain half.
+
+# STAGE base
+# 0 -> 50, parameter loss only.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_1oscfree OOD_DIR=none scripts/ds_run.sh o1_base pretrain_1osc "{gpu}" trainer.max_epochs=50
+
+# STAGE variants
+# 50 -> 200.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_1oscfree OOD_DIR=none RESUME=o1_base scripts/ds_run.sh o1_pre_magx_halfw pretrain_1osc "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_1oscfree OOD_DIR=none RESUME=o1_base scripts/ds_run.sh o1_pre_hybridx    pretrain_1osc "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_1oscfree OOD_DIR=none RESUME=o1_base scripts/ds_run.sh o1_pre_logx_halfw pretrain_1osc "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
+
+# STAGE resumes
+# 200 -> 400.
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_1oscfree OOD_DIR=none RESUME=o1_pre_magx_halfw scripts/ds_run.sh o1_synth_magx_halfw resume_synth_1osc "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.log_mag_w=0 model.sw_loss.power=1 schedule.sw_w.end_v=0.5
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_1oscfree OOD_DIR=none RESUME=o1_pre_hybridx    scripts/ds_run.sh o1_synth_hybridx    resume_synth_1osc "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2
+ID_DIR=$HOME/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_1oscfree OOD_DIR=none RESUME=o1_pre_logx_halfw scripts/ds_run.sh o1_synth_logx_halfw resume_synth_1osc "{gpu}" trainer.checkpoint_every_n_epochs=50 model.sw_loss.power=1 model.sw_loss.log_eps_v=1e-2 model.sw_loss.mag_w=0 schedule.sw_w.end_v=0.5
