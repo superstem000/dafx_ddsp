@@ -576,6 +576,13 @@ def main() -> None:
                         "make_webmushra loudness-matches every stimulus. An "
                         "arm that wins on level wins the metric and not the "
                         "listening test.")
+    p.add_argument("--match-level", action="store_true",
+                   help="Rescale every render to its target's RMS before "
+                        "scoring, removing the level term from the metric. "
+                        "Run with and without: the difference is how much of "
+                        "an arm's lead was loudness, which the MUSHRA strips "
+                        "out and so never reaches listeners. A diagnostic, "
+                        "not the reported metric.")
     p.add_argument("--spread", action="store_true",
                    help="Per-clip score distribution per arm, plus the paired "
                         "clip-by-clip comparison. The folder mean answers "
@@ -872,6 +879,21 @@ def main() -> None:
                         ro = float(out[j, :nv].pow(2).mean().sqrt())
                         lev.setdefault((arm, g), []).append(
                             20.0 * np.log10(max(ro, 1e-9) / max(rt, 1e-9)))
+                if args.match_level:
+                    # DIAGNOSTIC, not the metric. Rescales each render to the
+                    # target's RMS over the frames that came from the file, so
+                    # the score that follows contains no level term at all.
+                    # The difference between a run with this and one without
+                    # is how much of an arm's advantage was loudness -- which
+                    # matters because MFCC scores level and the MUSHRA does
+                    # not, so a level-driven lead does not reach listeners.
+                    L = tgt.shape[1]
+                    for j in range(tgt.shape[0]):
+                        nv = max(1, int(raw_frac[g][lo + j] * L))
+                        rt = float(tgt[j, :nv].pow(2).mean().sqrt())
+                        ro = float(out[j, :nv].pow(2).mean().sqrt())
+                        if ro > 1e-9:
+                            out[j] = out[j] * (rt / ro)
                 oth = tgt.roll(1, dims=0)
                 m = None
                 if args.active_db > 0:
