@@ -246,6 +246,10 @@ def main() -> None:
     p.add_argument("--both-lo", type=float, default=0.2, metavar="F",
                    help="Minimum share for an oscillator to count as in use, "
                         "for the `both` column.")
+    p.add_argument("--trim-db", type=float, default=0.0, metavar="DB",
+                   help="Cut the folder to the longest clip's last sample "
+                        "within this many dB of its own peak, before the model "
+                        "sees it. Matches ds_eval_folder --trim-db. 0 is off.")
     p.add_argument("--trim-pad", action="store_true",
                    help="Drop the zero padding this script added, folder-wide, "
                         "to the longest clip's own duration. Static params are "
@@ -295,6 +299,24 @@ def main() -> None:
                 x = x[:, :keep]
                 print(f"{'':<26}--trim-pad: {x.shape[1] / args.sr:.2f}s "
                       f"of {args.length:.2f}s kept")
+        if args.trim_db > 0:
+            # Cut to the longest clip's last sample within --trim-db of its own
+            # peak, the same rule and the same rounding ds_eval_folder uses, so
+            # the parameters are read from the window the scores were computed
+            # on. Trimming rather than masking is the point: the estimator
+            # never sees the silence at all, and the static params it emits at
+            # the final frame are decided with the note still in recent memory.
+            thr = 10.0 ** (-args.trim_db / 20.0)
+            ends = []
+            for row in x:
+                pk = float(np.abs(row).max())
+                nz = np.nonzero(np.abs(row) >= pk * thr)[0] if pk > 0 else []
+                ends.append(int(nz[-1]) + 1 if len(nz) else 0)
+            keep = min(x.shape[1], max(1024, int(np.ceil(max(ends) / 256.0)) * 256))
+            if keep < x.shape[1]:
+                x = x[:, :keep]
+                print(f"{'':<26}--trim-db {args.trim_db:g}: "
+                      f"{x.shape[1] / args.sr:.2f}s of {args.length:.2f}s kept")
         folders[g] = (files, x)
         print(f"{g:<26}{len(files):>4} clips   gain {gain:.3f}")
         if args.true_mult:
