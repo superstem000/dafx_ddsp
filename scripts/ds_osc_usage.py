@@ -130,9 +130,16 @@ def all_params(model, x: torch.Tensor):
             # by fill_params, so this is a no-op for them and the average of
             # the curve for AMP and CUTOFF.
             v = v.mean(axis=1)
+            # A conditioned parameter is the INERT PLACEHOLDER predict() fills,
+            # not a prediction -- torch.ones scales to the top of the range, so
+            # BFRQ came out as a flat 2000 Hz on every conditioned arm. Marked
+            # rather than dropped: seeing the column and knowing it is a
+            # placeholder beats wondering why it is missing.
+            cond_ph = key in model.synth.fixed_param_names and \
+                getattr(model.synth, key) is None
             for c in range(v.shape[-1]):
                 lab = name if v.shape[-1] == 1 else f"{name}[{c}]"
-                out[lab] = v[:, c]
+                out[lab + (" (given)" if cond_ph else "")] = v[:, c]
     return out
 
 
