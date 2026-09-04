@@ -110,7 +110,7 @@ def discover(d: Path):
 
 
 def spread_balanced(clips: dict, spread_re: str, balance_re: str | None,
-                    n_trials: int, order_seed: int):
+                    n_trials: int, order_seed: int, distinct: int = 0):
     """n_trials clips spread along one axis, balanced across a second.
 
     WHY BOTH AXES. Selecting on the MIDI note alone gave nine Moog trials whose
@@ -149,9 +149,19 @@ def spread_balanced(clips: dict, spread_re: str, balance_re: str | None,
     vals = sorted({v for lst in axis.values() for v, _s in lst})
     # Slots even in RANK over the primary axis, not in value: the pack's notes
     # are unequally populated and value spacing would cluster where files are.
+    #
+    # WITH MORE TRIALS THAN NOTES, every note appears once and the surplus is
+    # spread by rank over the range. Not "pick N notes and repeat them": with
+    # 12 trials and 8 notes, rank-spacing 12 slots would have excluded two
+    # interior semitones, and a reader has no way to tell a mechanical rule
+    # from a convenient one when the result is "these two notes are missing".
+    # Covering every note removes the question, and which notes are heard
+    # TWICE is a far weaker lever than which are heard at all.
     if n_trials >= len(keys):
-        slots = [keys[round(i * (len(keys) - 1) / max(n_trials - 1, 1))]
-                 for i in range(n_trials)]
+        extra = n_trials - len(keys)
+        more = [keys[round(i * (len(keys) - 1) / max(extra - 1, 1))]
+                for i in range(extra)] if extra else []
+        slots = sorted(keys + more)
     else:
         slots = [keys[round(i * (len(keys) - 1) / (n_trials - 1))]
                  for i in range(n_trials)]
