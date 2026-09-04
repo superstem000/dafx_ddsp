@@ -110,7 +110,7 @@ SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 # Bumped whenever load() extracts a different set of series. The cache is
 # keyed on TAGS, and val_id/param_group/* is not in TAGS -- without this a
 # cache written before those were read would silently keep hiding them.
-CACHE_VERSION = 6
+CACHE_VERSION = 7
 
 
 def _max_epochs(run_dir: str) -> int | None:
@@ -259,12 +259,18 @@ def load(run_dir: str) -> dict | None:
     # eta_h nan for the entire run. Prefer the in-domain validation metric,
     # and only then fall back, to the DENSEST tag rather than the first: more
     # events is a better clock than an arbitrary name.
-    for cand in (SELECT, "val_id/lsd", PARAM):
-        if cand in have:
-            ref = cand
-            break
-    else:
-        ref = max(have, key=lambda t: len(ea.Scalars(t)))
+    # MORE THAN ONE EVENT IS THE REQUIREMENT, not merely being present. A run
+    # with ood_dir null still logs val_ood/lsd exactly once, from Lightning's
+    # sanity-check validation before training starts, so preferring it by name
+    # picks a tag whose first and last event are the same event -- elapsed 0,
+    # ep/h nan, eta_h nan, which is what this column did on every no-OOD run.
+    # The fallback is restricted to val_* because it must be a tag logged once
+    # per validation epoch: train/total is denser but logged per STEP, and
+    # dividing its count by hours would report steps per hour as epochs.
+    cands = [SELECT, "val_id/lsd", PARAM] + sorted(
+        t for t in have if t.startswith("val_"))
+    ref = next((c for c in cands if c in have and len(ea.Scalars(c)) > 1),
+               max(have, key=lambda t: len(ea.Scalars(t))))
     ev = ea.Scalars(ref)
     steps = sorted({s for d in series.values() for s in d})
 
