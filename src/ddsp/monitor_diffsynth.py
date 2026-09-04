@@ -110,7 +110,7 @@ SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 # Bumped whenever load() extracts a different set of series. The cache is
 # keyed on TAGS, and val_id/param_group/* is not in TAGS -- without this a
 # cache written before those were read would silently keep hiding them.
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 
 
 def _max_epochs(run_dir: str) -> int | None:
@@ -250,8 +250,21 @@ def load(run_dir: str) -> dict | None:
                 e.step: e.value for e in ea.Scalars(t)}
     if not series:
         return None
-    # Wall clock from the selection metric if present, else anything.
-    ref = SELECT if SELECT in have else sorted(have)[0]
+    # Wall clock from a tag logged ONCE PER VALIDATION EPOCH, because ep/h and
+    # eta_h divide its event count by the span between its first and last
+    # event. SELECT is val_ood/lsd, which no run without an out-of-domain half
+    # logs -- every run since ood_dir went null -- and the old fallback took
+    # the alphabetically first tag. That is whatever happens to sort first,
+    # frequently something logged once, which makes elapsed 0, ep/h nan and
+    # eta_h nan for the entire run. Prefer the in-domain validation metric,
+    # and only then fall back, to the DENSEST tag rather than the first: more
+    # events is a better clock than an arbitrary name.
+    for cand in (SELECT, "val_id/lsd", PARAM):
+        if cand in have:
+            ref = cand
+            break
+    else:
+        ref = max(have, key=lambda t: len(ea.Scalars(t)))
     ev = ea.Scalars(ref)
     steps = sorted({s for d in series.values() for s in d})
 
