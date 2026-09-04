@@ -97,6 +97,45 @@ def predict(model, x: torch.Tensor):
     return mult, share2, mix[:, 0], mix[:, 1]
 
 
+def all_params(model, x: torch.Tensor):
+    """{label: per-clip value} for EVERY parameter the synth takes.
+
+    predict() reports four static quantities. In the h2of family static_params
+    is [BFRQ, M_OSC, MULT, Q_FILT], so AMP and CUTOFF are emitted once per
+    FRAME and appear nowhere in that table -- which is why arms can differ on
+    real audio with nothing in it to explain the difference. This walks the dag
+    instead and reports all of them, scaled through each processor's own
+    param_desc, frame-wise ones summarised as their mean over frames.
+    """
+    cond = {"audio": x}
+    for k in model.synth.fixed_param_names:
+        if getattr(model.synth, k) is None:
+            cond[k] = torch.ones(x.shape[0], 1, 1, device=x.device, dtype=x.dtype)
+    dag_in = model.synth.fill_params(model.estimate_param(cond), cond)
+
+    out: dict[str, "np.ndarray"] = {}
+    for proc, conn in model.synth.dag:
+        for name, key in conn.items():
+            d = proc.param_desc.get(name)
+            if d is None or d["type"] == "raw" or key not in dag_in:
+                continue
+            v = dag_in[key]
+            if not torch.is_tensor(v):
+                continue
+            v = SCALE_FNS[d["type"]](v, d["range"][0], d["range"][1])
+            v = v.detach().cpu().numpy()
+            if v.ndim < 3 or v.shape[-1] == 0:
+                continue
+            # Mean over frames: static params were already sliced to one frame
+            # by fill_params, so this is a no-op for them and the average of
+            # the curve for AMP and CUTOFF.
+            v = v.mean(axis=1)
+            for c in range(v.shape[-1]):
+                lab = name if v.shape[-1] == 1 else f"{name}[{c}]"
+                out[lab] = v[:, c]
+    return out
+
+
 def spread_lines(name, v, edges, fmt="{:g}"):
     """Percentiles and a bin histogram for one predicted quantity.
 
@@ -200,6 +239,11 @@ def main() -> None:
     p.add_argument("--both-lo", type=float, default=0.2, metavar="F",
                    help="Minimum share for an oscillator to count as in use, "
                         "for the `both` column.")
+    p.add_argument("--dump", action="store_true",
+                   help="Print EVERY parameter the synth takes, per arm, "
+                        "median over clips and in physical units -- including "
+                        "AMP and CUTOFF, which are per-frame and so appear in "
+                        "no other column here.")
     p.add_argument("--device", default="cuda")
     p.add_argument("--csv", default=None, metavar="PATH")
     args = p.parse_args()
@@ -237,6 +281,7 @@ def main() -> None:
     print(f"\n{'folder':<20}{'arm':<24}{'n':>4}{'MULT_med':>10}{heads}"
           f"{'other':>7}{'share2':>9}{'both':>7}{'mix1':>7}{'mix2':>7}")
     rows = []
+    dumps: dict[str, dict[str, dict[str, float]]] = {}
     bins_acc: dict[str, dict[int, "np.ndarray"]] = {}
     # Counted once from the targets, not inside the arm loop -- every arm sees
     # the same clips, so accumulating there multiplied each count by len(arms).
@@ -270,6 +315,12 @@ def main() -> None:
             both = 100.0 * float(((share2 >= args.both_lo)
                                   & (share2 <= 1.0 - args.both_lo)
                                   & (mult >= 1.5)).mean())
+            if args.dump:
+                with torch.no_grad():
+                    ap = all_params(model, torch.from_numpy(x).float()
+                                    .to(args.device))
+                dumps.setdefault(g, {})[arm] = {k: float(np.median(v))
+                                                for k, v in ap.items()}
             print(f"{g[:20]:<20}{arm:<24}{len(mult):>4}{np.median(mult):>10.2f}"
                   + "".join(f"{v:>6.0f}%" for v in near)
                   + f"{other:>6.0f}%{np.median(share2):>9.2f}{both:>6.0f}%"
@@ -298,6 +349,19 @@ def main() -> None:
                 rows.append([arm, g, os.path.basename(f), f"{mult[i]:.3f}",
                              f"{share2[i]:.3f}", f"{mix1[i]:.3f}",
                              f"{mix2[i]:.3f}"])
+
+    for g, per_arm in dumps.items():
+        keys = sorted({k for d in per_arm.values() for k in d})
+        w = max(9, max(len(k) for k in keys) + 2)
+        print(f"\n=== every predicted parameter, median over clips, {g}")
+        print(f"{'arm':<24}" + "".join(f"{k:>{w}}" for k in keys))
+        for arm, d in per_arm.items():
+            print(f"{arm:<24}" + "".join(
+                f"{d.get(k, float('nan')):>{w}.3f}" for k in keys))
+        print("  Physical units, through each processor's own param_desc.\n"
+              "  amplitudes and cutoff are per-frame in this synth and are\n"
+              "  averaged over frames; the static ones are already one value\n"
+              "  per clip, so the average is a no-op for them.")
 
     print("\n  MULT_med  median predicted ratio of osc 2 to osc 1\n"
           "  p_<r>     per cent of clips within --tol-cents of each --ratios value.\n"
