@@ -569,6 +569,13 @@ def main() -> None:
                         "beating rather than being masked by an onset. The "
                         "trunc column stays the count of files longer than "
                         "--length; which end was taken is reported separately.")
+    p.add_argument("--level", action="store_true",
+                   help="Report each arm's rendered RMS against the TARGET's, "
+                        "in dB, over the frames that came from the file. MFCC "
+                        "scores absolute level; the MUSHRA does not, since "
+                        "make_webmushra loudness-matches every stimulus. An "
+                        "arm that wins on level wins the metric and not the "
+                        "listening test.")
     p.add_argument("--spread", action="store_true",
                    help="Per-clip score distribution per arm, plus the paired "
                         "clip-by-clip comparison. The folder mean answers "
@@ -794,6 +801,7 @@ def main() -> None:
 
     per_arm: dict[str, dict[str, dict[str, float]]] = {}
     per_clip: dict[tuple, dict[int, tuple]] = {}
+    lev: dict[tuple, list] = {}
     renders: dict[tuple[str, str], "np.ndarray"] = {}
     shown = False
     for arm in args.arms:
@@ -848,6 +856,22 @@ def main() -> None:
                             args.force_mult)
                     else:
                         out, _ = model({"audio": tgt})
+                if args.level:
+                    # Rendered LEVEL against the target's, per clip, over the
+                    # frames that came from the file. MFCC's zeroth cepstral
+                    # coefficient carries overall level, so a systematic
+                    # offset costs an arm here -- while make_webmushra matches
+                    # every stimulus to -23 LUFS before anyone hears it, so
+                    # the same offset is inaudible in the listening test. When
+                    # the two measurements disagree this is the first thing to
+                    # rule out.
+                    L = tgt.shape[1]
+                    for j in range(tgt.shape[0]):
+                        nv = max(1, int(raw_frac[g][lo + j] * L))
+                        rt = float(tgt[j, :nv].pow(2).mean().sqrt())
+                        ro = float(out[j, :nv].pow(2).mean().sqrt())
+                        lev.setdefault((arm, g), []).append(
+                            20.0 * np.log10(max(ro, 1e-9) / max(rt, 1e-9)))
                 oth = tgt.roll(1, dims=0)
                 m = None
                 if args.active_db > 0:
@@ -1000,6 +1024,19 @@ def main() -> None:
               f"(one common gain {head:.3f}, levels otherwise as scored"
               + (f", after the --folder-peak match" if args.folder_peak
                  else ", unnormalised") + ")")
+
+    if lev:
+        print(f"\n=== rendered level vs target, dB (0 = matched)")
+        print(f"{'folder':<20}{'arm':<24}{'p10':>8}{'median':>9}{'p90':>8}"
+              f"{'|med|':>8}")
+        for (arm, g), v in lev.items():
+            v = np.array(v)
+            print(f"{g[:20]:<20}{arm:<24}{np.percentile(v, 10):>8.2f}"
+                  f"{np.median(v):>9.2f}{np.percentile(v, 90):>8.2f}"
+                  f"{abs(np.median(v)):>8.2f}")
+        print("  Positive means the arm renders LOUDER than the target.\n"
+              "  This is in the mfcc score and is NOT in the MUSHRA, which\n"
+              "  matches every stimulus to -23 LUFS before playback.")
 
     if args.spread:
         # The folder number is sum(num)/sum(den) over clips -- a ratio of
