@@ -977,7 +977,15 @@ def main() -> None:
         n = 0
         for g, files in groups.items():
             for i, src in enumerate(files[:args.render]):
-                stem = os.path.splitext(os.path.basename(src))[0][:60]
+                # 100, not 60. At 60 the Moog's names were cut at exactly
+                # '...doubles-48-', dropping the velocity field -- so the
+                # rendered filename, and every MUSHRA trial id built from it,
+                # could not distinguish the same note at velocity 32 from 95.
+                # Two sources sharing a truncated stem would also render to the
+                # same path and silently overwrite, costing a trial with no
+                # error anywhere. Folder + stem + arm stays well inside the
+                # 255-byte filename limit.
+                stem = os.path.splitext(os.path.basename(src))[0][:100]
                 base = os.path.join(args.render_out, f"{g[:24]}__{stem}")
                 sf.write(f"{base}__target.wav",
                          audio[g][i].numpy() * head, args.sr)

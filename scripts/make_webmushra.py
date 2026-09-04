@@ -109,6 +109,83 @@ def discover(d: Path):
     return {k: v for k, v in clips.items() if "target" in v}
 
 
+def spread_balanced(clips: dict, spread_re: str, balance_re: str | None,
+                    n_trials: int, order_seed: int):
+    """n_trials clips spread along one axis, balanced across a second.
+
+    WHY BOTH AXES. Selecting on the MIDI note alone gave nine Moog trials whose
+    velocities were 32, 32, 32, 32, 32, 95, 95, 95, 95 -- every low note quiet
+    and every high note loud, because within a note the stems sort by file id
+    and the pack is laid out note-major. Velocity is not a nuisance here: on
+    the Minitaur it drives the filter envelope, which is exactly what cutoff
+    and Q are being asked to recover, and the one within-note contrast in that
+    test moved the ratings by 30-47 points. Confounded with pitch, neither
+    effect can be read.
+
+    So the primary axis is spread by rank and the secondary is cycled, giving
+    each velocity an equal share of the trials at spread-out notes.
+
+    THE ORDER IS SHUFFLED, deterministically. webMUSHRA's page order is fixed
+    (a nested `random` block is unsupported -- see the note further down), so
+    without this the listener walks up the keyboard, and any drift in how they
+    use the scale over a 20-minute sitting is aliased onto pitch. A fixed seed
+    keeps every listener on the same order, which is what makes their ratings
+    poolable.
+    """
+    import random as _random
+
+    axis: dict = defaultdict(list)
+    for s in sorted(clips):
+        m = re.search(spread_re, s)
+        if not m:
+            continue
+        b = re.search(balance_re, s) if balance_re else None
+        axis[float(m.group(1))].append((float(b.group(1)) if b else 0.0, s))
+    if not axis:
+        raise SystemExit(f"--spread-re {spread_re!r} matched no trial name; "
+                         f"first is {sorted(clips)[0]!r}")
+
+    keys = sorted(axis)
+    vals = sorted({v for lst in axis.values() for v, _s in lst})
+    # Slots even in RANK over the primary axis, not in value: the pack's notes
+    # are unequally populated and value spacing would cluster where files are.
+    if n_trials >= len(keys):
+        slots = [keys[round(i * (len(keys) - 1) / max(n_trials - 1, 1))]
+                 for i in range(n_trials)]
+    else:
+        slots = [keys[round(i * (len(keys) - 1) / (n_trials - 1))]
+                 for i in range(n_trials)]
+
+    chosen, used = [], set()
+    for i, k in enumerate(slots):
+        # Rotate the secondary axis, and fall through to the next value when a
+        # note lacks one or its stem is already taken -- so a hole in the pack
+        # costs balance rather than dropping the trial.
+        for j in range(len(vals)):
+            want = vals[(i + j) % len(vals)]
+            hit = next((s for v, s in axis[k] if v == want and s not in used),
+                       None)
+            if hit:
+                chosen.append(hit)
+                used.add(hit)
+                break
+        else:
+            hit = next((s for _v, s in axis[k] if s not in used), None)
+            if hit:
+                chosen.append(hit)
+                used.add(hit)
+
+    if balance_re:
+        got: dict = defaultdict(int)
+        for s in chosen:
+            m = re.search(balance_re, s)
+            got[m.group(1) if m else "?"] += 1
+        print("  balanced on --balance-re: "
+              + ", ".join(f"{k}x{n}" for k, n in sorted(got.items())))
+    _random.Random(order_seed).shuffle(chosen)
+    return chosen
+
+
 def select(clips: dict, groups: str, pick: str, spread_re: str | None,
            n_trials: int):
     """The trials to run, chosen deterministically -- never per session.
@@ -127,25 +204,6 @@ def select(clips: dict, groups: str, pick: str, spread_re: str | None,
     note, so the register is covered by construction instead of by luck, which
     on eight draws is not a risk worth taking.
     """
-    if spread_re:
-        keyed = []
-        for s in sorted(clips):
-            m = re.search(spread_re, s)
-            if m:
-                keyed.append((float(m.group(1)), s))
-        if not keyed:
-            raise SystemExit(f"--spread-re {spread_re!r} matched no trial name; "
-                             f"first is {sorted(clips)[0]!r}")
-        keyed.sort()
-        if n_trials >= len(keyed):
-            return [s for _v, s in keyed]
-        # Even in RANK, not in value: the pack's notes are not equally
-        # populated, and spacing by value would cluster wherever files are
-        # dense. Rank spacing gives one trial per equal share of the range.
-        idx = [round(i * (len(keyed) - 1) / (n_trials - 1))
-               for i in range(n_trials)]
-        return [keyed[i][1] for i in sorted(set(idx))]
-
     want = [f"{g}_{n}" for g in groups.split(",") for n in pick.split(",")]
     # eval_real_ir stems carry a prefix (emt_140_bright_2); match on the tail so
     # the same --pick works whatever the recordings are called.
@@ -228,6 +286,20 @@ def main() -> int:
                         "which trials you get, and with a handful of listeners "
                         "a per-session subset leaves each clip with one or two "
                         "ratings and nothing to average.")
+    p.add_argument("--balance-re", default=None, metavar="REGEX",
+                   help="A SECOND axis to spread evenly across while "
+                        r"--spread-re walks the first, e.g. '-\d+-(\d+)-' for "
+                        "the Moog's velocity. Without it, selecting on note "
+                        "alone gave nine trials at velocity 32,32,32,32,32,"
+                        "95,95,95,95 -- velocity perfectly confounded with "
+                        "pitch, and neither effect readable.")
+    p.add_argument("--order-seed", type=int, default=0, metavar="N",
+                   help="Shuffles the PAGE order, deterministically. "
+                        "webMUSHRA cannot randomise pages per session, so "
+                        "without this the listener walks up the keyboard and "
+                        "any drift in their use of the scale is aliased onto "
+                        "pitch. Same seed for every listener keeps ratings "
+                        "poolable.")
     p.add_argument("--trials", type=int, default=9, metavar="N",
                    help="How many trials --spread-re selects. Nine matches "
                         "the plate test, so the two sittings are comparable "
@@ -268,7 +340,11 @@ def main() -> int:
     if not clips:
         raise SystemExit(f"no <ir>__<arm>.wav under {args.dir}")
 
-    chosen = select(clips, args.groups, args.pick, args.spread_re, args.trials)
+    if args.spread_re:
+        chosen = spread_balanced(clips, args.spread_re, args.balance_re,
+                                 args.trials, args.order_seed)
+    else:
+        chosen = select(clips, args.groups, args.pick, None, args.trials)
 
     arms = sorted({a for s in chosen for a in clips[s] if a != "target"})
     # Every trial must offer every arm, or listeners get a different number of
