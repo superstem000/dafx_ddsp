@@ -1,46 +1,35 @@
 # @package _global_
 
-# ONE OSCILLATOR, PITCH PREDICTED. The control for everything the r13 runs
-# measured.
+# ONE OSCILLATOR, PITCH PREDICTED.
 #
-# Those runs conditioned f0 and left MULT free, and the log arms answered by
-# silencing the second oscillator: hybridx reached share2 0.05 with 48% of
-# clips under 0.05, and its MULT then drifted to a median 3.47 with 30% of
-# clips beyond 4 -- outside the (1, 3) the data ever contained, because a
-# parameter that multiplies a silent oscillator has no gradient. magx held at
-# share2 0.34 and MULT 1.55.
+# The dataset generates one-oscillator audio and the model synth has one
+# oscillator. There is no second oscillator and no ratio between them:
+# f0_mult has size n_oscs-1 = 0, so it does not exist as a parameter. The
+# five parameters to recover are AMP, M_OSC, BFRQ, CUTOFF and Q_FILT -- one
+# saw-to-square blend at one pitch, through one 2-pole filter, under an ADSR.
 #
-# WHAT THIS ISOLATES. With n_oscs 1 there is no second oscillator to abandon,
-# so the degenerate strategy is unavailable to every arm. What remains is
-# amplitude envelope, cutoff, Q, osc_mix and the fundamental. If the arms
-# separate here too, the thesis is about parameter estimation generally. If
-# they converge, the r13 gap was specifically about the escape route, which is
-# a narrower but sharper claim.
+# WHY RUN IT. The r13 arms differed in what they did with a second
+# oscillator, and the log arms answered by turning it off. Here that is not a
+# choice any arm can make, because there is only ever one. What remains is
+# whether the losses recover the amplitude envelope, the filter and the
+# fundamental differently on identical material.
 #
-# PITCH IS PREDICTED AGAIN, unlike the f0only runs. Conditioning existed to
-# take pitch guessing out of the comparison when two oscillators had to be
-# placed jointly; with one oscillator there is nothing to place it against,
-# and BFRQ becomes just another parameter to recover. It also makes this
-# directly comparable to the published h2of procedure rather than to the
-# conditioned variants.
+# PITCH IS PREDICTED, not conditioned. Conditioning existed to keep pitch
+# guessing out of a comparison where two oscillators had to be placed jointly.
+# With one oscillator there is nothing to place it against, so BFRQ is just
+# another parameter to recover, and the run is directly comparable to the
+# published h2of procedure rather than to the conditioned variants.
 #
-# THIS MAY BE TOO EASY, and that is worth knowing before reading the result.
-# One saw or square through one 2-pole filter with an ADSR is five parameters,
-# and a MelEstimator has plenty of capacity for it. If all three arms land on
-# top of each other with near-perfect parameter recovery, the run has
-# saturated and says nothing either way -- check ds_param_breakdown before
+# THIS MAY BE TOO EASY. Five parameters and a MelEstimator with 512 hidden
+# units. If all three arms come back with near-perfect recovery the run has
+# saturated and says nothing either way -- read ds_param_breakdown before
 # concluding the losses are equivalent.
 #
-# ext_param_size is 5: AMP, M_OSC, BFRQ, CUTOFF, Q_FILT. f0_mult has size
-# n_oscs-1 = 0 and the dataset does not save it, so it costs nothing but is
-# also the thing most likely to trip an assertion the first time this runs --
-# smoke test before queueing the full sweep.
-#
 # enva max_value is 1.0 here against h2of_r13's 0.6, because h1of.yaml is the
-# published one-oscillator config and is left as it is. Amplitudes therefore
-# span a wider range than in the r13 runs; every arm sees the same data, so
-# the comparison is unaffected, but absolute parameter errors are not
-# comparable across the two datasets.
+# published one-oscillator config and is left as it is. Amplitudes span a
+# wider range than in the r13 runs; every arm sees the same data so the
+# comparison is unaffected, but absolute parameter errors are not comparable
+# across the two datasets.
 #
 # No out-of-domain half, matching the r13 runs; the out-of-domain number that
 # matters comes from ds_eval_folder on the real packs.
