@@ -126,9 +126,20 @@ def all_params(model, x: torch.Tensor):
             v = v.detach().cpu().numpy()
             if v.ndim < 3 or v.shape[-1] == 0:
                 continue
-            # Mean over frames: static params were already sliced to one frame
-            # by fill_params, so this is a no-op for them and the average of
-            # the curve for AMP and CUTOFF.
+            # PER-FRAME PARAMETERS ARE SAMPLED, not averaged. AMP and CUTOFF
+            # are curves, and a mean over 250 frames cannot tell a fast decay
+            # from a slow one -- which is the whole question when the static
+            # parameters fail to explain a score difference. Static params
+            # were already sliced to one frame by fill_params, so they have
+            # nothing to sample and fall through unchanged.
+            if v.shape[1] > 1:
+                idx = [int(round(f * (v.shape[1] - 1)))
+                       for f in (0.1, 0.25, 0.5, 0.75, 0.95)]
+                for c in range(v.shape[-1]):
+                    base = name if v.shape[-1] == 1 else f"{name}[{c}]"
+                    for f, i in zip((10, 25, 50, 75, 95), idx):
+                        out[f"{base}@{f}%"] = v[:, i, c]
+                continue
             v = v.mean(axis=1)
             # A conditioned parameter is the INERT PLACEHOLDER predict() fills,
             # not a prediction -- torch.ones scales to the top of the range, so
