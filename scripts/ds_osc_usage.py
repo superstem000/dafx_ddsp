@@ -371,8 +371,7 @@ def main() -> None:
                 with torch.no_grad():
                     ap = all_params(model, torch.from_numpy(x).float()
                                     .to(args.device))
-                dumps.setdefault(g, {})[arm] = {k: float(np.median(v))
-                                                for k, v in ap.items()}
+                dumps.setdefault(g, {})[arm] = ap
             print(f"{g[:20]:<20}{arm:<24}{len(mult):>4}{np.median(mult):>10.2f}"
                   + "".join(f"{v:>6.0f}%" for v in near)
                   + f"{other:>6.0f}%{np.median(share2):>9.2f}{both:>6.0f}%"
@@ -405,12 +404,20 @@ def main() -> None:
     for g, per_arm in dumps.items():
         keys = sorted({k for d in per_arm.values() for k in d})
         w = max(9, max(len(k) for k in keys) + 2)
-        print(f"\n=== every predicted parameter, median over clips, {g}")
-        print(f"{'arm':<24}" + "".join(f"{k:>{w}}" for k in keys))
+        stems = [os.path.splitext(os.path.basename(f))[0][-22:]
+                 for f in folders[g][0]]
+        print(f"\n=== every predicted parameter, PER CLIP, {g}")
         for arm, d in per_arm.items():
-            print(f"{arm:<24}" + "".join(
-                f"{d.get(k, float('nan')):>{w}.3f}" for k in keys))
-        print("  Physical units, through each processor's own param_desc.\n"
+            print(f"\n  {arm}")
+            print(f"  {'clip':<24}" + "".join(f"{k:>{w}}" for k in keys))
+            for i, s in enumerate(stems):
+                print(f"  {s:<24}" + "".join(
+                    f"{d[k][i]:>{w}.3f}" if k in d and i < len(d[k])
+                    else f"{'-':>{w}}" for k in keys))
+            print(f"  {'MEDIAN':<24}" + "".join(
+                f"{float(np.median(d[k])):>{w}.3f}" if k in d
+                else f"{'-':>{w}}" for k in keys))
+        print("\n  Physical units, through each processor's own param_desc.\n"
               "  amplitudes and cutoff are per-frame in this synth and are\n"
               "  averaged over frames; the static ones are already one value\n"
               "  per clip, so the average is a no-op for them.")
