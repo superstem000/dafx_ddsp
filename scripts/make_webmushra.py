@@ -156,14 +156,23 @@ def spread_balanced(clips: dict, spread_re: str, balance_re: str | None,
         slots = [keys[round(i * (len(keys) - 1) / (n_trials - 1))]
                  for i in range(n_trials)]
 
+    # The assignment is BALANCED THEN SHUFFLED, not cycled. Walking
+    # 32, 64, 95, 32, 64, 95 up the keyboard keeps the counts equal but makes
+    # velocity a deterministic function of note rank -- a periodic confound
+    # instead of a monotonic one, and just as unreadable. Shuffling a balanced
+    # multiset keeps three of each while breaking the correspondence.
+    rnd = _random.Random(order_seed)
+    plan = [vals[i % len(vals)] for i in range(len(slots))]
+    rnd.shuffle(plan)
+
     chosen, used = [], set()
-    for i, k in enumerate(slots):
-        # Rotate the secondary axis, and fall through to the next value when a
-        # note lacks one or its stem is already taken -- so a hole in the pack
-        # costs balance rather than dropping the trial.
-        for j in range(len(vals)):
-            want = vals[(i + j) % len(vals)]
-            hit = next((s for v, s in axis[k] if v == want and s not in used),
+    for want, k in zip(plan, slots):
+        # Fall through to the other values when a note lacks the planned one or
+        # its stem is already taken, so a hole in the pack costs balance rather
+        # than dropping the trial.
+        order = [want] + [v for v in vals if v != want]
+        for w in order:
+            hit = next((s for v, s in axis[k] if v == w and s not in used),
                        None)
             if hit:
                 chosen.append(hit)
@@ -182,7 +191,7 @@ def spread_balanced(clips: dict, spread_re: str, balance_re: str | None,
             got[m.group(1) if m else "?"] += 1
         print("  balanced on --balance-re: "
               + ", ".join(f"{k}x{n}" for k, n in sorted(got.items())))
-    _random.Random(order_seed).shuffle(chosen)
+    rnd.shuffle(chosen)
     return chosen
 
 
