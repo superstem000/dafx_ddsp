@@ -1414,8 +1414,18 @@ def main() -> None:
         "",
     ]
 
-    (args.out / "README.md").write_text("\n".join(lines) + "\n")
-    print(f"\nwrote {args.out}/README.md")
+    # README.md documents EVERY section, and lines was built only from the
+    # ones this run copied. Writing it after --only therefore deleted the
+    # other sixteen sections' notes while reporting success -- the files
+    # stayed on disk with nothing left describing them. A partial rebuild is
+    # still useful, so keep it and refuse only the write that loses text.
+    if args.only:
+        print(f"\n{args.out}/README.md NOT rewritten: --only built "
+              f"{len(args.only)} of {len(MANIFEST)} sections and the README "
+              f"covers all of them. Re-run without --only to regenerate it.")
+    else:
+        (args.out / "README.md").write_text("\n".join(lines) + "\n")
+        print(f"\nwrote {args.out}/README.md")
     if missing:
         print("\nmissing at build time (entries were skipped, not failed):")
         for m in sorted(set(missing)):
