@@ -209,6 +209,29 @@ def _f(pat, text, cast=str):
     return cast(m.group(1)) if m else None
 
 
+def _dataset_of(d: Path) -> str:
+    """Which id_dir a diffsynth run trained on, as its basename.
+
+    Hydra chdirs into the run directory and dumps the composed config to
+    .hydra/config.yaml, so data.id_dir is recorded per run even when it came
+    from the command line. overrides.yaml is checked first because an override
+    is the unambiguous statement of intent, and config.yaml second because a
+    run that took the config's default has no override to read. Returns "?"
+    when neither is present, which the caller must not read as agreement.
+    """
+    ov = d / ".hydra" / "overrides.yaml"
+    if ov.exists():
+        m = re.search(r"data\.id_dir=(\S+)", ov.read_text())
+        if m:
+            return m.group(1).strip("'\"").rstrip("/").split("/")[-1]
+    cf = d / ".hydra" / "config.yaml"
+    if cf.exists():
+        m = re.search(r"^\s*id_dir:\s*(\S+)", cf.read_text(), re.M)
+        if m:
+            return m.group(1).strip("'\"").rstrip("/").split("/")[-1]
+    return "?"
+
+
 def check_diffsynth(b: Path):
     head("diffsynth: numbers present, arms recoverable, one split across every run")
     # 08-11 copy the same tree; 08 is the reproduction section and carries it.
@@ -309,12 +332,13 @@ def check_diffsynth(b: Path):
         # every added experiment raised a leakage alarm for the crime of
         # training on its own data: five hashes across r13, o1, chorus, giv
         # and the published family, each internally consistent.
-        hp = d / "tb_logs" / "hparams.yaml"
-        ds = "?"
-        if hp.exists():
-            m = re.search(r"^\s*id_dir:\s*(\S+)", hp.read_text(), re.M)
-            if m:
-                ds = m.group(1).rstrip("/").split("/")[-1]
+        #
+        # NOT from tb_logs/hparams.yaml: save_hyperparameters() runs inside
+        # EstimatorSynth, which is constructed from cfg.model, cfg.synth and
+        # cfg.schedule, so cfg.data never reaches it and id_dir is not in
+        # there. Hydra chdirs into the run directory, so the resolved config
+        # it dumps beside the run is the record of which data was loaded.
+        ds = _dataset_of(d)
         for k in ("id_valid", "ood_valid"):
             if k in rec:
                 hashes.setdefault((k, ds), {}).setdefault(
@@ -332,6 +356,15 @@ def check_diffsynth(b: Path):
         if len(hs) == 1:
             note(OK, f"{k} on {ds}: one split across all {n} runs -- no leakage "
                      f"across the pretrain/resume boundary")
+        elif ds == "?":
+            # Runs whose dataset could not be read cannot be grouped, so their
+            # differing hashes are not evidence of anything. Saying so is the
+            # honest report; calling it leakage is not.
+            note(LIM, f"{k}: {n} runs record no resolvable dataset, so whether "
+                      f"their {len(hs)} splits differ because they trained on "
+                      f"different data or because a resume redrew the split "
+                      f"cannot be told apart: "
+                      + "; ".join(f"{h[:8]}={v}" for h, v in hs.items()))
         else:
             note(FUND, f"{k} on {ds}: {len(hs)} DIFFERENT splits within ONE "
                        f"dataset, so some arm validated on another's training "
