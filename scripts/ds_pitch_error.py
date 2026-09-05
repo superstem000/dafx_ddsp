@@ -59,7 +59,22 @@ import torch                                             # noqa: E402
 from diffsynth.processor import SCALE_FNS                # noqa: E402
 from ds_eval_folder import audio_files, load_clip, load_model   # noqa: E402
 
-MIDI_RE = r"-(\d{1,3})-\d{1,3}\.[A-Za-z0-9]+$"
+# -<midi>-<velocity> before the extension, with an OPTIONAL token after the
+# velocity. Modularsamples names most packs ...-48-127.aiff but the Minitaur
+# doubles pack ...-doubles-48-32-3mak.aiff, and without the optional group the
+# doubles pack -- the primary pack in the real-audio section -- matched nothing
+# and every tool that defaults to this regex skipped the whole folder. It says
+# so rather than failing, but "no files with a MIDI number" reads like a
+# property of the pack instead of a property of this pattern.
+#
+# The optional token MUST contain a letter, and that is not cosmetic.
+# Allowing a purely alphanumeric one lets it swallow the velocity in
+# ...-synth-bass-1-24-127.aiff: the leftmost match then reads midi=1,
+# velocity=24, suffix=127, and the whole Korg pack silently shifts by an
+# octave and a half instead of failing. Requiring a letter makes -127
+# unmatchable as a suffix, so that name falls back to the -24-127 parse and
+# still yields 24.
+MIDI_RE = r"-(\d{1,3})-\d{1,3}(?:-[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*)?\.[A-Za-z0-9]+$"
 
 
 def midi_of(path: str, pattern: str) -> int | None:
