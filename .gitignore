@@ -38,3 +38,53 @@ archive_extract.log
 db_listen/
 mask_listen*/
 *.tar.gz
+
+# ---------------------------------------------------------------------------
+# Generated evaluation output, Aug-Sep 2026. Same reasoning as db_listen/ and
+# mask_listen*/ above: these are audio and per-run tables that any of the
+# scripts reproduces from a checkpoint, and the scripts plus their flags are
+# the record. What is NOT here, deliberately, is results/mushra/ -- listening
+# sessions cannot be regenerated from anything.
+
+# Renders written by ds_eval_folder --render, eval_real_ir and eval_convolved.
+*_listen/
+*_listen_*/
+*_conv/
+*_conv_*/
+*_active/
+compare_id*/
+real_ir_eval/
+prior_emt/
+probe*/
+emt[0-9]*_*/
+korg_fin*/
+low_korg/
+high_korg/
+saw_high/
+f5o_low/
+r13_b48/
+
+# webMUSHRA test directories: copies of the renders plus a config, rebuilt by
+# make_webmushra.py in seconds. The SESSIONS live in results/mushra/.
+mushra_*/
+mushra_id.html
+
+# Per-run tables from ds_eval_folder / ds_osc_usage / ds_harmonic_probe. Kept
+# out of the working tree; the ones a bundle needs are copied into paper/.
+/*.csv
+
+# Sample packs as downloaded. data/ is already ignored and these are the
+# zips it came from.
+17*__modularsamples__*.zip
+
+# Generation and queue stdout. Unlike dm_*.log these are not the only record:
+# the jobs_*.txt files carry the invocation and the datasets are regenerable
+# from docs/DATASETS.md.
+gen_emt*.log
+queue_emt*.log
+logs/
+
+# NSynth per-class screen. ds_class_sweep.sh says it in its own header: "It is
+# a screen, not a result."
+results/class_sweep/
+results/ddsp/
