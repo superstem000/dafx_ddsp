@@ -209,8 +209,60 @@ def _f(pat, text, cast=str):
     return cast(m.group(1)) if m else None
 
 
+def _dataset_of(d: Path) -> str:
+    """Which id_dir a diffsynth run trained on, as its basename.
+
+    Hydra chdirs into the run directory and dumps the composed config to
+    .hydra/config.yaml, so data.id_dir is recorded per run even when it came
+    from the command line. overrides.yaml is checked first because an override
+    is the unambiguous statement of intent, and config.yaml second because a
+    run that took the config's default has no override to read. Returns "?"
+    when neither is present, which the caller must not read as agreement.
+    """
+    ov = d / ".hydra" / "overrides.yaml"
+    if ov.exists():
+        m = re.search(r"data\.id_dir=(\S+)", ov.read_text())
+        if m:
+            return m.group(1).strip("'\"").rstrip("/").split("/")[-1]
+    cf = d / ".hydra" / "config.yaml"
+    if cf.exists():
+        m = re.search(r"^\s*id_dir:\s*(\S+)", cf.read_text(), re.M)
+        if m:
+            return m.group(1).strip("'\"").rstrip("/").split("/")[-1]
+    return "?"
+
+
+def _synth_of(d: Path) -> str:
+    """The synth config name, which is the OTHER half of what fixes a split.
+
+    train.py constructs EstimatorSynth before the datamodule, so the
+    estimator's weight init consumes global RNG before random_split reaches
+    it. A synth with a different parameter count draws a different number of
+    values and lands on a different split of the same files -- which is why
+    every h2of_f0only run shares one membership hash and every h2of run
+    another, on whichever dataset they were pointed at. The split is a
+    function of (dataset, synth), so that is the unit within which two
+    differing hashes mean something went wrong rather than something differed.
+    """
+    cf = d / ".hydra" / "config.yaml"
+    if not cf.exists():
+        return "?"
+    t = cf.read_text().splitlines()
+    for i, line in enumerate(t):
+        if line.rstrip() != "synth:":
+            continue
+        for nxt in t[i + 1:]:
+            if nxt.strip() and not nxt[:1].isspace():
+                break                      # left the synth block
+            m = re.match(r"\s+name:\s*(\S+)", nxt)
+            if m:
+                return m.group(1).strip("'\"")
+    return "?"
+
+
 def check_diffsynth(b: Path):
-    head("diffsynth: numbers present, arms recoverable, one split across every run")
+    head("diffsynth: numbers present, arms recoverable, one split per "
+         "dataset+synth")
     # 08-11 copy the same tree; 08 is the reproduction section and carries it.
     root = b / "diffsynth/08_reproduction/results/diffsynth"
     if not root.exists():
@@ -303,18 +355,28 @@ def check_diffsynth(b: Path):
             rec = json.loads(sm.read_text())
         except Exception:
             note(FUND, f"{d.name}: split_manifest.json is unreadable"); continue
-        # GROUPED BY DATASET. Two runs on different id_dirs necessarily have
-        # different splits, and comparing them says nothing -- the question is
-        # whether arms that are compared WITH EACH OTHER share one. Ungrouped,
-        # every added experiment raised a leakage alarm for the crime of
-        # training on its own data: five hashes across r13, o1, chorus, giv
-        # and the published family, each internally consistent.
-        hp = d / "tb_logs" / "hparams.yaml"
-        ds = "?"
-        if hp.exists():
-            m = re.search(r"^\s*id_dir:\s*(\S+)", hp.read_text(), re.M)
-            if m:
-                ds = m.group(1).rstrip("/").split("/")[-1]
+        # GROUPED BY (DATASET, SYNTH), because that pair is what fixes the
+        # split. The dataset half is obvious. The synth half is not: train.py
+        # builds EstimatorSynth before the datamodule, so the estimator's
+        # weight init consumes global RNG before random_split reaches it, and
+        # a synth with a different parameter count lands on a different split
+        # of the same files. The evidence is in the hashes themselves --
+        # membership is hashed from BASENAMES, and every h2of_f0only run
+        # carries one hash while every h2of run carries another, the same two
+        # hashes recurring across harmor_2oscfree, its _fifth variant and its
+        # _r13 variant. That is the synth's signature, not the data's.
+        #
+        # Grouping this way sharpens the test rather than relaxing it: a
+        # pretrain and the arms resuming from it share both halves, so inside
+        # one group a second hash can only come from the resume redrawing the
+        # split -- which is the failure the manifest exists to detect.
+        #
+        # NOT from tb_logs/hparams.yaml: save_hyperparameters() runs inside
+        # EstimatorSynth, which is constructed from cfg.model, cfg.synth and
+        # cfg.schedule, so cfg.data never reaches it and id_dir is not in
+        # there. Hydra chdirs into the run directory, so the resolved config
+        # it dumps beside the run is the record of which data was loaded.
+        ds = f"{_dataset_of(d)}/{_synth_of(d)}"
         for k in ("id_valid", "ood_valid"):
             if k in rec:
                 hashes.setdefault((k, ds), {}).setdefault(
@@ -332,11 +394,34 @@ def check_diffsynth(b: Path):
         if len(hs) == 1:
             note(OK, f"{k} on {ds}: one split across all {n} runs -- no leakage "
                      f"across the pretrain/resume boundary")
+        elif "?" in ds.split("/"):
+            # Runs whose dataset or synth could not be read cannot be grouped,
+            # so their differing hashes are not evidence of anything. Saying so
+            # is the honest report; calling it leakage is not.
+            note(LIM, f"{k}: {n} runs record no resolvable dataset/synth "
+                      f"({ds}), so whether their {len(hs)} splits differ "
+                      f"because the configuration differed or because a resume "
+                      f"redrew the split cannot be told apart: "
+                      + "; ".join(f"{h[:8]}={v}" for h, v in hs.items()))
         else:
-            note(FUND, f"{k} on {ds}: {len(hs)} DIFFERENT splits within ONE "
-                       f"dataset, so some arm validated on another's training "
-                       f"files: "
+            note(FUND, f"{k} on {ds}: {len(hs)} DIFFERENT splits under ONE "
+                       f"dataset and synth, so a resume redrew the split and "
+                       f"some arm validated on another's training files: "
                        + "; ".join(f"{h[:8]}={v}" for h, v in hs.items()))
+    # The split is a function of the synth, so one membership hash recurs on
+    # several datasets. Printed because it is the evidence for grouping this
+    # way, and because a reader who sees only the per-group OK lines would have
+    # no way to tell that the groups are not independent draws.
+    for k in ("id_valid", "ood_valid"):
+        seen = {}
+        for (kk, ds), hs in hashes.items():
+            if kk == k:
+                for h in hs:
+                    seen.setdefault(h, []).append(ds)
+        shared = {h: g for h, g in seen.items() if len(g) > 1}
+        for h, g in sorted(shared.items()):
+            print(f"  {k}: {h[:12]} recurs on {len(g)} groups {sorted(g)} -- "
+                  f"same split indices, the synth's signature not the data's")
     if unnamed:
         note(LIM, f"{len(unnamed)} split manifests record only a hash for a valid split, "
                   f"not the membership, so an offline evaluation can detect the wrong "

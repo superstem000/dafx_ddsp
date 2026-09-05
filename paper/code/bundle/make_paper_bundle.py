@@ -731,9 +731,13 @@ MANIFEST = [
             "arms are hardest to tell apart. make_webmushra now builds its own "
             "anchor at --anchor-hz, defaulting to 1500, and reports the "
             "fraction of energy above the cutoff per trial so the failure is "
-            "visible before anyone listens. The 36 vs 69.8 gap is far larger "
-            "than an anchor could account for, but the scale it sits on is "
-            "compressed at the bottom and that has to be said."
+            "visible before anyone listens. NO SITTING WAS RUN AT 1500. The "
+            "fixed generator is what ships and the 3.5 kHz stimuli are what "
+            "was rated, so the two do not correspond and the ratings here "
+            "cannot be regenerated from the bundled make_webmushra. The 36 vs "
+            "69.8 gap is far larger than an anchor could account for, but the "
+            "scale it sits on is compressed at the bottom and that has to be "
+            "said."
         ),
     ),
     dict(
@@ -840,9 +844,13 @@ MANIFEST = [
         title="Scoring real sample packs, and which of them the synth can represent at all",
         sources=["results/diffsynth"],
         scripts=["scripts/ds_eval_folder.py", "scripts/ds_osc_usage.py",
-                 "scripts/ds_harmonic_probe.py", "scripts/ds_param_swap.py",
+                 "scripts/ds_harmonic_probe.py", "scripts/ds_crepe_pitch.py",
+                 "scripts/ds_param_swap.py",
                  "scripts/ds_score_vs_param.py", "scripts/ds_source_diag.py",
                  "scripts/ds_mfcc_check.py"],
+        # The packs are commercial and are not redistributed here, so the
+        # probe's CSVs are the only record of what was measured on them.
+        extra_globs=["results/probe/*.csv"],
         note=(
             "ds_eval_folder scores an arbitrary folder of real audio against "
             "the same saturation denominator the rest of the project uses -- "
@@ -883,7 +891,19 @@ MANIFEST = [
             "with --match-level: rescaling every render to its target's RMS "
             "left the gap at 1.21, marginally WIDER. That matters because "
             "make_webmushra loudness-matches every stimulus, so a level-driven "
-            "advantage would never have reached the listeners."
+            "advantage would never have reached the listeners.\n\n"
+            "    THE PACKS ARE NOT IN THIS BUNDLE. They are commercial sample "
+            "libraries and redistributing them is not ours to do, so every "
+            "number above is reproducible only by someone holding the same "
+            "packs. What ships instead is the measurement rather than the "
+            "material: ds_harmonic_probe's CSVs under scripts/ record P1, the "
+            "bump columns and the interval classification for each pack, and "
+            "ds_crepe_pitch is the tracker whose disagreement with the probe "
+            "is the -12 semitone reading discussed above. A reader can check "
+            "that the characterisation is internally consistent and that the "
+            "selection rule was applied before the scores were seen; a reader "
+            "cannot re-derive the scores. That is a real limit and it is not "
+            "one the bundle can close."
         ),
     ),
     dict(
