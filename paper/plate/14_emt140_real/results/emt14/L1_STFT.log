@@ -1,0 +1,110 @@
+/home/bhpark3/dafx_ddsp/src/ddsp/train_encoder.py:1029: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  sched.step()
+Device cuda | loss L1_STFT | duration 1.0s
+param space emt14: h, rho, Ly, T0, T60_DC, T60_ratio   (val_nmse_6d is the NMSE over these)
+Loading train targets from data/train-emt14
+Loading val targets from data/val-emt14
+  24576 train / 991 val in 18s   train tensor 4.34 GB
+  training set held in host memory; batches transferred per step
+reference levels:  gt_loss 0.0000e+00   saturation (unrelated IRs) 1.3869e+00
+constant-predictor NMSE: 6d 8.237e-02  7d 8.237e-02  (the floor to beat)
+training loss stuck near saturation = gradient uninformative; well below = learning
+
+encoder: 3.73M params, width 32
+
+  loss scale restored: 1.1157e+00
+  optimizer state restored
+Resumed from results/ddsp/emt14_pre/L1_STFT/encoder_last.pt at step 2500, continuing to 10000
+step   2600  train 7.0401e-01  |g| 2.21e+01  [603s]
+step   2700  train 6.2864e-01  |g| 1.85e+01  [1200s]
+step   2800  train 6.1173e-01  |g| 1.63e+01  [1798s]
+step   2900  train 6.9117e-01  |g| 1.69e+01  [2396s]
+step   3000  train 7.4122e-01  val 6.7744e-01  6d geo 6.172e-03 med 6.848e-03 p90 1.922e-02 (const 8.237e-02)  |g| 1.94e+01  [2993s]
+           corr(identifiable)  h=+0.99  rho=+0.92  Ly=+0.99  T0=+1.00  T60_DC=+1.00  T60_ratio=+1.00   mean spread/GT 1.00
+step   3100  train 6.1380e-01  |g| 1.60e+01  [3632s]
+step   3200  train 5.8681e-01  |g| 1.33e+01  [4230s]
+step   3300  train 6.6600e-01  |g| 1.79e+01  [4828s]
+step   3400  train 5.8689e-01  |g| 1.10e+01  [5425s]
+step   3500  train 6.2483e-01  val 6.4126e-01  6d geo 2.740e-03 med 2.826e-03 p90 1.368e-02 (const 8.237e-02)  |g| 1.44e+01  [6023s]
+           corr(identifiable)  h=+0.99  rho=+0.92  Ly=+0.99  T0=+1.00  T60_DC=+1.00  T60_ratio=+1.00   mean spread/GT 0.98
+step   3600  train 6.1841e-01  |g| 1.49e+01  [6661s]
+step   3700  train 6.4299e-01  |g| 1.46e+01  [7259s]
+step   3800  train 6.7539e-01  |g| 1.37e+01  [7857s]
+step   3900  train 6.5183e-01  |g| 1.33e+01  [8454s]
+step   4000  train 6.2429e-01  val 6.0979e-01  6d geo 1.777e-03 med 1.640e-03 p90 6.852e-03 (const 8.237e-02)  |g| 1.07e+01  [9052s]
+           corr(identifiable)  h=+0.99  rho=+0.94  Ly=+0.99  T0=+1.00  T60_DC=+1.00  T60_ratio=+1.00   mean spread/GT 0.99
+step   4100  train 6.3931e-01  |g| 1.14e+01  [9692s]
+step   4200  train 6.5014e-01  |g| 1.34e+01  [10289s]
+step   4300  train 6.0143e-01  |g| 1.12e+01  [10887s]
+step   4400  train 5.8600e-01  |g| 1.37e+01  [11485s]
+step   4500  train 6.1015e-01  val 6.2361e-01  6d geo 1.525e-03 med 1.503e-03 p90 5.300e-03 (const 8.237e-02)  |g| 1.39e+01  [12084s]
+           corr(identifiable)  h=+0.99  rho=+0.95  Ly=+0.98  T0=+1.00  T60_DC=+1.00  T60_ratio=+1.00   mean spread/GT 0.98
+step   4600  train 6.0464e-01  |g| 1.12e+01  [12723s]
+step   4700  train 5.9573e-01  |g| 9.77e+00  [13321s]
+step   4800  train 6.3482e-01  |g| 1.13e+01  [13919s]
+step   4900  train 5.9657e-01  |g| 7.17e+00  [14518s]
+step   5000  train 6.5085e-01  val 6.3437e-01  6d geo 1.748e-03 med 1.752e-03 p90 6.330e-03 (const 8.237e-02)  |g| 1.08e+01  [15116s]
+           corr(identifiable)  h=+0.99  rho=+0.95  Ly=+0.98  T0=+1.00  T60_DC=+1.00  T60_ratio=+1.00   mean spread/GT 0.97
+step   5100  train 6.3853e-01  |g| 9.91e+00  [15754s]
+step   5200  train 6.5398e-01  |g| 9.95e+00  [16353s]
+step   5300  train 6.1239e-01  |g| 8.84e+00  [16951s]
+step   5400  train 6.0448e-01  |g| 6.87e+00  [17549s]
+step   5500  train 6.3552e-01  val 6.0972e-01  6d geo 2.135e-03 med 2.125e-03 p90 6.256e-03 (const 8.237e-02)  |g| 8.94e+00  [18147s]
+           corr(identifiable)  h=+0.99  rho=+0.95  Ly=+0.97  T0=+1.00  T60_DC=+1.00  T60_ratio=+1.00   mean spread/GT 0.97
+step   5600  train 6.2461e-01  |g| 9.58e+00  [18786s]
+step   5700  train 6.4294e-01  |g| 7.94e+00  [19384s]
+step   5800  train 6.5323e-01  |g| 8.81e+00  [19982s]
+step   5900  train 6.1907e-01  |g| 9.90e+00  [20580s]
+step   6000  train 5.6729e-01  val 6.4898e-01  6d geo 2.847e-03 med 2.815e-03 p90 1.016e-02 (const 8.237e-02)  |g| 8.08e+00  [21179s]
+           corr(identifiable)  h=+0.98  rho=+0.91  Ly=+0.97  T0=+1.00  T60_DC=+1.00  T60_ratio=+1.00   mean spread/GT 0.98
+step   6100  train 6.2367e-01  |g| 9.01e+00  [21817s]
+step   6200  train 6.2424e-01  |g| 1.36e+01  [22415s]
+step   6300  train 6.3793e-01  |g| 2.66e+00  [23014s]
+step   6400  train 6.5036e-01  |g| 5.11e+00  [23620s]
+step   6500  train 6.2604e-01  val 6.3673e-01  6d geo 1.165e-02 med 1.172e-02 p90 4.143e-02 (const 8.237e-02)  |g| 5.91e+00  [24221s]
+           corr(identifiable)  h=+0.95  rho=+0.77  Ly=+0.75  T0=+0.99  T60_DC=+0.99  T60_ratio=+1.00   mean spread/GT 0.90
+step   6600  train 6.6548e-01  |g| 6.23e+00  [24864s]
+step   6700  train 6.9918e-01  |g| 9.56e+00  [25464s]
+step   6800  train 5.7456e-01  |g| 5.99e+00  [26064s]
+step   6900  train 6.9029e-01  |g| 5.77e+00  [26665s]
+step   7000  train 6.1268e-01  val 6.3949e-01  6d geo 1.569e-02 med 1.552e-02 p90 6.943e-02 (const 8.237e-02)  |g| 7.64e+00  [27267s]
+           corr(identifiable)  h=+0.88  rho=+0.65  Ly=+0.76  T0=+0.99  T60_DC=+0.99  T60_ratio=+0.99   mean spread/GT 0.90
+step   7100  train 6.3212e-01  |g| 4.92e+00  [27911s]
+step   7200  train 6.3622e-01  |g| 7.44e+00  [28512s]
+step   7300  train 6.4708e-01  |g| 7.35e+00  [29112s]
+step   7400  train 6.1064e-01  |g| 7.18e+00  [29713s]
+step   7500  train 6.3977e-01  val 6.2569e-01  6d geo 1.362e-02 med 1.268e-02 p90 7.632e-02 (const 8.237e-02)  |g| 5.01e+00  [30313s]
+           corr(identifiable)  h=+0.88  rho=+0.52  Ly=+0.84  T0=+0.99  T60_DC=+0.99  T60_ratio=+0.99   mean spread/GT 0.93
+step   7600  train 6.0065e-01  |g| 4.69e+00  [30954s]
+step   7700  train 6.3827e-01  |g| 3.72e+00  [31554s]
+step   7800  train 6.7056e-01  |g| 1.08e+01  [32154s]
+step   7900  train 6.4812e-01  |g| 5.12e+00  [32755s]
+step   8000  train 6.3473e-01  val 6.1705e-01  6d geo 1.206e-02 med 1.127e-02 p90 6.777e-02 (const 8.237e-02)  |g| 6.88e+00  [33356s]
+           corr(identifiable)  h=+0.93  rho=+0.54  Ly=+0.89  T0=+0.99  T60_DC=+0.99  T60_ratio=+0.99   mean spread/GT 0.93
+step   8100  train 7.0861e-01  |g| 8.86e+00  [33997s]
+step   8200  train 6.4437e-01  |g| 7.82e+00  [34598s]
+step   8300  train 6.0416e-01  |g| 7.83e+00  [35198s]
+step   8400  train 6.0263e-01  |g| 7.27e+00  [35798s]
+step   8500  train 6.5552e-01  val 6.2008e-01  6d geo 1.425e-02 med 1.436e-02 p90 7.884e-02 (const 8.237e-02)  |g| 9.85e+00  [36400s]
+           corr(identifiable)  h=+0.89  rho=+0.57  Ly=+0.85  T0=+0.99  T60_DC=+0.98  T60_ratio=+0.99   mean spread/GT 0.93
+step   8600  train 6.1956e-01  |g| 7.34e+00  [37045s]
+step   8700  train 5.7714e-01  |g| 5.86e+00  [37649s]
+step   8800  train 6.3935e-01  |g| 5.98e+00  [38253s]
+step   8900  train 5.9537e-01  |g| 6.07e+00  [38856s]
+step   9000  train 5.5203e-01  val 6.1554e-01  6d geo 1.303e-02 med 1.355e-02 p90 7.337e-02 (const 8.237e-02)  |g| 9.48e+00  [39458s]
+           corr(identifiable)  h=+0.92  rho=+0.58  Ly=+0.87  T0=+0.99  T60_DC=+0.99  T60_ratio=+0.99   mean spread/GT 0.93
+step   9100  train 6.2039e-01  |g| 9.39e+00  [40101s]
+step   9200  train 6.3582e-01  |g| 6.87e+00  [40704s]
+step   9300  train 5.9535e-01  |g| 6.24e+00  [41306s]
+step   9400  train 6.3261e-01  |g| 4.60e+00  [41908s]
+step   9500  train 5.9800e-01  val 6.0827e-01  6d geo 1.129e-02 med 1.131e-02 p90 6.506e-02 (const 8.237e-02)  |g| 9.73e+00  [42510s]
+           corr(identifiable)  h=+0.94  rho=+0.61  Ly=+0.88  T0=+0.99  T60_DC=+0.99  T60_ratio=+0.99   mean spread/GT 0.94
+step   9600  train 5.7099e-01  |g| 7.06e+00  [43154s]
+step   9700  train 6.1648e-01  |g| 5.67e+00  [43756s]
+step   9800  train 6.0831e-01  |g| 1.24e+01  [44359s]
+step   9900  train 6.1783e-01  |g| 9.35e+00  [44960s]
+step  10000  train 6.3284e-01  val 6.0798e-01  6d geo 1.220e-02 med 1.193e-02 p90 7.070e-02 (const 8.237e-02)  |g| 8.17e+00  [45563s]
+           corr(identifiable)  h=+0.93  rho=+0.61  Ly=+0.87  T0=+0.99  T60_DC=+0.99  T60_ratio=+0.99   mean spread/GT 0.94
+best val_nmse_6d_geo 1.5246e-03 (encoder_best.pt)
+
+Done. Outputs written to /home/bhpark3/dafx_ddsp/results/ddsp/emt14/L1_STFT

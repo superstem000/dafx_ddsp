@@ -716,8 +716,37 @@ def _compress_mag(x: torch.Tensor, comp: str, eps: float = 1e-7, gamma: float = 
     raise ValueError(f"unknown compression mode: {comp!r}")
 
 
+def _hard_floor(t: torch.Tensor, c: torch.Tensor, top_db: float):
+    """Clamp both magnitudes at top_db below the TARGET's per-example peak.
+
+    THIS IS NOT WHAT eps DOES, and the difference is the whole point.
+
+    log(x + eps) never stops up-weighting quiet bins; it only bounds how far.
+    For x << eps the term is (a-b)/eps, so a floored bin carries weight 1/eps
+    while a bin at the peak carries d log/dx = 1/(x+eps). At eps 1e-1 against a
+    peak magnitude near 13 that is still 134x MORE weight on a floored bin than
+    on a peak bin; at eps 1e-7 it is 1.3e8x. The eps ladder is therefore a
+    ladder in how badly the quiet bins dominate, never in whether they do --
+    which is why L1_STFT_eps1e1, flooring at -42 dB and clamping ~97% of a
+    plate IR's bins, improved on the deeper rungs and still lost to linear.
+    That result has been read as evidence against the quiet-bin explanation. It
+    is not evidence about it either way, because no arm has ever removed those
+    bins.
+
+    Clamping does remove them: below the floor both signals take the same value,
+    the difference is exactly zero, and the bin contributes nothing to the loss
+    or its gradient. This is the convention the db70/db80 METRICS have always
+    used (torchaudio's top_db) and that the loss side has never had.
+
+    The floor is referenced to the target's peak, not the candidate's, so a
+    candidate cannot lower the floor by getting quieter.
+    """
+    floor = t.amax(dim=(1, 2), keepdim=True) * (10.0 ** (-top_db / 20.0))
+    return t.clamp(min=floor), c.clamp(min=floor)
+
+
 def _make_stft_l1(n_ffts, log: bool = False, sc: bool = False, eps: float = 1e-7,
-                  comp: str = None, gamma: float = 0.3):
+                  comp: str = None, gamma: float = 0.3, top_db: float = None):
     """Build a pure magnitude-L1 STFT loss with optional compression and SC term.
 
     (single=[4096], log=False, sc=False)                 == loss_l1_stft
@@ -738,6 +767,10 @@ def _make_stft_l1(n_ffts, log: bool = False, sc: bool = False, eps: float = 1e-7
             hop = nf_ // 4
             t = _stft_mag(target, nf_, hop)
             c = _stft_mag(candidate, nf_, hop)
+            if top_db is not None:
+                # Before compression, so the clamped bins are identical going in
+                # and contribute exactly zero whatever the compression is.
+                t, c = _hard_floor(t, c, top_db)
             t_c = _compress_mag(t, comp, eps, gamma)
             c_c = _compress_mag(c, comp, eps, gamma)
             mag_term = torch.mean(torch.abs(t_c - c_c), dim=(1, 2))
@@ -898,6 +931,42 @@ for _tag, _g in _GAMMA_I.items():
 
 
 # ---------------------------------------------------------------------------
+# g03 AT THE OTHER RUNGS OF THE EPS LADDER.
+#
+# eps IS the floor -- there is no second concept to introduce. What eps buys is
+# how far down a loss reaches, and that matters on the plate: below about
+# -120 dB its modal sum is float32 rounding rather than physics (86-99% of a
+# parameter's log-domain signature sits there, and swapping the reduction kernel
+# moves those bins). A loss reaching past that is fitting arithmetic.
+#
+# Only the COMPRESSED arms need the knob. Above gamma 0.5 the eps is a no-op:
+# (m^2 + eps^2)^0.5 is m above it and contributes nothing below it in absolute
+# terms, so a magnitude or power loss floors itself by weighting. Measured --
+# L1_STFT and the same loss at eps 1e-4 agree to six figures. So g1 and g05 are
+# deliberately NOT registered at other eps values; the variants would be
+# identical functions under different names.
+#
+# c1 already spans the ladder as L1_STFT_eps*, so this adds only the g03 rungs,
+# named by eps to match:
+#
+#   eps 1e-4  (-102 dB)  the physical quiet region, the junk band excluded
+#   eps 1e-5  (-122 dB)  right at the boundary
+#   eps 1e-7  (-162 dB)  the original, 40 dB into the junk
+#
+# This is also why --compile-plate becomes usable again. Compiled and eager
+# reduction kernels disagree almost entirely below -107 dB (42.6% of the
+# disagreement in the quietest decile, 0.3% by the seventh), so an arm whose eps
+# stops at -102 dB cannot see that disagreement -- confirmed by a training-
+# process gt_loss of exactly 0.0000e+00 under compile.
+# Values written out rather than read from _EPS_LADDER, which is defined below
+# this point -- the tags match it and _check_eps_tags_agree asserts they do.
+_G03_EPS = {"1e4": 1e-4, "1e5": 1e-5}
+for _tag, _e in _G03_EPS.items():
+    _DECOMP_LOSSES[f"L1_STFT_g03_eps{_tag}"] = _make_stft_l1(
+        [4096], comp="gpow", gamma=0.3, eps=_e)
+
+
+# ---------------------------------------------------------------------------
 # The ladder above is four named losses; this is the same axis as one number.
 #
 # log(x + eps) at eps = 1 is log1p, which is C2 exactly, and at eps = 1e-7 it
@@ -917,7 +986,23 @@ for _tag, _g in _GAMMA_I.items():
 # 1e-4 splits the 1e-5 -> 1e-3 step, which the knee table shows covering 45
 # percentage points of the bin distribution -- by far the widest rung, and so
 # the one where a cliff would be least localised.
-_EPS_LADDER = {"1": 1.0, "1e1": 1e-1, "1e3": 1e-3, "1e4": 1e-4, "1e5": 1e-5, "1e7": 1e-7}
+# 1e2 is not a ladder rung -- the ladder steps by decades from 1.0 and skipped
+# it -- but it is the one value that makes a hybrid/log PAIR single-variable.
+# _HYBRID_EPS has 1e2 because 1e-2 on magnitude is where diffsynth's 1e-4 on
+# power lands (log m = 0.5 log p), so hyb1e2 is the parity arm. Comparing it
+# against eps1e7, as gamma_ppre does, differs in TWO things: the linear term
+# AND five decades of eps. diffsynth's own hybridx and logx_halfw both sit at
+# 1e-2 and differ in one. This rung is what lets the plate match that.
+_EPS_LADDER = {"1": 1.0, "1e1": 1e-1, "1e2": 1e-2, "1e3": 1e-3, "1e4": 1e-4,
+               "1e5": 1e-5, "1e7": 1e-7}
+# The g03 rungs above spell their eps out because they are registered before
+# this dict exists. A tag meaning one eps for c1 and another for g03 would make
+# the ladder single-variable in name only, so it is checked rather than trusted.
+for _tag, _e in _G03_EPS.items():
+    if _EPS_LADDER[_tag] != _e:
+        raise AssertionError(
+            f"L1_STFT_g03_eps{_tag} uses eps {_e:g} but L1_STFT_eps{_tag} uses "
+            f"{_EPS_LADDER[_tag]:g}")
 for _tag, _eps in _EPS_LADDER.items():
     _DECOMP_LOSSES[f"L1_STFT_eps{_tag}"] = _make_stft_l1([4096], comp="c1", eps=_eps)
 
@@ -943,7 +1028,8 @@ for _tag, _eps in _EPS_LADDER.items():
 # 1e-2 is where diffsynth's knee actually sits once translated, so hyb1e2 is the
 # parity arm. Neither is "the" right answer -- the knee's percentile against our
 # own bin distribution is what decides that, and the ladder's table has it.
-def _make_stft_hybrid(n_ffts, eps: float, mag_w: float = 1.0, log_w: float = 1.0):
+def _make_stft_hybrid(n_ffts, eps: float, mag_w: float = 1.0, log_w: float = 1.0,
+                      top_db: float = None):
     """L1 on linear magnitude plus L1 on log magnitude, summed per FFT size."""
 
     def _loss(target: torch.Tensor, candidate: torch.Tensor) -> torch.Tensor:
@@ -953,6 +1039,8 @@ def _make_stft_hybrid(n_ffts, eps: float, mag_w: float = 1.0, log_w: float = 1.0
             hop = nf_ // 4
             t = _stft_mag(target, nf_, hop)
             c = _stft_mag(candidate, nf_, hop)
+            if top_db is not None:
+                t, c = _hard_floor(t, c, top_db)
             term = mag_w * torch.mean(torch.abs(t - c), dim=(1, 2)) + log_w * torch.mean(
                 torch.abs(torch.log(t + eps) - torch.log(c + eps)), dim=(1, 2)
             )
@@ -965,6 +1053,38 @@ def _make_stft_hybrid(n_ffts, eps: float, mag_w: float = 1.0, log_w: float = 1.0
 _HYBRID_EPS = {"1e2": 1e-2, "1e4": 1e-4}
 for _tag, _eps in _HYBRID_EPS.items():
     _DECOMP_LOSSES[f"L1_STFT_hyb{_tag}"] = _make_stft_hybrid([4096], eps=_eps)
+
+
+# ---------------------------------------------------------------------------
+# HARD-FLOORED LOG AND HYBRID -- the arm the eps ladder never was.
+#
+# See _hard_floor. eps caps how much quiet bins dominate; clamping removes them.
+# On a plate IR the fractions clamped are large enough that the two cannot be
+# confused: -40 dB drops 98% of bins, -60 dB 94%, -80 dB 88%, -100 dB 82%.
+#
+# eps stays at 1e-7 in all of these ON PURPOSE. Below the clamp nothing reaches
+# the log at all, so eps has no effect there, and holding it fixed keeps these
+# arms differing from the published c1 rung in exactly one thing: the floor.
+_LOSS_TOP_DB = (40.0, 60.0, 80.0, 100.0)
+for _db in _LOSS_TOP_DB:
+    _t = f"{int(_db)}"
+    _DECOMP_LOSSES[f"L1_STFT_c1_db{_t}"] = _make_stft_l1(
+        [4096], comp="c1", eps=1e-7, top_db=_db)
+    _DECOMP_LOSSES[f"L1_STFT_hyb_db{_t}"] = _make_stft_hybrid(
+        [4096], eps=1e-7, top_db=_db)
+    # LINEAR AT THE SAME FLOOR -- the control the first wave did not have.
+    # Reading floored-log against unfloored-linear changes two things at once,
+    # so a floored arm matching L1_STFT proves nothing until it is known what
+    # the floor alone does. If linear improves at db40 too, the floor is the
+    # result and compression is still along for the ride; if linear is flat,
+    # the floored compressed arms genuinely closed the gap.
+    #
+    # Expected flat, and that is the point of running it: a linear loss already
+    # puts ~0.1% of its weight below -100 dB (see diag_band_identifiability), so
+    # clamping there should be very close to a no-op. "Expected flat" is not
+    # "known flat", and this arm is one card-hour.
+    _DECOMP_LOSSES[f"L1_STFT_lin_db{_t}"] = _make_stft_l1(
+        [4096], comp="linear", top_db=_db)
 
 
 # ===========================================================================
@@ -1093,6 +1213,14 @@ for _name, _fn in (
     *((f"L1_STFT_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_eps{_t}"]) for _t in _EPS_LADDER),
     *((f"L1_STFT_hyb{_t}", _DECOMP_LOSSES[f"L1_STFT_hyb{_t}"]) for _t in _HYBRID_EPS),
     *((f"L1_STFT_{_t}", _DECOMP_LOSSES[f"L1_STFT_{_t}"]) for _t in _GAMMA_I),
+    *((f"L1_STFT_g03_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_g03_eps{_t}"])
+      for _t in ("1e4", "1e5")),
+    *((f"L1_STFT_c1_db{int(_d)}", _DECOMP_LOSSES[f"L1_STFT_c1_db{int(_d)}"])
+      for _d in _LOSS_TOP_DB),
+    *((f"L1_STFT_hyb_db{int(_d)}", _DECOMP_LOSSES[f"L1_STFT_hyb_db{int(_d)}"])
+      for _d in _LOSS_TOP_DB),
+    *((f"L1_STFT_lin_db{int(_d)}", _DECOMP_LOSSES[f"L1_STFT_lin_db{int(_d)}"])
+      for _d in _LOSS_TOP_DB),
 ):
     LOSS_COMPONENTS[_name] = _fn
     LOSS_NAME_ALIASES[_normalize_name(_name)] = _name

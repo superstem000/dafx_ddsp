@@ -103,10 +103,32 @@ N_FFT=${N_FFT:-4096}
 HOP=${HOP:-1024}
 N_BLOCKS=${N_BLOCKS:-6}
 EVAL_EVERY=${EVAL_EVERY:-2000}
+# The literal flag handed to train_encoder, so the default is checkpointing OFF.
+# GRAD_CKPT=on turns it on -- spelled as a sentinel rather than as the empty
+# string because ${VAR:-default} substitutes on empty as well as unset, so
+# GRAD_CKPT="" would silently mean the opposite of what it reads as.
+#
+# Off is right when the modal sum is compiled: Inductor fuses P*env*osc into the
+# reduction, so the [B, n_modes, chunk] intermediate never materializes and
+# backward recomputes it from the per-mode tensors. Eager materializes all three
+# and keeps every chunk's for backward -- at chunk_elems 1e9 that is 4 GB per
+# tensor and ~15 GB resident, which is how the first quiet3 base died. Any eager
+# run of this plate wants GRAD_CKPT=on and a chunk small enough to bound the
+# transient. It costs one extra forward per step and changes no forward value,
+# so gt_loss is unaffected.
 GRAD_CKPT=${GRAD_CKPT:---no-grad-checkpoint}
+[[ "$GRAD_CKPT" == "on" ]] && GRAD_CKPT=""
 NUMERICS=${NUMERICS:-"--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 86,282"}
 EXTRA=${EXTRA:-""}
 ARMS=${ARMS:-"L1_STFT L1_STFT_eps1 L1_STFT_eps1e1 L1_STFT_eps1e3 L1_STFT_eps1e4 L1_STFT_eps1e5 L1_STFT_eps1e7"}
+# Which plate parameters are searched and which are pinned. Read by
+# src/cmaes/fit_7param_norm_es.py, and therefore by the encoder, the plate
+# packing and make_dataset alike -- a dataset generated under one value and
+# trained under another is targets and synthesis disagreeing about what the
+# pinned half is, which is exactly the floor diag_gt_floor exists to catch.
+# Exported and recorded for that reason. raw7 is the published task; see
+# PARAM_SPACES for the rest.
+export PLATE_PARAM_SPACE=${PLATE_PARAM_SPACE:-raw7}
 
 # Ctrl-C should stop the sweep, not advance it. Without this the per-arm
 # failure handling below reads an interrupt as "that arm died, start the next
@@ -124,6 +146,7 @@ NG=${#GPU_ARR[@]}
 mkdir -p "$OUT"
 echo "arms: ${ARM_ARR[*]}"
 echo "gpus: ${GPU_ARR[*]}  steps: $STEPS  lr: $LR  out: $OUT"
+echo "param space: $PLATE_PARAM_SPACE  train: $TRAIN  val: $VAL"
 
 for d in "$TRAIN" "$VAL"; do
   if [[ ! -d "$d" ]]; then
@@ -175,6 +198,7 @@ fi
   echo "train=$TRAIN n_train=$N_TRAIN  val=$VAL n_val=$N_VAL"
   echo "n_fft=$N_FFT hop=$HOP n_blocks=$N_BLOCKS grad_ckpt=$GRAD_CKPT"
   echo "head_bound=$HEAD_BOUND head_grad_floor=$HEAD_GRAD_FLOOR head_cap=$HEAD_CAP adam_eps=$ADAM_EPS head_hinge=$HEAD_HINGE norm=$NORM grad_clip=$CLIP batch=$BATCH warmup=$WARMUP lr_floor=$LR_FLOOR lr_hold_frac=$LR_HOLD deep_sup=$DEEPSUP"
+  echo "param_space=$PLATE_PARAM_SPACE"
   echo "numerics='$NUMERICS'"
   echo "extra='$EXTRA'"
   echo "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -182,6 +206,11 @@ fi
   echo "torch=$(python -c 'import torch;print(torch.__version__, torch.version.cuda)' 2>/dev/null || echo unknown)"
 } > "$OUT/sweep_command.txt"
 cat "$OUT/sweep_command.txt"
+
+# A stale failures.txt from an earlier attempt would make the exit-status check
+# below condemn a ladder that actually succeeded, so it is cleared here rather
+# than trusted to be absent.
+rm -f "$OUT/failures.txt"
 
 # Arms are handed to GPUs round-robin and run sequentially within a GPU, so a
 # ladder longer than the GPU count still completes without oversubscribing.
@@ -229,4 +258,22 @@ for ((g = 0; g < NG; g++)); do
   echo "  gpu ${GPU_ARR[$g]} -> $(for ((i = g; i < ${#ARM_ARR[@]}; i += NG)); do printf '%s ' "${ARM_ARR[$i]}"; done)"
 done
 wait
+
+# EXIT NONZERO IF ANY ARM FAILED. Arms run in background subshells so their
+# status cannot be collected directly, and without this the script returns 0
+# whenever it merely *reached* the end -- which is how a ladder whose shared
+# base crashed in 40 seconds reported rc=0 to gpu_queue, let the stage barrier
+# go, and launched five arms that then died on a checkpoint nothing had
+# written. A stage barrier that cannot see a failure is not a barrier.
+#
+# Not `set -e` on the python call: arms queued behind a crashed one on the same
+# GPU should still run, which is the behaviour the per-arm rc handling above
+# exists to provide. Both properties are wanted -- finish the other arms, and
+# still tell the caller something broke.
+if [[ -s "$OUT/failures.txt" ]]; then
+  echo
+  echo "ladder INCOMPLETE: $OUT"
+  cat "$OUT/failures.txt"
+  exit 1
+fi
 echo "ladder complete: $OUT"

@@ -1,0 +1,7 @@
+- experiment=pretrain
+- data.id_dir=/home/bhpark3/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree
+- data.ood_dir=/home/bhpark3/dafx_ddsp/external/diffsynth/data/nsynth-train
+- trainer.accelerator=gpu
+- trainer.devices=1
+- trainer.max_epochs=50
+- model.decay_rate=0.99332217

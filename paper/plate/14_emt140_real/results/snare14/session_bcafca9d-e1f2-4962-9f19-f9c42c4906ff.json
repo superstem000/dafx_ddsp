@@ -1,0 +1,335 @@
+{
+ "testId": "snare14",
+ "participant": {
+  "name": [],
+  "response": []
+ },
+ "trials": [
+  {
+   "id": "emt_140_bright_2",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "L1_STFT",
+     "score": "44",
+     "comment": null,
+     "time": 117471
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 117471
+    },
+    {
+     "stimulus": "L1_STFT_hyb1e2",
+     "score": "72",
+     "comment": null,
+     "time": 117471
+    },
+    {
+     "stimulus": "anchor35",
+     "score": "0",
+     "comment": null,
+     "time": 117471
+    },
+    {
+     "stimulus": "L1_STFT_eps1e2",
+     "score": "41",
+     "comment": null,
+     "time": 117471
+    }
+   ]
+  },
+  {
+   "id": "emt_140_bright_3",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "L1_STFT_hyb1e2",
+     "score": "60",
+     "comment": null,
+     "time": 95722
+    },
+    {
+     "stimulus": "L1_STFT_eps1e2",
+     "score": "35",
+     "comment": null,
+     "time": 95722
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 95722
+    },
+    {
+     "stimulus": "L1_STFT",
+     "score": "77",
+     "comment": null,
+     "time": 95722
+    },
+    {
+     "stimulus": "anchor35",
+     "score": "0",
+     "comment": null,
+     "time": 95722
+    }
+   ]
+  },
+  {
+   "id": "emt_140_bright_4",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "L1_STFT_eps1e2",
+     "score": "24",
+     "comment": null,
+     "time": 53858
+    },
+    {
+     "stimulus": "anchor35",
+     "score": "0",
+     "comment": null,
+     "time": 53858
+    },
+    {
+     "stimulus": "L1_STFT_hyb1e2",
+     "score": "50",
+     "comment": null,
+     "time": 53858
+    },
+    {
+     "stimulus": "L1_STFT",
+     "score": "79",
+     "comment": null,
+     "time": 53858
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 53858
+    }
+   ]
+  },
+  {
+   "id": "emt_140_dark_2",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "L1_STFT_eps1e2",
+     "score": "19",
+     "comment": null,
+     "time": 109530
+    },
+    {
+     "stimulus": "anchor35",
+     "score": "62",
+     "comment": null,
+     "time": 109530
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 109530
+    },
+    {
+     "stimulus": "L1_STFT_hyb1e2",
+     "score": "55",
+     "comment": null,
+     "time": 109530
+    },
+    {
+     "stimulus": "L1_STFT",
+     "score": "71",
+     "comment": null,
+     "time": 109530
+    }
+   ]
+  },
+  {
+   "id": "emt_140_dark_3",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "anchor35",
+     "score": "50",
+     "comment": null,
+     "time": 72875
+    },
+    {
+     "stimulus": "L1_STFT",
+     "score": "68",
+     "comment": null,
+     "time": 72875
+    },
+    {
+     "stimulus": "L1_STFT_eps1e2",
+     "score": "33",
+     "comment": null,
+     "time": 72875
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 72875
+    },
+    {
+     "stimulus": "L1_STFT_hyb1e2",
+     "score": "49",
+     "comment": null,
+     "time": 72875
+    }
+   ]
+  },
+  {
+   "id": "emt_140_dark_4",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "L1_STFT_eps1e2",
+     "score": "33",
+     "comment": null,
+     "time": 56512
+    },
+    {
+     "stimulus": "L1_STFT",
+     "score": "64",
+     "comment": null,
+     "time": 56512
+    },
+    {
+     "stimulus": "anchor35",
+     "score": "52",
+     "comment": null,
+     "time": 56512
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 56512
+    },
+    {
+     "stimulus": "L1_STFT_hyb1e2",
+     "score": "49",
+     "comment": null,
+     "time": 56512
+    }
+   ]
+  },
+  {
+   "id": "emt_140_medium_2",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "L1_STFT_hyb1e2",
+     "score": "74",
+     "comment": null,
+     "time": 55586
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 55586
+    },
+    {
+     "stimulus": "L1_STFT",
+     "score": "74",
+     "comment": null,
+     "time": 55586
+    },
+    {
+     "stimulus": "anchor35",
+     "score": "36",
+     "comment": null,
+     "time": 55586
+    },
+    {
+     "stimulus": "L1_STFT_eps1e2",
+     "score": "35",
+     "comment": null,
+     "time": 55586
+    }
+   ]
+  },
+  {
+   "id": "emt_140_medium_3",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 34905
+    },
+    {
+     "stimulus": "L1_STFT",
+     "score": "70",
+     "comment": null,
+     "time": 34905
+    },
+    {
+     "stimulus": "L1_STFT_eps1e2",
+     "score": "34",
+     "comment": null,
+     "time": 34905
+    },
+    {
+     "stimulus": "L1_STFT_hyb1e2",
+     "score": "46",
+     "comment": null,
+     "time": 34905
+    },
+    {
+     "stimulus": "anchor35",
+     "score": "49",
+     "comment": null,
+     "time": 34905
+    }
+   ]
+  },
+  {
+   "id": "emt_140_medium_4",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "L1_STFT",
+     "score": "73",
+     "comment": null,
+     "time": 50880
+    },
+    {
+     "stimulus": "anchor35",
+     "score": "50",
+     "comment": null,
+     "time": 50880
+    },
+    {
+     "stimulus": "L1_STFT_hyb1e2",
+     "score": "43",
+     "comment": null,
+     "time": 50880
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 50880
+    },
+    {
+     "stimulus": "L1_STFT_eps1e2",
+     "score": "34",
+     "comment": null,
+     "time": 50880
+    }
+   ]
+  }
+ ],
+ "uuid": "bcafca9d-e1f2-4962-9f19-f9c42c4906ff",
+ "config": "configs/snare14.yaml"
+}

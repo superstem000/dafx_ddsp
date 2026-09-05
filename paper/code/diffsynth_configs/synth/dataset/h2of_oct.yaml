@@ -1,0 +1,93 @@
+name: harmor_2oscfree_oct
+# used for generating dataset for h2of.yaml -- SAME model synth, same
+# ext_param_size, same heads. Only the distribution the data is drawn from
+# differs, so checkpoints and commands from h2of are unchanged.
+#
+# WHY. In h2of, MULT is drawn uniform on 0..1 and harmor maps it linearly onto
+# (1, 8), so the second oscillator sits at an arbitrary, almost always
+# irrational ratio to the first. Real two-oscillator bass patches do not do
+# that: the second oscillator is at unison or a whole number of octaves.
+#
+# That is not just a realism complaint. With a continuous ratio the model can
+# place osc 2 at any interval and let the PAIR imply a fundamental that is
+# neither oscillator's own -- which is exactly the "two oscillators splitting
+# the note" behaviour heard on the real packs, where the estimate tracks the
+# true pitch at a slope well under 1. Quantising the ratio removes that degree
+# of freedom: osc 2 can only reinforce osc 1's harmonic series, never invent a
+# fundamental between them.
+#
+# Everything else -- envelopes, occupancy, f0 range, osc_mix, cutoff, q -- is
+# byte-for-byte h2of.
+
+n_oscs: 2
+max_value: 0.6
+
+dag:
+  enva:
+    config:
+      _target_: diffsynth.modules.envelope.ADSREnvelope
+      max_value: 0.6
+      channels: 2
+    connections:
+      floor: AMP_FLOOR
+      peak: PEAK_A
+      attack: AT_A
+      decay: DE_A
+      sus_level: SU_A
+      release: RE_A
+      note_off: NOTE_OFF
+      noise_mag: NOISE_A
+  envc:
+    config:
+      _target_: diffsynth.modules.envelope.ADSREnvelope
+      channels: 1
+    connections:
+      floor: CUT_FLOOR
+      peak: PEAK_C
+      attack: AT_C
+      decay: DE_C
+      sus_level: SU_C
+      release: RE_C
+      note_off: NOTE_OFF
+      noise_mag: NOISE_C
+  harmor:
+    config:
+      _target_: diffsynth.modules.harmor.Harmor
+      sample_rate: 16000
+      sep_amp: true
+      n_oscs: 2
+    connections:
+      amplitudes: enva
+      osc_mix: M_OSC
+      f0_hz: BFRQ
+      f0_mult: MULT
+      cutoff: envc
+      q: Q_FILT
+
+fixed_params:
+  NOTE_OFF: 0.75
+  AMP_FLOOR: 0
+
+static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C]
+
+# Read by gen_dataset.py only, and only by the generation path. Values are in
+# NATURAL units (a MULT of 2.0 means one octave up); gen_dataset inverts the
+# parameter's own scale function to find the 0..1 draw that produces them, so
+# the saved targets stay in the same normalised space every other parameter
+# uses and the model needs no change at all. Each clip picks one value per
+# entry uniformly -- not a snapped uniform draw, which would weight the values
+# by the width of their nearest-neighbour cells instead of equally.
+#
+# 1.0  unison: both oscillators on the fundamental
+# 2.0  one octave up -- what the Moog Minitaur pack measures as (BUMP2 ~ +11 dB
+#      on every even partial)
+# 4.0  two octaves up
+#
+# 8.0 is deliberately absent: three octaves up is not something these packs do,
+# and including it would spend a quarter of the draws on a case that never
+# appears. Add 1.5 / 3.0 here if the per-file BUMP2 spread turns out to show
+# fifths rather than octaves.
+quantize_params:
+  MULT: [1.0, 2.0, 4.0]
+
+save_params: [harmor_amplitudes, harmor_osc_mix, harmor_f0_hz, harmor_f0_mult, harmor_cutoff, harmor_q]

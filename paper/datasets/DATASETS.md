@@ -85,3 +85,162 @@ IRs excluded as needing more than 86x282 modes below Nyquist; loss at true
 parameters 0.0000% of saturation for linear and at most 0.074% for log, the
 residual being `torch.compile` selecting different kernels in different
 processes (two runs of the same command gave 0.074% and exactly 0).
+
+## The quiet7 family — where each parameter's information lives, measured
+
+Seven searched parameters (`T0`, `T60_DC`, `T60_ratio`, `E`, `rho`, `fp_x`,
+`op_x`) with `Lx`, `Ly`, `h`, `nu`, `loss_F1`, `fp_y`, `op_y` pinned. `h` and
+`nu` are pinned to keep the degeneracy budget at two — `E`, `rho`, `h`, `nu`
+enter only through `D` and `μ`, so searching `E` and `rho` avoids the
+`(E, ρ, h)` symmetry that forced `raw7` into composite metrics.
+
+Numerics are `raw7`'s exactly, because compile turned out to be safe after all:
+`diag_gt_floor` compiles three configurations in one process and reported 7.66%
+of saturation for a log arm, but the *training* process compiles one and reads
+`gt_loss 0.0000e+00` against compiled targets — for `eps1e7` as well as for the
+floored arms. So the diagnostic is stricter than training, and `--compile-plate`
+with `--chunk-elems 1e9` and no gradient checkpointing is correct here.
+
+```bash
+export PLATE_PARAM_SPACE=quiet7
+
+python -m src.data.make_dataset --number 2000 --report-grid   # expect 60,185 at p99
+
+python -m src.data.make_dataset --number 1000 --seed 2 \
+  --output-dir data/val-quiet7 --duration 0.25 --render-path training \
+  --batched-plate --compile-plate --chunk-elems 1000000000 \
+  --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 60,185
+
+python -m src.data.make_dataset --number 100000 --seed 3 \
+  --output-dir data/train-quiet7 --duration 0.25 --render-path training \
+  --batched-plate --compile-plate --chunk-elems 1000000000 \
+  --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 60,185
+
+python -m src.ddsp.diag_gt_floor --data-dir data/val-quiet7 --n-val 512 \
+  --compile-plate --chunk-elems 1000000000 --fixed-mode-grid 60,185
+```
+
+The p99 pin drops ~0.85%, leaving ~991 val and ~99,150 train. 11,100 modes
+against `quiet3`'s 2,760 and `raw7`'s 24,252.
+
+`diag_gt_floor`'s SHUFFLED row is the gate as always — but note that on this
+family it is a *stricter* test than training faces, for the reason above. If it
+reads percent-level for a log arm while the training process's own `gt_loss`
+reads zero, the training number is the one that governs.
+
+## The quiet3 family — a task whose information is in the quiet region
+
+Everything above describes `raw7`, where the seven searched parameters are
+geometry and tension and the damping is pinned. `quiet3` inverts that: geometry
+is pinned at val IR 0001 and the three searched parameters are `T0`, `T60_DC`
+and `T60_ratio`, with `T60_F1 = T60_ratio * T60_DC`. It exists because the
+thesis is about what compression does to *quiet* bins, and in `raw7` a
+parameter change is mostly a change to where the loud modes sit. Here it is
+mostly a change to how the tail decays.
+
+Which parameters, which bounds and which are pinned all live in
+`PARAM_SPACES` in `src/cmaes/fit_7param_norm_es.py`, selected by the
+`PLATE_PARAM_SPACE` environment variable, so the generator, the encoder, the
+plate packing and the diagnostics cannot disagree about them. **Set it for
+generation and for training, to the same value.** The bounds and the evidence
+for them are documented at `PLATE_QUIET3` there; in short, measured with
+`diag_param_sensitivity --vary`, all three parameters move 10-35% of the
+family's own saturation at a 10%-of-range nudge, and all three put the centroid
+of that change at or below the neutral 5.5th magnitude decile.
+
+```bash
+export PLATE_PARAM_SPACE=quiet3
+
+# 0. Confirm the pinned geometry is the plate the sensitivity sweep measured.
+#    --vary pins everything it does not vary at the FIRST parameter set in the
+#    directory it reads, so the ranges in PARAM_SPACES describe that one plate;
+#    this must say MATCH, against whichever directory that sweep was run on.
+python -m src.data.make_dataset --check-pin data/val-p99
+
+# 1. The pin. Geometry is fixed, so every IR in this family needs the same
+#    modal grid and this is a formality -- but run it rather than trusting the
+#    number below, since it is what the whole dataset is rendered under.
+python -m src.data.make_dataset --number 1000 --report-grid
+
+# 2. Generate. NO --compile-plate -- see below. Nothing is excluded: with the
+#    grid constant, no parameter set can need a finer one than the pin.
+python -m src.data.make_dataset --number 1000 --seed 2 \
+  --output-dir data/val-quiet3 --duration 0.25 --render-path training \
+  --batched-plate --chunk-elems 200000000 \
+  --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 30,92
+
+python -m src.data.make_dataset --number 100000 --seed 3 \
+  --output-dir data/train-quiet3 --duration 0.25 --render-path training \
+  --batched-plate --chunk-elems 200000000 \
+  --mode-bucket 1024 --batch-size 64 --fixed-mode-grid 30,92
+
+# 3. Verify, exactly as above. Same requirement: 0.0000e+00 on the SHUFFLED row.
+python -m src.ddsp.diag_gt_floor --data-dir data/val-quiet3 --n-val 512 \
+  --chunk-elems 200000000 --fixed-mode-grid 30,92
+```
+
+**`--chunk-elems` is part of the numerics contract, not a memory knob.** It was
+one under `--compile-plate`, where Inductor fused the whole chunk kernel; eager
+does not, and the reduction over the mode axis evidently keys off the innermost
+dimension's size. Measured: data rendered at `1e9` and re-synthesized at `2e8`
+disagrees by **8.51% of saturation for log**, with the same quiet-decile
+concentration as the compile mismatch. Generation and training must pass the
+same value — and the same `--batch-size`, since the per-chunk time span is
+`chunk_elems // (B * n_modes)`.
+
+`2e8` is what the jobs file trains at, because eager also needs the memory.
+`chunk_elems` splits over *time*, so at `1e9` each intermediate is a 4 GB
+`[64, 2760, 5661]` tensor and, without gradient checkpointing, every chunk's
+copy stays resident for backward — 15 GiB, which is what killed the first
+attempt at the shared base. `GRAD_CKPT=on` removes the retention and `2e8`
+bounds the transient to ~800 MB per intermediate over 10 chunks. Checkpointing
+recomputes identical values, so it does not enter this contract; `chunk_elems`
+and `batch_size` do.
+
+**`--compile-plate` is off for this family, in generation and in training.**
+With it, targets rendered by one process and re-synthesized by another disagree
+by **7.66% of saturation for log**, 42.6% of it in the quietest decile — the
+exact failure shape this diagnostic exists to catch. It is not run-to-run
+noise: two runs of the identical command reproduced the figure to the digit, so
+each process settles on a stable choice of reduction kernel and the choices
+differ between them. Eager renders `0.0000e+00`, with `target and training
+synthesis agree bit-for-bit; nothing to decompose`.
+
+`raw7` tolerated compile at ≤0.074% because its quiet bins were never this far
+down. `quiet3`'s sit at 3.3e-06 against a peak of 13.4 — at the float32
+cancellation floor of the modal sum, which is both the point of the family and
+what makes it unforgiving. In the eager table the deliberately mismatched paths
+(`batch=1`, unbatched modal sum, no-float32-z) still cost log 3.3–9.1% of
+saturation, so every numeric flag has to match what the data was rendered with,
+exactly.
+
+Eager is not free, and the cost is easy to misread. Steady-state generation runs
+at **~890 IR/s compiled against ~122 eager** — 7.3× on the modal sum. Take that
+from the *incremental* rate: a short compiled run's headline figure (74 IR/s for
+1000 val IRs) is averaged over a 7.7 s compile warmup, and reading it as steady
+state suggests eager is faster, which it is not. Since `quiet3` needs 0.114× the
+modes of `raw7`, eager here lands at 0.114 × 7.3 ≈ 0.83 — the ladder costs about
+what the `raw7` ladder cost, not a ninth of it. That is the price of a floor of
+exactly zero instead of a log arm sitting 7.66% above one.
+
+30x92 is 2,760 modes against `raw7`'s 24,252, so both generation and training
+are roughly 9x cheaper per step here. Sampling is uniform in `z`, which is
+log-uniform in `T0` — that parameter spans two decades and is log-scaled in the
+normalized coordinate, so the bottom decade is neither compressed into the last
+1% of what the encoder emits nor left unsampled. It is the distribution the
+sensitivity sweep measured.
+
+Two differences from `raw7` worth stating before they surprise someone:
+
+- **No composite reduction.** `raw7` reports `val_nmse_6d` because
+  `(E, rho, h) -> (c^3 E, c rho, h/c)` leaves the IR identical and scoring
+  those three individually would measure drift the loss cannot see. `quiet3`
+  has no such symmetry — every parameter is separately identifiable — so
+  `val_nmse_6d` is the plain NMSE over the three searched parameters, reported
+  under the existing key so the monitor and the plots read unchanged, and
+  `val_nmse_7d` beside it is the same number. `--fit-mu` is forced off for the
+  same reason: `mu = rho*h` is pinned, so there is no scale left to fit.
+- **No batch-composition term.** `n_modes` is constant across the whole
+  dataset, not merely pinned per run, so the reduction tree is the same for
+  every batch and the one residual `raw7` could only bound is absent here.
+  Confirmed: the batched and SHUFFLED rows are identical to the digit.

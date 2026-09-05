@@ -32,6 +32,39 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAME=$1; EXP=$2; GPU=$3; shift 3
 
 DS="$ROOT/external/diffsynth"
+
+# WHICH DATASET. Pinned to the paper's h2of set by default, overridable for a
+# different task -- the chorus chain has its own generated data and its own
+# model synth. Passed here rather than as a plain hydra override on the job
+# line because this script already sets data.id_dir, and hydra rejects the same
+# key twice rather than taking the last one.
+ID_DIR=${ID_DIR:-$DS/data/diffsynth_5-6/harmor_2oscfree}
+# OOD_DIR=none drops the out-of-domain half entirely. A run that supplies the
+# oscillator pitches as conditioning has to: the OOD set is loaded with
+# params=False, so those batches carry no targets to take the pitches from, and
+# inventing a fundamental for acoustic notes would make val_ood meaningless
+# rather than absent. train.py then monitors val_id/lsd instead.
+OOD_DIR=${OOD_DIR:-$DS/data/nsynth-train}
+if [[ ! -d "$ID_DIR" ]]; then
+  echo "ERROR: ID_DIR does not exist: $ID_DIR"
+  echo "  (resolved from $PWD)"
+  echo "Generate it first -- see scripts/jobs_diffsynth_chorus.txt for the"
+  echo "gen_dataset.py command and the smoke test that goes before it."
+  exit 1
+fi
+# RESOLVE TO ABSOLUTE, both of them. This script cds into $DS below and hydra
+# changes the working directory again on top of that, so a relative path that
+# was valid where the job line ran is looked up somewhere else entirely by the
+# time the datamodule opens it -- and the existence check above passes, because
+# it runs before the cd. That combination cost a queue: all three chorus jobs
+# reached hydra and died on a directory that was right there.
+ID_DIR=$(cd "$ID_DIR" && pwd)
+if [[ "$OOD_DIR" == "none" ]]; then
+  OOD_ARG="data.ood_dir=null"
+else
+  [[ -d "$OOD_DIR" ]] && OOD_DIR=$(cd "$OOD_DIR" && pwd) || true
+  OOD_ARG="data.ood_dir=$OOD_DIR"
+fi
 RUNDIR="$ROOT/results/diffsynth/$NAME"
 
 EXTRA=()
@@ -71,6 +104,7 @@ mkdir -p "$RUNDIR"
 cd "$DS"
 
 echo "=== $NAME  (experiment=$EXP, gpu=$GPU)${RESUME:+  resuming from $RESUME}"
+[[ "$OOD_DIR" == "none" ]] && echo "    no out-of-domain half; val_id only" || true
 echo "    -> $RUNDIR"
 
 # Required by torch for deterministic CUBLAS on CUDA >= 10.2; without it
@@ -79,8 +113,8 @@ export CUBLAS_WORKSPACE_CONFIG=:4096:8
 
 CUDA_VISIBLE_DEVICES="$GPU" python train.py \
   experiment="$EXP" \
-  data.id_dir="$DS/data/diffsynth_5-6/harmor_2oscfree" \
-  data.ood_dir="$DS/data/nsynth-train" \
+  data.id_dir="$ID_DIR" \
+  "$OOD_ARG" \
   trainer.accelerator=gpu \
   trainer.devices=1 \
   hydra.run.dir="$RUNDIR" \

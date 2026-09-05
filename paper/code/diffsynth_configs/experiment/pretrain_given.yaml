@@ -1,0 +1,50 @@
+# @package _global_
+
+# PITCH GIVEN, NOT PREDICTED. Identical to pretrain.yaml except for the synth:
+# h2of_given.yaml declares BFRQ and MULT as conditioning, so the estimator
+# predicts 6 parameters instead of 8 and both oscillator pitches come from the
+# batch's own saved targets via EstimatorSynth.fill_given.
+#
+# THE DATASET IS THE PUBLISHED ONE, unchanged -- data/diffsynth_5-6/
+# harmor_2oscfree, MULT uniform on (1, 8). Once the ratio is supplied there is
+# nothing to gain from quantising it: the reason h2of_oct and h2of_fifth
+# restricted MULT was to stop the model inventing a fundamental from an
+# arbitrary ratio, and a supplied ratio cannot be invented. That also makes
+# this run immune to having mis-measured a pack, which cost a day: the interval
+# now matters only at evaluation time.
+#
+# NOTE ON THE PARAM LOSS SCALE. param_group_losses skips fixed params but
+# param_loss still divides by the full key count, so four terms are divided by
+# six -- the param term is 2/3 the magnitude it has in the published runs. That
+# is the documented convention and it applies identically to every arm, so the
+# comparison is unaffected; the absolute value is not comparable to an
+# 8-parameter run.
+
+defaults:
+  - override /trainer: default.yaml
+  - override /model: default.yaml
+  - override /data: default.yaml
+  - override /synth: h2of_given.yaml
+  - override /schedule: switch.yaml
+
+data:
+  id_dir: data/diffsynth_5-6/harmor_2oscfree
+  # No out-of-domain half: it is loaded with params=False, so those
+  # batches carry no targets to take the oscillator pitches from.
+  ood_dir: null
+  batch_size: 64
+  train_type: id
+
+trainer:
+  max_epochs: 200
+  gradient_clip_val: 1.0
+
+model:
+  lr: 0.001
+  decay_rate: 0.99
+  estimator:
+    _target_: diffsynth.estimator.MelEstimator
+    hidden_size: 512
+  sw_loss:
+    fft_sizes: [64, 128, 256, 512, 1024, 2048]
+  log_grad: true

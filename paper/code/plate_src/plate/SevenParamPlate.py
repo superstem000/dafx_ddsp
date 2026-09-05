@@ -367,6 +367,31 @@ class BatchedModalPlateTorch(torch.nn.Module):
         if self.drop_sub_20hz_modes:
             valid_mask = valid_mask & (om >= (20.0 * 2.0 * math.pi))
 
+        # Zero om on the modes P already zeroes. BIT-IDENTICAL, and worth ~1.9x.
+        #
+        # The chunk kernel evaluates sin(om * k * (t+1)). Over a 1 s render the
+        # phase of an f Hz mode advances 2*pi*f radians -- 138,230 at 22 kHz --
+        # and CUDA's sinf switches from a cheap argument reduction to
+        # Payne-Hanek extended precision above |x| ~ 105,615. Measured on an L4,
+        # per-element cost against the fraction of the range past that limit:
+        #
+        #   max arg 120,000  12% slow  ->  0.0109 ns/elem
+        #   max arg 150,796  30% slow  ->  0.0153
+        #   max arg 276,460  62% slow  ->  0.0253
+        #
+        # DDx is sized so (DDx, 0) sits at om = max_omega, so at the far corner
+        # (DDx, DDy) g1 is twice that and om reaches ~2*max_omega. Those modes
+        # are masked out of P -- the om <= max_omega mask is a quarter-ellipse
+        # inside the DDx x DDy rectangle and discards 1 - pi/4 = 21.5% of the
+        # grid -- but om was NOT masked, so sin() ran on precisely the largest
+        # arguments in the batch and the result was multiplied by zero.
+        #
+        # Zeroing om here is exact rather than approximate: P is already 0 on
+        # these modes, sin(0)/denom is 0, and 0 * finite is 0 either way, so the
+        # sum is unchanged to the bit. sig, r and denom below all consume the
+        # masked om, which is why this sits above them rather than beside P.
+        om = om * valid_mask.to(om.dtype)
+
         sig = alpha.unsqueeze(1) + beta.unsqueeze(1) * om.pow(2)
         r = torch.exp(-sig * k)
 

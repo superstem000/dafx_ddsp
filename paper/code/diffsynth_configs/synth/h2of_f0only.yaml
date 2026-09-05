@@ -1,0 +1,58 @@
+name: harmor_2oscfree_f0only
+# The published model synth with the FUNDAMENTAL supplied and the oscillator
+# RATIO still predicted. Same harmor, same dataset (h2of.yaml's, unchanged,
+# MULT uniform on (1, 8)); the only difference is that BFRQ is conditioning.
+#
+# WHY NOT BOTH. h2of_given supplies MULT as well, and the result was a clean
+# negative: with both pitches given, the linear arm loses to the log arms on
+# val_id/mfcc AND on every parameter group. So the linear advantage lives in
+# frequency structure, not in the amplitude envelope, the filter or the
+# waveform -- and conditioning MULT deletes the measurement rather than
+# isolating it.
+#
+# WHY NOT NEITHER. With both free, pitch swamps everything on real audio: the
+# arms track true pitch at a slope of 0.4-0.6 and land 500-600 cents flat, all
+# three score above saturation on the Moog, and no listening test survives a
+# wrong note. This is the middle: the failure that ruins evaluation is removed,
+# the parameter that discriminates is kept.
+#
+# THE COUPLING OBJECTION DOES NOT APPLY TO A TRAINED MODEL. Overriding f0 alone
+# at inference made things 27% worse, because the arms had anchored on osc 2
+# (68% of the level, within 133 cents of correct) and moving f0 dragged the
+# loud oscillator off. That is an artifact of overriding half of a joint
+# decision after the fact. A model trained with f0 supplied never makes that
+# trade -- it learns MULT to suit the fundamental it is handed.
+#
+# MULT STAYS CONTINUOUS on the published (1, 8). It was already the sharpest
+# discriminator in the published breakdown -- 0.093 magx against 0.177 logx, a
+# 1.90x gap, the largest of any parameter -- and a graded cents error cannot
+# saturate the way a 3-way interval accuracy can once f0 is given. Quantising
+# it existed to stop the pair implying a fundamental neither oscillator plays,
+# which needed both free to move together; with osc 1 pinned, a wrong MULT is
+# just a wrong interval.
+#
+# ext_param_size is 7: AMP(2), M_OSC(2), MULT(1), CUTOFF(1), Q_FILT(1). Shares
+# a head width with neither the 8-parameter runs nor h2of_given's 6, so it
+# needs its own base.
+#
+# UNITS: fixed params bypass scaling, so what arrives as BFRQ must be real Hz,
+# not the 0..1 draw the param files store. EstimatorSynth.fill_given converts
+# it through harmor's own param_desc; passing the stored value straight through
+# renders everything near 32 Hz and raises nothing.
+dag:
+  harmor:
+    config:
+      _target_: diffsynth.modules.harmor.Harmor
+      sample_rate: ${data.sample_rate}
+      sep_amp: true
+      n_oscs: 2
+    connections:
+      amplitudes: AMP
+      osc_mix: M_OSC
+      f0_hz: BFRQ
+      f0_mult: MULT
+      cutoff: CUTOFF
+      q: Q_FILT
+fixed_params:
+  BFRQ: null
+static_params: [BFRQ, M_OSC, MULT, Q_FILT]

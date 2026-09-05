@@ -1,0 +1,119 @@
+name: harmor_2oscfree_r13
+# used for generating dataset for h2of.yaml -- SAME model synth, same
+# ext_param_size, same heads. Only the distribution the data is drawn from
+# differs, so checkpoints and commands from h2of are unchanged.
+#
+# THE QUESTION THIS ANSWERS. h2of_fifth restricted MULT to {1.5, 2, 3}, and
+# with the fundamental also given (f5o_) the log arm stopped using its second
+# oscillator at all: share2 median 0.16 on the Moog and 0.00 in domain, 73% of
+# clips below 0.05, harmor_amplitudes at 1.0364 -- worse than a constant
+# predictor. It then won the spectral metric by being a one-oscillator model
+# whose one oscillator is handed the correct pitch.
+#
+# That collapse is in exactly one cell of the 2x2:
+#
+#                    MULT continuous (1,8)      MULT discrete {1.5,2,3}
+#   f0 free          published / oct_           fif_   share2 .72/.71/.69
+#   f0 given         f0o_   no collapse         f5o_   share2 .62/.56/.16
+#
+# Neither discreteness alone (fif_) nor conditioning alone (f0o_) produces it.
+#
+# WHY DISCRETENESS IS THE SUSPECT. The model's MULT is continuous whatever the
+# data contains. With three legal values the loss surface over MULT has three
+# narrow basins separated by wide regions where osc 2's partials align with
+# nothing in the target, so sitting between them is nearly as costly as being
+# an octave out. The cheapest escape from a rugged landscape is to zero the
+# coefficient that multiplies it -- silence osc 2 and the MULT error becomes
+# free. A continuous draw gives a smooth local gradient instead, so drifting
+# toward the right ratio always beats muting.
+#
+# Only the log arm takes the escape, and that is the thesis: in linear
+# magnitude, deleting an oscillator is a large energy deficit; under log
+# compression the missing energy is compressed and muting is affordable.
+#
+# WHY (1, 3) AND NOT (1, 2). The median has to be far from the interval the
+# real material uses, or predicting the prior mean scores as if the model
+# found the fifth and p_1.5 stops discriminating. (1, 3) has median 2.0, a
+# full 498 cents from the Moog's 1.5, while 1.5 itself sits at the 25th
+# percentile -- well inside the support, with dense neighbours on both sides.
+# (1, 2) would put the median exactly on 1.5 and hand every arm the answer.
+#
+# UNISON IS BACK, unlike h2of_fifth, but only at the very edge: under 3% of
+# draws fall below 1.05, and at 1.05 the oscillators are 85 cents apart, which
+# is separable. The unrecoverable corner is MULT ~ 1.00 exactly, which a
+# continuous draw hits with probability zero.
+#
+# Everything else -- envelopes, occupancy, f0 range, osc_mix, cutoff, q -- is
+# byte-for-byte h2of.
+
+n_oscs: 2
+max_value: 0.6
+
+dag:
+  enva:
+    config:
+      _target_: diffsynth.modules.envelope.ADSREnvelope
+      max_value: 0.6
+      channels: 2
+    connections:
+      floor: AMP_FLOOR
+      peak: PEAK_A
+      attack: AT_A
+      decay: DE_A
+      sus_level: SU_A
+      release: RE_A
+      note_off: NOTE_OFF
+      noise_mag: NOISE_A
+  envc:
+    config:
+      _target_: diffsynth.modules.envelope.ADSREnvelope
+      channels: 1
+    connections:
+      floor: CUT_FLOOR
+      peak: PEAK_C
+      attack: AT_C
+      decay: DE_C
+      sus_level: SU_C
+      release: RE_C
+      note_off: NOTE_OFF
+      noise_mag: NOISE_C
+  harmor:
+    config:
+      _target_: diffsynth.modules.harmor.Harmor
+      sample_rate: 16000
+      sep_amp: true
+      n_oscs: 2
+    connections:
+      amplitudes: enva
+      osc_mix: M_OSC
+      f0_hz: BFRQ
+      f0_mult: MULT
+      cutoff: envc
+      q: Q_FILT
+
+fixed_params:
+  NOTE_OFF: 0.75
+  AMP_FLOOR: 0
+
+static_params: [BFRQ, M_OSC, MULT, Q_FILT, NOISE_C, NOISE_A, AT_A, DE_A, SU_A, RE_A, AMP_FLOOR, PEAK_A, AT_C, DE_C, SU_C, RE_C, CUT_FLOOR, PEAK_C]
+
+# Read by gen_dataset.py only, and only by the generation path. Values are in
+# NATURAL units (a MULT of 3.0 means an octave and a fifth up); gen_dataset
+# inverts the parameter's own scale function to find the 0..1 interval that
+# produces them, so the saved targets stay in the same normalised space every
+# other parameter uses and the model needs no change at all.
+#
+# NOT a narrowed range in harmor.py. MULT's (1, 8) there is the MODEL's
+# parameter space as much as the data's -- every checkpoint's MULT head maps
+# its output through it -- so editing it would silently reinterpret every run
+# already on disk. Restricting the draw leaves harmor, ext_param_size, the
+# heads and the targets untouched, so h2of_f0only.yaml and every existing
+# command work against this data unchanged.
+#
+# In normalised terms this is a draw uniform on 0.0000..0.2857, the bottom
+# 29% of MULT, which is where real two-oscillator patches live and where the
+# published uniform draw spent under a third of its mass.
+range_params:
+  MULT: [1.0, 3.0]
+
+save_params: [harmor_amplitudes, harmor_osc_mix, harmor_f0_hz, harmor_f0_mult, harmor_cutoff, harmor_q]

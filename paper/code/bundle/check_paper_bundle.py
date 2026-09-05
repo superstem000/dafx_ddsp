@@ -242,7 +242,13 @@ def check_diffsynth(b: Path):
             ev = _f(r"^\s*log_eps_v:\s*(\S+)", t, float)
             arms[d.name] = (_f(r"^\s*mag_w:\s*(\S+)", t, float),
                             _f(r"^\s*log_mag_w:\s*(\S+)", t, float), pw, ev)
-            if pw in DS_EPS and ev is not None and not math.isclose(ev, DS_EPS[pw], rel_tol=1e-6):
+            # log_mag_w == 0 means there IS no log term, so log_eps_v
+            # multiplies nothing and its value cannot affect a number. The
+            # magx arms leave it at the config default while overriding
+            # power, which read as a domain mismatch and is not one.
+            lw = arms[d.name][1]
+            if (pw in DS_EPS and ev is not None and (lw is None or lw != 0)
+                    and not math.isclose(ev, DS_EPS[pw], rel_tol=1e-6)):
                 eps_bad.append(f"{d.name}: power={pw} with log_eps_v={ev:g}, "
                                f"expected {DS_EPS[pw]:g}")
 
@@ -297,25 +303,39 @@ def check_diffsynth(b: Path):
             rec = json.loads(sm.read_text())
         except Exception:
             note(FUND, f"{d.name}: split_manifest.json is unreadable"); continue
+        # GROUPED BY DATASET. Two runs on different id_dirs necessarily have
+        # different splits, and comparing them says nothing -- the question is
+        # whether arms that are compared WITH EACH OTHER share one. Ungrouped,
+        # every added experiment raised a leakage alarm for the crime of
+        # training on its own data: five hashes across r13, o1, chorus, giv
+        # and the published family, each internally consistent.
+        hp = d / "tb_logs" / "hparams.yaml"
+        ds = "?"
+        if hp.exists():
+            m = re.search(r"^\s*id_dir:\s*(\S+)", hp.read_text(), re.M)
+            if m:
+                ds = m.group(1).rstrip("/").split("/")[-1]
         for k in ("id_valid", "ood_valid"):
             if k in rec:
-                hashes.setdefault(k, {}).setdefault(rec[k]["sha1"], []).append(d.name)
+                hashes.setdefault((k, ds), {}).setdefault(
+                    rec[k]["sha1"], []).append(d.name)
                 if "files" not in rec[k]:
                     unnamed.append(f"{d.name}:{k}")
     if not hashes:
         note(FUND, "no split manifests: whether the resumed arms share the pretrain's "
                    "split cannot be checked from the bundle")
         print("  split manifests: MISSING")
-    for k, hs in sorted(hashes.items()):
+    for (k, ds), hs in sorted(hashes.items()):
         n = sum(len(v) for v in hs.values())
-        print(f"  {k}: {len(hs)} distinct membership hash(es) across {n} runs"
-              + (f"  {next(iter(hs))[:12]}" if len(hs) == 1 else ""))
+        print(f"  {k} on {ds}: {len(hs)} distinct membership hash(es) across "
+              f"{n} runs" + (f"  {next(iter(hs))[:12]}" if len(hs) == 1 else ""))
         if len(hs) == 1:
-            note(OK, f"{k}: one split across all {n} runs -- no leakage across the "
-                     f"pretrain/resume boundary")
+            note(OK, f"{k} on {ds}: one split across all {n} runs -- no leakage "
+                     f"across the pretrain/resume boundary")
         else:
-            note(FUND, f"{k}: {len(hs)} DIFFERENT splits across runs, so some arm "
-                       f"validated on another's training files: "
+            note(FUND, f"{k} on {ds}: {len(hs)} DIFFERENT splits within ONE "
+                       f"dataset, so some arm validated on another's training "
+                       f"files: "
                        + "; ".join(f"{h[:8]}={v}" for h, v in hs.items()))
     if unnamed:
         note(LIM, f"{len(unnamed)} split manifests record only a hash for a valid split, "

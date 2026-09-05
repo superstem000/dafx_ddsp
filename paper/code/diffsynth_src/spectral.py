@@ -134,6 +134,71 @@ class GammaCepstrum(nn.Module):
         return torch.matmul(c.transpose(1, 2), self.dct_mat).transpose(1, 2)
 
 
+class DbCepstrum(nn.Module):
+    """The log mel cepstrum the paper's tables are written in, logged live.
+
+    THE PROBLEM THIS FIXES. `Mfcc` above -- what monitor_losses has always
+    logged as val_ood/mfcc -- and the `mfcc` column of every analysis table are
+    two different quantities under one name. Mfcc runs a RECTANGULAR window
+    (MelSpec.forward passes spectrogram() five positional arguments, so
+    `window` keeps its None default), an unnormalised HTK filterbank, and
+    torch.log(mel + 1e-6) with no floor. The tables run
+    ds_mfcc_check.make_mfcc(window="hann", log="db", top_db=80,
+    mel_norm="slaney", mel_scale="slaney"). They do not agree even in scale:
+    1.6-2.6 against 7-14 on the same checkpoints. So the training curve could
+    not be read as a preview of the table, and an arm could be ahead on one and
+    behind on the other with nothing wrong anywhere.
+
+    This is the table's version, live. Same frontend as GammaCepstrum -- Hann,
+    Slaney mel scale, Slaney filterbank normalisation, n_fft 1024 / hop 256, 40
+    mels over 40-7600 Hz, 20 ortho DCT coefficients -- and the compression is
+    10*log10(mel + 1e-10) clamped to top_db below the signal's OWN peak.
+
+    THE FLOOR IS PER-SIGNAL, target and resynthesis each against their own
+    peak, which is librosa's convention and is what make_mfcc does with its
+    default shared_peak=False. That is the number every table so far reports,
+    so this matches it rather than improving on it.
+
+    ds_mfcc_check.make_mfcc DELEGATES here for this configuration, the same way
+    it already delegates to GammaCepstrum for log="pow". One implementation, so
+    the logged curve and the offline column cannot drift apart.
+
+    Every buffer is persistent=False: this module contributes nothing to
+    state_dict, so checkpoints written before it existed still load strictly.
+    """
+
+    def __init__(self, top_db=80.0, n_fft=1024, hop_length=256, n_mels=40,
+                 n_mfcc=20, sample_rate=16000, f_min=40.0, f_max=7600.0,
+                 eps=1e-10):
+        super().__init__()
+        from torchaudio.functional import melscale_fbanks
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.top_db = top_db
+        self.eps = eps
+        fb = melscale_fbanks(n_fft // 2 + 1, f_min, f_max, n_mels, sample_rate,
+                             norm="slaney", mel_scale="slaney")
+        self.register_buffer("fb", fb, persistent=False)
+        self.register_buffer("win", torch.hann_window(n_fft), persistent=False)
+        self.register_buffer("dct_mat", create_dct(n_mfcc, n_mels, "ortho"),
+                             persistent=False)
+
+    def forward(self, audio):
+        # MelSpec.pad_end: zero-pad up to a whole number of hops.
+        rem = (audio.shape[-1] - self.n_fft) % self.hop_length
+        if rem:
+            audio = F.pad(audio, (0, self.hop_length - rem), "constant")
+        st = torch.stft(audio, self.n_fft, hop_length=self.hop_length,
+                        window=self.win, center=False, return_complex=True)
+        power = st.real ** 2 + st.imag ** 2
+        mel = torch.matmul(power.transpose(-1, -2), self.fb).transpose(-1, -2)
+        lm = 10.0 * torch.log10(mel + self.eps)
+        if self.top_db is not None:
+            lm = torch.maximum(
+                lm, lm.amax(dim=(-2, -1), keepdim=True) - self.top_db)
+        return torch.matmul(lm.transpose(1, 2), self.dct_mat).transpose(1, 2)
+
+
 def spectrogram(audio, size=2048, hop_length=1024, power=2, center=False, window=None):
     power_spec = amp(torch.view_as_real(torch.stft(audio, size, window=window, hop_length=hop_length, center=center, return_complex=True)))
     if power == 2:

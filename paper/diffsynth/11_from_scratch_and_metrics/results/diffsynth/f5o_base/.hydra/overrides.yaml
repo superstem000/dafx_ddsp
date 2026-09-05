@@ -1,0 +1,6 @@
+- experiment=pretrain_f0only
+- data.id_dir=/home/bhpark3/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree_fifth
+- data.ood_dir=null
+- trainer.accelerator=gpu
+- trainer.devices=1
+- trainer.max_epochs=50

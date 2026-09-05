@@ -1,0 +1,62 @@
+# @package _global_
+
+# ONE OSCILLATOR, PITCH PREDICTED.
+#
+# The dataset generates one-oscillator audio and the model synth has one
+# oscillator. There is no second oscillator and no ratio between them:
+# f0_mult has size n_oscs-1 = 0, so it does not exist as a parameter. The
+# five parameters to recover are AMP, M_OSC, BFRQ, CUTOFF and Q_FILT -- one
+# saw-to-square blend at one pitch, through one 2-pole filter, under an ADSR.
+#
+# WHY RUN IT. The r13 arms differed in what they did with a second
+# oscillator, and the log arms answered by turning it off. Here that is not a
+# choice any arm can make, because there is only ever one. What remains is
+# whether the losses recover the amplitude envelope, the filter and the
+# fundamental differently on identical material.
+#
+# PITCH IS PREDICTED, not conditioned. Conditioning existed to keep pitch
+# guessing out of a comparison where two oscillators had to be placed jointly.
+# With one oscillator there is nothing to place it against, so BFRQ is just
+# another parameter to recover, and the run is directly comparable to the
+# published h2of procedure rather than to the conditioned variants.
+#
+# THIS MAY BE TOO EASY. Five parameters and a MelEstimator with 512 hidden
+# units. If all three arms come back with near-perfect recovery the run has
+# saturated and says nothing either way -- read ds_param_breakdown before
+# concluding the losses are equivalent.
+#
+# enva max_value is 1.0 here against h2of_r13's 0.6, because h1of.yaml is the
+# published one-oscillator config and is left as it is. Amplitudes span a
+# wider range than in the r13 runs; every arm sees the same data so the
+# comparison is unaffected, but absolute parameter errors are not comparable
+# across the two datasets.
+#
+# No out-of-domain half, matching the r13 runs; the out-of-domain number that
+# matters comes from ds_eval_folder on the real packs.
+
+defaults:
+  - override /trainer: default.yaml
+  - override /model: default.yaml
+  - override /data: default.yaml
+  - override /synth: h1of.yaml
+  - override /schedule: switch.yaml
+
+data:
+  id_dir: data/diffsynth_5-6/harmor_1oscfree
+  ood_dir: null
+  batch_size: 64
+  train_type: id
+
+trainer:
+  max_epochs: 200
+  gradient_clip_val: 1.0
+
+model:
+  lr: 0.001
+  decay_rate: 0.99
+  estimator:
+    _target_: diffsynth.estimator.MelEstimator
+    hidden_size: 512
+  sw_loss:
+    fft_sizes: [64, 128, 256, 512, 1024, 2048]
+  log_grad: true

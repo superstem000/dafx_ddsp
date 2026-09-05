@@ -34,7 +34,13 @@ def main(cfg):
     # dummy value
     logger.log_hyperparams(hparams, {'val_id/lsd': 40, 'val_ood/lsd': 40})
     # log audio examples
-    checkpoint_callback = ModelCheckpoint(monitor="val_ood/lsd", save_top_k=1, filename="epoch_{epoch:03}_{val_ood/lsd:.2f}", save_last=True, auto_insert_metric_name=False)
+    # val_ood/lsd unless there is no out-of-domain half, which a run that
+    # supplies the oscillator pitches cannot have -- the OOD set is loaded
+    # without targets, so there is nothing to take the pitches from. Monitoring
+    # a metric that is never logged makes Lightning raise at the first
+    # validation, so the monitor follows the data.
+    _mon = "val_ood/lsd" if cfg.data.get("ood_dir") else "val_id/lsd"
+    checkpoint_callback = ModelCheckpoint(monitor=_mon, save_top_k=1, filename="epoch_{epoch:03}_{" + _mon + ":.2f}", save_last=True, auto_insert_metric_name=False)
     # A checkpoint that really is the latest epoch.
     #
     # save_last=True above does NOT give one: Lightning writes last.ckpt only

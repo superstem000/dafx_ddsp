@@ -54,12 +54,21 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.cmaes.fit_7param_norm_es import BOUNDS_HI_NP, BOUNDS_LO_NP, NU, PARAM_KEYS
+from src.cmaes.fit_7param_norm_es import (
+    BOUNDS_HI_NP,
+    BOUNDS_LO_NP,
+    HAS_COMPOSITE,
+    NU,
+    PARAM_KEYS,
+    PARAM_SPACE,
+    norm_to_physical,
+)
 from src.gd.graddescent import (
     SAMPLE_RATE,
     Raw7Space,
     _read_params_csv,
     nmse_7d,
+    param_sq_errs,
     verify_mapping_matches_cmaes,
 )
 from src.loss.loss_selector import select_loss_function
@@ -434,7 +443,7 @@ def two_stage_forward(enc0, refiner, cond, space, x, scale, args, two_stage: boo
 
 
 def z_to_dicts(z: np.ndarray) -> list:
-    phys = BOUNDS_LO_NP + ((z + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
+    phys = norm_to_physical(z)
     return [{k: float(v) for k, v in zip(PARAM_KEYS, row)} for row in phys]
 
 
@@ -613,10 +622,8 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
         z0, x0, z1, x1 = two_stage_forward(model, refiner, cond, space, xb, scale, args, two_stage)
         zp, pred = (z1, x1) if two_stage else (z0, x0)
         losses.append(loss_fn(xb, pred).detach())
-        if mu_loss_fn is not None:
-            phys_b = BOUNDS_LO_NP + ((zp.detach().cpu().numpy() + 1.0) / 2.0) * (
-                BOUNDS_HI_NP - BOUNDS_LO_NP
-            )
+        if mu_loss_fn is not None and HAS_COMPOSITE:
+            phys_b = norm_to_physical(zp.detach().cpu().numpy())
             mu_b = torch.as_tensor(
                 phys_b[:, PARAM_KEYS.index("rho")] * phys_b[:, PARAM_KEYS.index("h")],
                 device=pred.device, dtype=pred.dtype,
@@ -632,11 +639,22 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     zp = torch.cat(preds).cpu().numpy()
     zt = z_val.cpu().numpy()
     est, gt = z_to_dicts(zp), z_to_dicts(zt)
-    est6 = [seven_to_six(e) for e in est]
-    gt6 = [seven_to_six(g) for g in gt]
-    n6 = [nmse_6d(e, g) for e, g in zip(est6, gt6)]
-    n5 = [nmse_shape(e, g) for e, g in zip(est6, gt6)]
     n7 = [nmse_7d(e, g) for e, g in zip(est, gt)]
+    if HAS_COMPOSITE:
+        est6 = [seven_to_six(e) for e in est]
+        gt6 = [seven_to_six(g) for g in gt]
+        n6 = [nmse_6d(e, g) for e, g in zip(est6, gt6)]
+        n5 = [nmse_shape(e, g) for e, g in zip(est6, gt6)]
+    else:
+        # The composite reduction exists to quotient out an exact synthesis
+        # symmetry -- (E, rho, h) -> (c^3 E, c rho, h/c) leaves the IR untouched,
+        # so scoring those three individually measures drift the loss cannot
+        # see. A space with no such symmetry has nothing to quotient: every
+        # parameter is separately identifiable and the NMSE over PARAM_KEYS is
+        # the whole story. It is reported under the existing key so the monitor,
+        # the best-checkpoint rule and the plots read unchanged.
+        est6 = gt6 = None
+        n6 = n5 = n7
 
     # The scale stage, reported separately from the shape fit rather than folded
     # into one number: under a peak-normalized loss the encoder's own mu is
@@ -662,10 +680,13 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
         "val_nmse_6d_mean": float(np.mean(n6)),
         "val_nmse_6d_p90": float(np.percentile(n6, 90)),
         "val_nmse_6d_p99": float(np.percentile(n6, 99)),
-        "val_nmse_5d_geo": float(np.exp(np.mean(np.log(np.maximum(n5, 1e-30))))),
-        "val_nmse_5d": float(np.median(n5)),
         "val_nmse_7d": float(np.median(n7)),
     }
+    if HAS_COMPOSITE:
+        # Only where there are five shape composites to score. Emitting these
+        # unconditionally would print the 3-parameter NMSE under a "5d" label.
+        out["val_nmse_5d_geo"] = float(np.exp(np.mean(np.log(np.maximum(n5, 1e-30)))))
+        out["val_nmse_5d"] = float(np.median(n5))
     if n6_post is not None:
         out["val_nmse_6d_postmu_geo"] = float(
             np.exp(np.mean(np.log(np.maximum(n6_post, 1e-30))))
@@ -686,10 +707,23 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
             return float(np.corrcoef(a, b)[0, 1])
         return 0.0
 
+    # Per-parameter ERROR, not just correlation and spread. Those two are both
+    # invariant to a constant offset, so a biased coordinate reads 1.00/1.00,
+    # and neither carries a magnitude. Observed on quiet3: evals with spread
+    # 1.165 (over-dispersed) and evals with correlation 0.772 (decorrelated)
+    # both produced bad nmse, and no combination of the two says by how much.
+    # perr_k is the same normalized squared error nmse averages, per coordinate,
+    # so sqrt(perr_k)*100 is that parameter's error as a percent of its range.
+    pe = np.array([param_sq_errs(e, g) for e, g in zip(est, gt)], dtype=np.float64)
     for i, k in enumerate(PARAM_KEYS):
         pred_sd, true_sd = float(zp[:, i].std()), float(zt[:, i].std())
         out[f"corr_{k}"] = _corr(zp[:, i], zt[:, i])
         out[f"spread_{k}"] = pred_sd / max(true_sd, 1e-12)
+        out[f"perr_{k}"] = float(np.median(pe[:, i]))
+        # The tail separately: a mean 3x its median is a minority of IRs fit
+        # badly, which is a different failure from a uniformly worse fit and is
+        # invisible in the median the headline nmse reports.
+        out[f"perr_{k}_p90"] = float(np.percentile(pe[:, i], 90))
 
     # The raw-7 correlations above are only meaningful for Ly, op_x and op_y.
     # E, rho and h are individually unidentifiable from audio -- the synthesis
@@ -698,7 +732,7 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     # correlations track drift along a direction the loss cannot see. These are
     # the ones that say whether the mapping is being learned. Compared in log
     # space for mu, D_mu and T0_mu, which span decades.
-    for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y"):
+    for k in (("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y") if HAS_COMPOSITE else ()):
         a = np.array([e[k] for e in est6], dtype=np.float64)
         b = np.array([g[k] for g in gt6], dtype=np.float64)
         if k in ("mu", "D_div_mu", "T0_div_mu"):
@@ -718,9 +752,11 @@ def evaluate(model, space, z_val, x_val, args, loss_fn, scale,
     # help" is visible rather than inferred from a single combined number.
     if two_stage:
         est0 = z_to_dicts(torch.cat(preds0).cpu().numpy())
-        out["val_nmse_6d_stage0"] = float(
-            np.median([nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est0, gt)])
-        )
+        out["val_nmse_6d_stage0"] = float(np.median(
+            [nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est0, gt)]
+            if HAS_COMPOSITE else
+            [nmse_7d(e, g) for e, g in zip(est0, gt)]
+        ))
     return out
 
 
@@ -732,8 +768,9 @@ def constant_predictor_nmse(z_train: torch.Tensor, z_val: torch.Tensor) -> Tuple
     """
     zc = np.repeat(z_train.mean(0, keepdim=True).cpu().numpy(), z_val.shape[0], axis=0)
     est, gt = z_to_dicts(zc), z_to_dicts(z_val.cpu().numpy())
-    n6 = [nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est, gt)]
     n7 = [nmse_7d(e, g) for e, g in zip(est, gt)]
+    n6 = ([nmse_6d(seven_to_six(e), seven_to_six(g)) for e, g in zip(est, gt)]
+          if HAS_COMPOSITE else n7)
     return float(np.median(n6)), float(np.median(n7))
 
 
@@ -747,7 +784,7 @@ def run(args) -> None:
     space = Raw7Space(device, torch.float32, normalize=False)
     space.configure_plate(
         args.chunk_elems, not args.no_grad_checkpoint, args.batched_plate,
-        args.compile_plate, args.mode_bucket, args.fixed_mode_grid,
+        args.compile_plate, args.mode_bucket, args.fixed_mode_grid, args.fmax,
     )
     raw_loss_fn = select_loss_function(args.loss, sample_rate=SAMPLE_RATE, device=device)
     loss_fn = (peak_normalized(raw_loss_fn, args.peak_normalize)
@@ -757,10 +794,16 @@ def run(args) -> None:
     # mu is then not fitted by training at all and the run would report nothing
     # about it, but allow it either way so the two pipelines stay comparable.
     fit_mu = args.fit_mu if args.fit_mu is not None else args.peak_normalize
+    # mu = rho*h is pinned in a space that does not search it, so there is no
+    # scale left to fit and postmu would be the same number under a different
+    # name; forcing it off keeps best_key pointing at a metric that exists.
+    fit_mu = fit_mu and HAS_COMPOSITE
     mu_loss_fn = raw_loss_fn if fit_mu else None
     best_key = "val_nmse_6d_postmu_geo" if fit_mu else "val_nmse_6d_geo"
 
     print(f"Device {device} | loss {args.loss} | duration {args.duration}s")
+    print(f"param space {PARAM_SPACE}: {', '.join(PARAM_KEYS)}"
+          + ("" if HAS_COMPOSITE else "   (val_nmse_6d is the NMSE over these)"))
     t0 = time.time()
     if args.data_dir is not None:
         print(f"Loading train targets from {args.data_dir}")
@@ -1110,10 +1153,15 @@ def run(args) -> None:
                         mu_loss_fn=mu_loss_fn,
                     )
                 )
-                corr = "  ".join(
-                    f"{k}={row[f'c6_{k}']:+.2f}"
-                    for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
-                )
+                if HAS_COMPOSITE:
+                    corr = "  ".join(
+                        f"{k}={row[f'c6_{k}']:+.2f}"
+                        for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
+                    )
+                else:
+                    # With no composite reduction the searched parameters ARE the
+                    # identifiable ones, so corr_{k} is what c6_* stands in for.
+                    corr = "  ".join(f"{k}={row[f'corr_{k}']:+.2f}" for k in PARAM_KEYS)
                 spread = np.mean([row[f"spread_{k}"] for k in PARAM_KEYS])
                 print(
                     f"step {step:6d}  train {tr:.4e}  val {row['val_loss']:.4e}  "
@@ -1124,7 +1172,10 @@ def run(args) -> None:
                 # Shape and scale never collapsed into one number: 5d is what the
                 # (possibly normalized) loss fits, postmu is the like-for-like
                 # number against the CMA-ES post-ternary result.
-                stage = f"           5d geo {row['val_nmse_5d_geo']:.3e} med {row['val_nmse_5d']:.3e}"
+                stage = ""
+                if "val_nmse_5d_geo" in row:
+                    stage = (f"           5d geo {row['val_nmse_5d_geo']:.3e} "
+                             f"med {row['val_nmse_5d']:.3e}")
                 if "val_nmse_6d_postmu_geo" in row:
                     stage += (
                         f"   postmu 6d geo {row['val_nmse_6d_postmu_geo']:.3e} "
@@ -1132,7 +1183,8 @@ def run(args) -> None:
                         f"p90 {row['val_nmse_6d_postmu_p90']:.3e}"
                         f"   mu |dlog| {row['val_mu_logerr']:.4f}"
                     )
-                print(stage)
+                if stage:
+                    print(stage)
                 if spread < 0.05:
                     print(
                         f"           WARNING: prediction spread {spread:.3f} of ground truth -- "
@@ -1142,13 +1194,14 @@ def run(args) -> None:
                 stage0 = row.get("val_nmse_6d_stage0")
                 extra = f"   stage0 6d {stage0:.3e}" if stage0 is not None else ""
                 print(f"           corr(identifiable)  {corr}   mean spread/GT {spread:.2f}{extra}")
-                tot = sum(row[f"nmse_{k}"] for k in
-                          ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y"))
-                share = "  ".join(
-                    f"{k}={row[f'nmse_{k}']/max(tot,1e-30)*100:.0f}%"
-                    for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
-                )
-                print(f"           err share           {share}")
+                if HAS_COMPOSITE:
+                    tot = sum(row[f"nmse_{k}"] for k in
+                              ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y"))
+                    share = "  ".join(
+                        f"{k}={row[f'nmse_{k}']/max(tot,1e-30)*100:.0f}%"
+                        for k in ("mu", "D_div_mu", "T0_div_mu", "Ly", "op_x", "op_y")
+                    )
+                    print(f"           err share           {share}")
             else:
                 print(f"step {step:6d}  train {tr:.4e}  |g| {gnorm:.2e}  [{row['elapsed_s']:.0f}s]")
             hist.append(row)
@@ -1443,6 +1496,8 @@ def build_parser() -> argparse.ArgumentParser:
              "training batch agree bit-for-bit. Must match the value the dataset was "
              "rendered with. Use src.ddsp.diag_gt_floor --report-grid to pick it.",
     )
+    p.add_argument("--fmax", type=float, default=None, metavar="HZ",
+                   help="Renderer frequency ceiling in Hz. None keeps BatchedModalPlateTorch's 10000.0 default, which every plate result so far was rendered under -- so every one of them is bandlimited to 10 kHz. It must MATCH between dataset generation and training: a different ceiling is a different plate, and the mode grid computed for one does not cover the other.")
     p.add_argument(
         "--chunk-elems", type=int, default=8_000_000,
         help="Time-chunk budget for the modal sum. Sized for the unfused path; with "

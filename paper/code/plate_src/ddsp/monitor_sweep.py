@@ -76,9 +76,17 @@ METRICS = {
 
 
 def _rate(h) -> float:
-    """Steps per second over the last ~10 logged rows, resume-safe."""
+    """Steps per second over the last ~10 logged rows, resume-safe.
+
+    The single-row fallback used to be step/elapsed_s, which is the very bug the
+    window below exists to avoid: elapsed_s starts at the resume while step stays
+    absolute, so an arm resumed at 2500 and 100 steps in reported 7.8 st/s
+    against a true 0.30 -- a 26x overstatement, with the eta to match, and it
+    reads as good news rather than as a missing denominator. One row cannot
+    support a rate at all, so say so with 0.0 rather than inventing one.
+    """
     if len(h) < 2:
-        return h[-1]["step"] / max(h[-1].get("elapsed_s", 0.0), 1e-9) if h else 0.0
+        return 0.0
     k = max(0, len(h) - 11)
     ds = h[-1]["step"] - h[k]["step"]
     dt = h[-1].get("elapsed_s", 0.0) - h[k].get("elapsed_s", 0.0)
@@ -116,7 +124,16 @@ def load(root, prefix: str = ""):
         name = prefix + Path(hp).parent.name
         try:
             d = json.load(open(hp))
-        except Exception:
+        except Exception as e:
+            # SAY SO. This used to `continue` silently, and when a full disk
+            # truncated two arms' history.json mid-record they simply stopped
+            # appearing in the table -- indistinguishable from never having been
+            # run, and read as "did we delete them". An arm whose data cannot be
+            # loaded is a different situation from an arm that does not exist,
+            # and the two must not look the same.
+            print(f"  SKIPPED {name}: history.json unreadable ({e}). The "
+                  f"checkpoints are probably fine -- recover the rows by "
+                  f"decoding records up to the truncation, then resume.")
             continue
         rows = {}
         for r in d["history"]:
@@ -130,7 +147,14 @@ def load(root, prefix: str = ""):
                 "val": r.get("val_loss", float("nan")),
                 "nmse": r["val_nmse_6d"],
                 "nmse_geo": r.get("val_nmse_6d_geo", float("nan")),
-                "train_sat": r["train_loss"] / d["saturation"],
+                # .get, not ['saturation']: a history.json recovered from a
+                # truncation carries its rows but not necessarily the
+                # top-level fields written after them, and a monitor
+                # that dies on a partial file is useless exactly when
+                # it is most needed. train_sat goes nan; nothing else
+                # in the table depends on it.
+                "train_sat": (r["train_loss"] / d["saturation"]
+                              if d.get("saturation") else float("nan")),
                 "ratio": r["val_nmse_6d"] / d["const_nmse_6d"],
                 "spread": sum(sp) / len(sp) if sp else float("nan"),
                 "sat": r.get("sat_frac", float("nan")),
@@ -142,6 +166,10 @@ def load(root, prefix: str = ""):
                 "g03": r.get("val_g03", float("nan")),
                 "spec_w": r.get("spec_w", float("nan")),
                 "param": r.get("param_loss", float("nan")),
+                # Every per-parameter error straight through, so a coordinate
+                # can be watched by name without a new entry here for each
+                # parameter of each space. --metrics perr_T60_DC just works.
+                **{k: v for k, v in r.items() if k.startswith("perr_")},
             }
         h = d["history"]
         arms[name] = {
@@ -182,12 +210,26 @@ def short(name: str) -> str:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("--root", nargs="+", default=["results/ddsp/eps_ladder"],
-                   help="One or more sweep directories. With several, arm names "
-                        "are prefixed by directory so the same arm run under two "
-                        "conditions stays two columns.")
+    # action="extend" so that BOTH "--root a b c" and "--root a --root b --root c"
+    # work. With plain nargs="+" the repeated form silently keeps only the last
+    # flag, which reads as "watch these three" and means "watch the third" -- and
+    # if that one is a stage that has not started yet, the whole monitor reports
+    # nothing while the run it was asked about is training fine. default=None
+    # rather than a list because extend appends to the default rather than
+    # replacing it.
+    p.add_argument("--root", nargs="+", action="extend", default=None,
+                   help="One or more sweep directories, as repeated flags or one "
+                        "flag with several paths. With several, arm names are "
+                        "prefixed by directory so the same arm run under two "
+                        "conditions stays two columns. Directories that do not "
+                        "exist yet are skipped, since a queued stage has not "
+                        "created its output directory.")
+    # No choices=: perr_<param> is per parameter of whichever space is loaded,
+    # so the valid set is not knowable here. Unknown names are rejected below
+    # against what the histories actually contain, which is the real check.
     p.add_argument("--metrics", nargs="+", default=["train", "val", "nmse"],
-                   choices=sorted(METRICS))
+                   help="Any of " + ", ".join(sorted(METRICS))
+                        + ", or a perr_<param> key logged by train_encoder.")
     p.add_argument("--steps", type=int, default=40000, help="For the ETA column")
     p.add_argument("--zmax", action="store_true",
                    help="Per-parameter |z|max at the latest eval, per arm")
@@ -195,9 +237,22 @@ def main() -> None:
                    help="Show only the last N eval rows (0 = all)")
     args = p.parse_args()
 
-    arms = load(args.root)
+    roots = args.root or ["results/ddsp/eps_ladder"]
+    # A root that does not exist yet is normal while a queue is partway through
+    # its stages, so it is named and skipped rather than counted as "no runs".
+    missing = [r for r in roots if not Path(r).is_dir()]
+    present = [r for r in roots if Path(r).is_dir()]
+    if missing:
+        print(f"not started yet, skipping: {' '.join(missing)}")
+    # Prefixing keyed to what was ASKED for, not to what exists: otherwise arm
+    # names change the moment a queued stage creates its directory, and a column
+    # you were watching as "L1_STFT" becomes "quiet3_ppre/L1_STFT" mid-run.
+    multi = len(roots) > 1
+    arms = {}
+    for r in present:
+        arms.update(load(r, f"{Path(r).name}/" if multi else ""))
     if not arms:
-        print(f"no runs under {' '.join(args.root)}")
+        print(f"no runs under {' '.join(present) or ' '.join(roots)}")
         return
 
     names = sorted(arms)
@@ -237,7 +292,14 @@ def main() -> None:
         all_steps = all_steps[-args.tail:]
 
     for m in args.metrics:
-        desc, fmt = METRICS[m]
+        if m in METRICS:
+            desc, fmt = METRICS[m]
+        elif m.startswith("perr_"):
+            desc, fmt = (f"median normalized squared error in {m[5:]}; "
+                         f"sqrt(x)*100 = percent of that parameter's range"), "{:.5f}"
+        else:
+            raise SystemExit(f"unknown metric {m!r}; known: "
+                             + ", ".join(sorted(METRICS)) + ", or perr_<param>")
         print(f"\n=== {m}   ({desc})")
         print(f"{'step':>8}" + "".join(f"{short(n):>{w}}" for n in names))
         for s in all_steps:

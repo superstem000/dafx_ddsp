@@ -51,8 +51,12 @@ from src.cmaes.fit_7param_norm_es import (
     BOUNDS_HI_NP,
     BOUNDS_LO_NP,
     FIXED_PLATE_PARAMS,
+    IS_LOG_NP,
     PARAM_KEYS,
+    PRODUCT_PLATE_PARAMS,
     generate_lhs_starts_norm,
+    norm_to_physical,
+    physical_to_norm,
     physical_to_plate14_tensor,
 )
 from src.loss.loss_selector import select_loss_function
@@ -95,13 +99,34 @@ def nmse_7d(est7: Optional[Dict[str, float]], gt7: Dict[str, float]) -> float:
     symmetry scores zero in 6d while 7d sees it. Reporting both says whether a
     fit landed on the true parameters or merely on the manifold through them.
     """
+    e = param_sq_errs(est7, gt7)
+    return float("nan") if e is None else float(np.mean(e))
+
+
+def param_sq_errs(est7: Optional[Dict[str, float]], gt7: Dict[str, float]):
+    """Per-parameter normalized squared error, the terms nmse_7d averages.
+
+    Reported alongside the average because the average cannot say WHICH
+    coordinate is wrong, and corr/spread cannot say by HOW MUCH -- both are
+    invariant to a constant offset, so a biased coordinate prints 1.00/1.00.
+    sqrt of one of these times 100 is that parameter's error as a percentage of
+    its search range.
+    """
     if est7 is None:
-        return float("nan")
+        return None
     errs = []
     for i, k in enumerate(PARAM_KEYS):
-        span = BOUNDS_HI_NP[i] - BOUNDS_LO_NP[i]
-        errs.append(((est7[k] - gt7[k]) / span) ** 2)
-    return float(np.mean(errs))
+        if IS_LOG_NP[i]:
+            # Normalized by the same coordinate z uses. Dividing a decades-wide
+            # parameter's error by its linear span would score a factor-of-two
+            # miss at the bottom of the range as ~0, which is precisely the part
+            # of the range this space exists to make resolvable.
+            span = np.log(BOUNDS_HI_NP[i] / BOUNDS_LO_NP[i])
+            e = np.log(max(est7[k], 1e-300) / max(gt7[k], 1e-300)) / span
+        else:
+            e = (est7[k] - gt7[k]) / (BOUNDS_HI_NP[i] - BOUNDS_LO_NP[i])
+        errs.append(e ** 2)
+    return errs
 
 
 # --------------------------------------------------------------------------
@@ -110,21 +135,30 @@ def nmse_7d(est7: Optional[Dict[str, float]], gt7: Dict[str, float]) -> float:
 
 
 def norm_to_physical_torch(z: torch.Tensor, lo: torch.Tensor, hi: torch.Tensor) -> torch.Tensor:
-    """Differentiable copy of fit_7param_norm_es.norm_to_physical ([-1,1] -> bounds)."""
-    return lo + ((z + 1.0) / 2.0) * (hi - lo)
+    """Differentiable copy of fit_7param_norm_es.norm_to_physical ([-1,1] -> bounds).
+
+    Log-spaced for LOG_PARAMS: a parameter spanning decades gets a z whose steps
+    are constant in ratio, so the bottom decade is not compressed into the last
+    1% of the coordinate the encoder has to emit.
+    """
+    u = (z + 1.0) / 2.0
+    lin = lo + u * (hi - lo)
+    if not IS_LOG_NP.any():
+        return lin
+    is_log = torch.as_tensor(IS_LOG_NP, device=z.device)
+    log = lo * torch.pow(hi / lo, u)
+    return torch.where(is_log, log, lin)
 
 
 def physical_to_plate14_torch(phys: torch.Tensor) -> torch.Tensor:
     """Differentiable copy of fit_7param_norm_es.physical_to_plate14_tensor."""
-    E, rho, h, Ly, T0, op_x, op_y = [phys[:, i] for i in range(7)]
-    ones = torch.ones_like(E)
-    f = FIXED_PLATE_PARAMS
+    named = {k: phys[:, i] for i, k in enumerate(PARAM_KEYS)}
+    for out, (a, b) in PRODUCT_PLATE_PARAMS.items():
+        named[out] = named[a] * named[b]
+    ones = torch.ones_like(phys[:, 0])
     return torch.stack(
-        [
-            ones * f["Lx"], Ly, h, T0, rho, E,
-            ones * f["nu"], ones * f["T60_DC"], ones * f["T60_F1"], ones * f["loss_F1"],
-            ones * f["fp_x"], ones * f["fp_y"], op_x, op_y,
-        ],
+        [named[k] if k in named else ones * FIXED_PLATE_PARAMS[k]
+         for k in SevenParamPlate.PARAM_ORDER],
         dim=1,
     )
 
@@ -133,7 +167,14 @@ def verify_mapping_matches_cmaes(device: torch.device) -> None:
     """Fail loudly if the differentiable packing drifts from the CMA-ES one."""
     rng = np.random.default_rng(0)
     z = rng.uniform(-1.0, 1.0, size=(8, len(PARAM_KEYS)))
-    phys = BOUNDS_LO_NP + ((z + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
+    # float32 on both sides before packing. A space with a derived column
+    # (T60_F1 = ratio * T60_DC) computes a product here, and a float64 product
+    # rounded afterwards is not always the float32 product -- comparing those
+    # would fail this check by one ulp on a mapping that is in fact identical.
+    # Both real paths pack from a float32 z, so float32 is also the honest
+    # comparison. For a space with no derived column every column is a copy and
+    # this changes nothing.
+    phys = norm_to_physical(z).astype(np.float32)
     expect = physical_to_plate14_tensor(phys, device)
     got = physical_to_plate14_torch(torch.as_tensor(phys, device=device, dtype=torch.float32))
     err = float((expect - got).abs().max())
@@ -160,8 +201,17 @@ class Raw7Space:
     def configure_plate(
         self, chunk_elems: int, grad_checkpoint: bool, batched: bool = False,
         compile_modal_sum: bool = False, mode_bucket: int = 1024,
-        fixed_mode_grid=None,
+        fixed_mode_grid=None, fmax: float = None,
     ) -> None:
+        # fmax is the renderer's frequency ceiling and it was unreachable:
+        # BatchedModalPlateTorch defaults it to 10 kHz and nothing here ever
+        # passed one, so every plate render in this repo has been bandlimited
+        # to 10 kHz -- inaudible in a 0.25 s synthetic IR, obvious against a
+        # 48 kHz recording of a real plate. None keeps the 10 kHz default, so
+        # nothing that ran before this existed renders differently.
+        if fmax is not None:
+            self.plate.fmax = float(fmax)
+            self.plate.max_omega = 2.0 * math.pi * float(fmax)
         self.plate.chunk_elems = chunk_elems
         self.plate.grad_checkpoint = grad_checkpoint
         self.plate.batched_modal_sum = batched
@@ -184,16 +234,15 @@ class Raw7Space:
         return self.plate(physical_to_plate14_torch(phys), duration=duration, normalize=self.normalize)
 
     def to_six(self, z_row: np.ndarray) -> Dict[str, float]:
-        phys = BOUNDS_LO_NP + ((z_row + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
-        return seven_to_six({k: float(v) for k, v in zip(PARAM_KEYS, phys)})
+        return seven_to_six(self.to_raw7(z_row))
 
     def to_raw7(self, z_row: np.ndarray) -> Dict[str, float]:
-        phys = BOUNDS_LO_NP + ((z_row + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
+        phys = norm_to_physical(np.asarray(z_row, dtype=np.float64)[None, :])[0]
         return {k: float(v) for k, v in zip(PARAM_KEYS, phys)}
 
     def gt_z(self, gt7: Dict[str, float]) -> np.ndarray:
         phys = np.array([gt7[k] for k in PARAM_KEYS], dtype=np.float64)
-        return -1.0 + 2.0 * (phys - BOUNDS_LO_NP) / (BOUNDS_HI_NP - BOUNDS_LO_NP)
+        return physical_to_norm(phys[None, :])[0]
 
 
 # --------------------------------------------------------------------------

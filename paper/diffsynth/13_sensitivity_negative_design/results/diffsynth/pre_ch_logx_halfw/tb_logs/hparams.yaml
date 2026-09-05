@@ -1,0 +1,81 @@
+data: id
+schedule: switch
+synth: harmor_1oscfree_cf
+model_cfg:
+  lr: 0.001
+  decay_rate: 0.99
+  estimator:
+    _target_: diffsynth.estimator.MelEstimator
+    hidden_size: 512
+    channels: 64
+    sample_rate: 16000
+    n_fft: 1024
+    hop: 256
+  sw_loss:
+    _target_: diffsynth.loss.SpecWaveLoss
+    mag_w: 0
+    log_mag_w: 1.0
+    fft_sizes:
+    - 64
+    - 128
+    - 256
+    - 512
+    - 1024
+    - 2048
+    power: 1
+    log_eps_v: 0.01
+    gamma: null
+  perc_model: null
+  log_grad: true
+  f0_encoder: null
+  lr_schedule: null
+synth_cfg:
+  name: harmor_1oscfree_cf
+  dag:
+    harmor:
+      config:
+        _target_: diffsynth.modules.harmor.Harmor
+        sample_rate: 16000
+        sep_amp: true
+        n_oscs: 1
+      connections:
+        amplitudes: AMP
+        osc_mix: M_OSC
+        f0_hz: BFRQ
+        f0_mult: MULT
+        cutoff: CUTOFF
+        q: Q_FILT
+    chorus:
+      config:
+        _target_: diffsynth.modules.delay.ChorusFlanger
+        sample_rate: 16000
+      connections:
+        audio: harmor
+        delay_ms: CF_DELAY
+        rate: CF_RATE
+        depth: CF_DEPTH
+        mix: CF_MIX
+  fixed_params: null
+  static_params:
+  - BFRQ
+  - M_OSC
+  - MULT
+  - Q_FILT
+  - CF_DELAY
+  - CF_RATE
+  - CF_DEPTH
+  - CF_MIX
+sched_cfg:
+  name: switch
+  param_w:
+    type: linear
+    start: 12500
+    warm: 37500
+    start_v: 10.0
+    end_v: 0.0
+  sw_w:
+    type: linear
+    start: 12500
+    warm: 37500
+    start_v: 0.0
+    end_v: 0.5

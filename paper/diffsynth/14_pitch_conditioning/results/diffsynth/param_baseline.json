@@ -1,0 +1,12 @@
+{
+  "n_files": 2000,
+  "data_dir": "/home/bhpark3/dafx_ddsp/scripts/../external/diffsynth/data/diffsynth_5-6/harmor_2oscfree",
+  "baseline_l1": {
+    "harmor_amplitudes": 0.11884837597608566,
+    "harmor_osc_mix": 0.2526094317436218,
+    "harmor_f0_hz": 0.23492008447647095,
+    "harmor_f0_mult": 0.24812351167201996,
+    "harmor_cutoff": 0.19081899523735046,
+    "harmor_q": 0.2426326423883438
+  }
+}

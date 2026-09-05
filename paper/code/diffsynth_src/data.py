@@ -23,6 +23,38 @@ class ReiteratableWrapper():
     def __len__(self):
         return self.length
 
+def _check_pairing(audio_files, other_files, base_dir, kind):
+    """Audio and its targets are paired by SORTED INDEX and by nothing else.
+
+    __getitem__ reads raw_files[idx] and param_files[idx] from two independent
+    globs. Nothing ties a clip to its own parameters, so a directory whose two
+    halves disagree -- a merge that renumbered one side, a partial generation,
+    an interrupted copy -- trains every clip against another clip's targets.
+
+    IT DOES NOT RAISE ANYWHERE. The loss still falls, just to a worse floor,
+    which reads as a hard task rather than as a broken dataset. That is the
+    whole reason for this check: the failure has no symptom of its own.
+
+    Compares stems rather than counts, because equal counts is the case that
+    gets through: two shards merged with colliding numbering have exactly as
+    many .wav as .pt and are still wrong.
+    """
+    a = [os.path.splitext(os.path.basename(p))[0] for p in audio_files]
+    b = [os.path.splitext(os.path.basename(p))[0] for p in other_files]
+    if a == b:
+        return
+    if len(a) != len(b):
+        raise AssertionError(
+            f'{base_dir}: {len(a)} audio file(s) but {len(b)} {kind} file(s). '
+            f'They are paired by sorted index, so this cannot be resolved by '
+            f'ignoring the extras -- regenerate, or fix the directory.')
+    i = next(j for j in range(len(a)) if a[j] != b[j])
+    raise AssertionError(
+        f'{base_dir}: audio and {kind} stems diverge at index {i} '
+        f'({a[i]!r} vs {b[i]!r}). They are paired by sorted index, so every '
+        f'clip from here on would be trained against another clip\'s {kind}.')
+
+
 class WaveParamDataset(Dataset):
     def __init__(self, base_dir, sample_rate=16000, length=4.0, params=True, f0=False):
         self.base_dir = base_dir
@@ -39,11 +71,13 @@ class WaveParamDataset(Dataset):
             # all the f0 files should already be written
             # with the same name as the audio
             self.f0_files = sorted(glob.glob(os.path.join(self.f0_dir, '*.pt')))
+            _check_pairing(self.raw_files, self.f0_files, base_dir, 'f0')
         if params:
             self.param_dir = os.path.join(base_dir, 'param')
             assert os.path.exists(self.param_dir)
             # all the files should already be written
             self.param_files = sorted(glob.glob(os.path.join(self.param_dir, '*.pt')))
+            _check_pairing(self.raw_files, self.param_files, base_dir, 'param')
     
     def __getitem__(self, idx):
         raw_path = self.raw_files[idx]
@@ -64,10 +98,23 @@ class WaveParamDataset(Dataset):
 
 class IdOodDataModule(pl.LightningDataModule):
     def __init__(self, id_dir, ood_dir, train_type, batch_size, sample_rate=16000, length=4.0, num_workers=8, splits=[.8, .1, .1], f0=False):
+        """ood_dir may be None, which drops the out-of-domain half entirely.
+
+        The paper's procedures need it -- Real trains on it and every run logs
+        val_ood -- but an experiment that supplies the oscillator pitches as
+        conditioning cannot use it: the OOD set is loaded with params=False, so
+        those batches carry no targets to take the pitches from. Rather than
+        invent a fundamental for acoustic notes that have nothing to do with
+        the comparison, drop the half. Validation then logs val_id only, and
+        train.py monitors that instead.
+        """
         super().__init__()
         self.id_dir = id_dir
         self.ood_dir = ood_dir
+        self.use_ood = ood_dir is not None
         assert train_type in ['id', 'ood', 'mixed']
+        assert self.use_ood or train_type == 'id', (
+            'train_type={0!r} needs an ood_dir'.format(train_type))
         self.train_type = train_type
         self.splits = splits
         self.sr = sample_rate
@@ -87,6 +134,10 @@ class IdOodDataModule(pl.LightningDataModule):
     def setup(self, stage):
         id_dat = WaveParamDataset(self.id_dir, self.sr, self.l, True, self.f0)
         id_datasets = self.create_split(id_dat)
+        if not self.use_ood:
+            self.id_datasets = id_datasets
+            self.ood_datasets = None
+            return
         # ood should be the same size as in-domain
         ood_dat = WaveParamDataset(self.ood_dir, self.sr, self.l, False, self.f0)
         indices = np.random.choice(len(ood_dat), len(id_dat), replace=False)
@@ -118,10 +169,14 @@ class IdOodDataModule(pl.LightningDataModule):
             b_sampler = ReiteratableWrapper(generator, len(id_batch_samp)+len(ood_batch_samp))
             return DataLoader(self.train_set, batch_sampler=b_sampler, num_workers=self.num_workers)
 
+    def _loaders(self, split):
+        out = [DataLoader(self.id_datasets[split], batch_size=self.batch_size, num_workers=self.num_workers)]
+        if self.use_ood:
+            out.append(DataLoader(self.ood_datasets[split], batch_size=self.batch_size, num_workers=self.num_workers))
+        return out
+
     def val_dataloader(self):
-        return [DataLoader(self.id_datasets["valid"], batch_size=self.batch_size, num_workers=self.num_workers),
-                DataLoader(self.ood_datasets["valid"], batch_size=self.batch_size, num_workers=self.num_workers)]
+        return self._loaders("valid")
 
     def test_dataloader(self):
-        return [DataLoader(self.id_datasets["test"], batch_size=self.batch_size, num_workers=self.num_workers),
-                DataLoader(self.ood_datasets["test"], batch_size=self.batch_size, num_workers=self.num_workers)]
+        return self._loaders("test")

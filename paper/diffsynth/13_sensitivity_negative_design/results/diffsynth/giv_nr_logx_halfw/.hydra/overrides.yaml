@@ -1,0 +1,12 @@
+- experiment=pretrain_given
+- data.id_dir=/home/bhpark3/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree
+- data.ood_dir=null
+- trainer.accelerator=gpu
+- trainer.devices=1
+- trainer.resume_from_checkpoint=/home/bhpark3/dafx_ddsp/results/diffsynth/giv_base/tb_logs/checkpoints/latest.ckpt
+- schedule=spec
+- schedule.sw_w=0.5
+- trainer.checkpoint_every_n_epochs=50
+- model.sw_loss.power=1
+- model.sw_loss.log_eps_v=1e-2
+- model.sw_loss.mag_w=0

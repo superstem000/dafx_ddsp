@@ -1,0 +1,108 @@
+trainer:
+  _target_: pytorch_lightning.Trainer
+  max_epochs: 400
+  gradient_clip_val: 1.0
+  accelerator: gpu
+  devices: 1
+  num_nodes: 1
+  enable_checkpointing: true
+  benchmark: false
+  deterministic: false
+  precision: 32
+  overfit_batches: 0.0
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
+  limit_test_batches: 1.0
+  val_check_interval: 1.0
+  check_val_every_n_epoch: 1
+  num_sanity_val_steps: 2
+  log_every_n_steps: 50
+  accumulate_grad_batches: 1
+  min_epochs: 1
+  max_steps: -1
+  min_steps: null
+  fast_dev_run: false
+  detect_anomaly: false
+  profiler: null
+  default_root_dir: null
+  resume_from_checkpoint: /home/bhpark3/dafx_ddsp/results/diffsynth/hold_real_hybrid/tb_logs/checkpoints/ep0299.ckpt
+  checkpoint_every_n_epochs: 50
+model:
+  lr: 0.001
+  decay_rate: 0.99
+  estimator:
+    _target_: diffsynth.estimator.MelEstimator
+    hidden_size: 512
+    channels: 64
+    sample_rate: ${data.sample_rate}
+    n_fft: 1024
+    hop: 256
+  sw_loss:
+    _target_: diffsynth.loss.SpecWaveLoss
+    mag_w: 1.0
+    log_mag_w: 1.0
+    fft_sizes:
+    - 64
+    - 128
+    - 256
+    - 512
+    - 1024
+    - 2048
+  perc_model: null
+  log_grad: true
+  f0_encoder: null
+  lr_schedule:
+    type: cosine
+    decay_rate: 0.99
+    hold_from: 200
+    anneal_from: 300
+    anneal_to: 400
+data:
+  _target_: diffsynth.data.IdOodDataModule
+  id_dir: /home/bhpark3/dafx_ddsp/external/diffsynth/data/diffsynth_5-6/harmor_2oscfree
+  ood_dir: /home/bhpark3/dafx_ddsp/external/diffsynth/data/nsynth-train
+  train_type: ood
+  batch_size: 64
+  sample_rate: 16000
+  length: 4.0
+  num_workers: 8
+  splits:
+  - 0.8
+  - 0.1
+  - 0.1
+synth:
+  name: harmor_2oscfree
+  dag:
+    harmor:
+      config:
+        _target_: diffsynth.modules.harmor.Harmor
+        sample_rate: ${data.sample_rate}
+        sep_amp: true
+        n_oscs: 2
+      connections:
+        amplitudes: AMP
+        osc_mix: M_OSC
+        f0_hz: BFRQ
+        f0_mult: MULT
+        cutoff: CUTOFF
+        q: Q_FILT
+  fixed_params: null
+  static_params:
+  - BFRQ
+  - M_OSC
+  - MULT
+  - Q_FILT
+schedule:
+  name: switch
+  param_w:
+    type: linear
+    start: 12500
+    warm: 37500
+    start_v: 10.0
+    end_v: 0.0
+  sw_w:
+    type: linear
+    start: 12500
+    warm: 37500
+    start_v: 0.0
+    end_v: 1.0

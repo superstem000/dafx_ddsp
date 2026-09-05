@@ -18,6 +18,11 @@ differently, which is exactly the ambiguity worth not repeating.
     python -m src.ddsp.monitor_diffsynth --table
     python -m src.ddsp.monitor_diffsynth --root results/diffsynth --rows 16
 
+Reads each run's TensorBoard event files, and falls back to the scalars.csv
+ds_export_scalars.py writes beside them when those have been deleted -- which
+they have been, for the whole magnitude family. See _load_csv. The only things
+that fall back with it are wall-clock elapsed and the progress view's rate.
+
 Trajectories are shown at milestones across the whole run, not as the last few
 epochs. Adjacent epochs differ by noise -- val_ood/lsd moves ~0.1 between
 neighbours while a run's total improvement may be ~2 -- so reading recent rows
@@ -29,6 +34,8 @@ metric is still moving, judged against its own recent scatter.
 from __future__ import annotations
 
 import argparse
+import bisect
+import csv
 import glob
 import json
 import os
@@ -71,6 +78,21 @@ TAGS = {
     # loud is A-weighted loudness, one number per frame: coarse, and blind to
     # spectral detail, but it catches gross level errors neither of the others
     # penalises much.
+    # THE HEADLINE CEPSTRUM, and the one to read. mfcc below is torchaudio's:
+    # a RECTANGULAR window, an unnormalised HTK filterbank, log(mel + 1e-6) and
+    # no floor. Every analysis table in this repo -- ds_ood_subset, the
+    # per-class tables, ds_mfcc_check -- instead reports Hann, the Slaney mel
+    # scale with Slaney filterbank normalisation, and dB floored 80 below the
+    # signal's own peak. The two disagree in SCALE, 1.6-2.6 against 7-14 on the
+    # same checkpoints, so reading val_ood/mfcc as a preview of the endpoint
+    # table was reading a different quantity. mfccdb is the table's number,
+    # computed by the same DbCepstrum make_mfcc delegates to.
+    #
+    # ABSENT FROM EVERY RUN STARTED BEFORE IT EXISTED, which is most of them --
+    # the column simply will not appear for those. ds_mfcc_check is how they get
+    # it, offline from a checkpoint.
+    "id_mfccdb": "val_id/mfccdb",
+    "ood_mfccdb": "val_ood/mfccdb",
     "id_mfcc": "val_id/mfcc",
     "ood_mfcc": "val_ood/mfcc",
     # The same cepstral distance at Stevens' exponent, mel^0.3 in place of the
@@ -88,10 +110,98 @@ SELECT = "val_ood/lsd"   # what ModelCheckpoint monitors
 # Bumped whenever load() extracts a different set of series. The cache is
 # keyed on TAGS, and val_id/param_group/* is not in TAGS -- without this a
 # cache written before those were read would silently keep hiding them.
-CACHE_VERSION = 3
+CACHE_VERSION = 7
+
+
+def _max_epochs(run_dir: str) -> int | None:
+    """max_epochs from hydra's own dump of the resolved config.
+
+    So the progress column is right for both the 200-epoch pretrains and the
+    400-epoch ploss and resumes without being told which is which.
+    """
+    cfg = os.path.join(run_dir, ".hydra", "config.yaml")
+    if os.path.exists(cfg):
+        try:
+            import yaml
+            return yaml.safe_load(open(cfg))["trainer"]["max_epochs"]
+        except Exception:
+            pass
+    return None
+
+
+def _load_csv(run_dir: str) -> dict | None:
+    """Series from scalars.csv, for runs whose event files have been deleted.
+
+    results/diffsynth is mostly TensorBoard event files -- AudioLogger writes 8
+    clips and a 15x30in figure for train, val_id and val_ood every epoch -- so
+    they are the first thing a disk cleanup takes, and taking them removed the
+    only thing this tool could read. ds_export_scalars.py had already written
+    scalars.csv into each run directory for the paper bundle: one row per step,
+    every scalar the run logged, ~100-200 KB for 400 epochs. The numbers
+    survived; only the reader was missing.
+
+    NOT .monitor_cache.json, which holds the same numbers and is right there.
+    It is keyed on the event files' size and mtime, so it self-invalidates the
+    moment they are gone -- by design, since a cache that outlives its source
+    is how a stale number gets into a paper. scalars.csv is a documented record
+    rather than an accelerator, and it does not change when TAGS does.
+
+    WHAT IS LOST WITH THE EVENT FILES, and it is only two things: wall-clock
+    elapsed (the CSV carries no timestamps, so the progress view's rate column
+    reads zero) and any tag ds_export_scalars did not run late enough to catch.
+    Every number --table reports is here.
+    """
+    path = os.path.join(run_dir, "scalars.csv")
+    if not os.path.exists(path):
+        return None
+    # The CSV is wide -- step, epoch, then one column per tag -- and named by
+    # diffsynth's tags, so invert TAGS to get back to this tool's short keys.
+    want = {t: k for k, t in TAGS.items()}
+    want.update({"epoch": "_epoch", "lw/param_w": "param_w",
+                 "lw/sw_w": "sw_w", "train/total": "train"})
+    series: dict[str, dict[int, float]] = {}
+    rows = 0
+    with open(path, newline="") as fh:
+        rd = csv.DictReader(fh)
+        cols = [c for c in (rd.fieldnames or []) if c and c != "step"]
+        for row in rd:
+            try:
+                step = int(row["step"])
+            except (TypeError, ValueError):
+                continue
+            rows += 1
+            for t in cols:
+                v = row.get(t)
+                if v is None or v == "":
+                    continue
+                if t in want:
+                    key = want[t]
+                elif t.startswith("val_id/param_group/"):
+                    key = "pg:" + t[len("val_id/param_group/"):]
+                else:
+                    continue
+                try:
+                    series.setdefault(key, {})[step] = float(v)
+                except ValueError:
+                    continue
+    if not series:
+        return None
+    return {
+        "series": series,
+        "steps": sorted({s for d in series.values() for s in d}),
+        "elapsed": 0.0,
+        "n_ev": rows,
+        "max_epochs": _max_epochs(run_dir),
+    }
 
 
 def load(run_dir: str) -> dict | None:
+    tb = os.path.join(run_dir, "tb_logs")
+    files = sorted(glob.glob(os.path.join(tb, "**", "events.out.tfevents.*"),
+                             recursive=True))
+    if not files:
+        return _load_csv(run_dir)
+
     try:
         from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
     except ImportError:
@@ -100,11 +210,6 @@ def load(run_dir: str) -> dict | None:
             "  pip install tensorboard\n"
             "(it is in external/diffsynth/requirements-modern.txt)"
         )
-    tb = os.path.join(run_dir, "tb_logs")
-    files = sorted(glob.glob(os.path.join(tb, "**", "events.out.tfevents.*"),
-                             recursive=True))
-    if not files:
-        return None
 
     # Parsing is slow because the event files are mostly not scalars: AudioLogger
     # writes 8 audio clips and a 15x30in figure for train, val_id and val_ood
@@ -131,8 +236,10 @@ def load(run_dir: str) -> dict | None:
     have = set(ea.Tags().get("scalars", []))
     series = {k: {e.step: e.value for e in ea.Scalars(t)}
               for k, t in TAGS.items() if t in have}
-    for k, t in (("param_w", "lw/param_w"), ("sw_w", "lw/sw_w"),
-                 ("train", "train/total")):
+    # Lightning's own step -> epoch record. Underscore-prefixed so the per-key
+    # tables, which iterate an explicit list, never treat it as a metric.
+    for k, t in (("_epoch", "epoch"), ("param_w", "lw/param_w"),
+                 ("sw_w", "lw/sw_w"), ("train", "train/total")):
         if t in have:
             series[k] = {e.step: e.value for e in ea.Scalars(t)}
     # Per-parameter Param, logged from model.py's validation_step. Absent from
@@ -143,28 +250,36 @@ def load(run_dir: str) -> dict | None:
                 e.step: e.value for e in ea.Scalars(t)}
     if not series:
         return None
-    # Wall clock from the selection metric if present, else anything.
-    ref = SELECT if SELECT in have else sorted(have)[0]
+    # Wall clock from a tag logged ONCE PER VALIDATION EPOCH, because ep/h and
+    # eta_h divide its event count by the span between its first and last
+    # event. SELECT is val_ood/lsd, which no run without an out-of-domain half
+    # logs -- every run since ood_dir went null -- and the old fallback took
+    # the alphabetically first tag. That is whatever happens to sort first,
+    # frequently something logged once, which makes elapsed 0, ep/h nan and
+    # eta_h nan for the entire run. Prefer the in-domain validation metric,
+    # and only then fall back, to the DENSEST tag rather than the first: more
+    # events is a better clock than an arbitrary name.
+    # MORE THAN ONE EVENT IS THE REQUIREMENT, not merely being present. A run
+    # with ood_dir null still logs val_ood/lsd exactly once, from Lightning's
+    # sanity-check validation before training starts, so preferring it by name
+    # picks a tag whose first and last event are the same event -- elapsed 0,
+    # ep/h nan, eta_h nan, which is what this column did on every no-OOD run.
+    # The fallback is restricted to val_* because it must be a tag logged once
+    # per validation epoch: train/total is denser but logged per STEP, and
+    # dividing its count by hours would report steps per hour as epochs.
+    cands = [SELECT, "val_id/lsd", PARAM] + sorted(
+        t for t in have if t.startswith("val_"))
+    ref = next((c for c in cands if c in have and len(ea.Scalars(c)) > 1),
+               max(have, key=lambda t: len(ea.Scalars(t))))
     ev = ea.Scalars(ref)
     steps = sorted({s for d in series.values() for s in d})
 
-    # max_epochs comes from hydra's own dump of the resolved config, so the
-    # progress column is right for both the 200-epoch pretrains and the
-    # 400-epoch ploss and resumes without being told which is which.
-    max_epochs = None
-    cfg = os.path.join(run_dir, ".hydra", "config.yaml")
-    if os.path.exists(cfg):
-        try:
-            import yaml
-            max_epochs = yaml.safe_load(open(cfg))["trainer"]["max_epochs"]
-        except Exception:
-            pass
     out = {
         "series": series,
         "steps": steps,
         "elapsed": (ev[-1].wall_time - ev[0].wall_time) if len(ev) > 1 else 0.0,
         "n_ev": len(ev),
-        "max_epochs": max_epochs,
+        "max_epochs": _max_epochs(run_dir),
     }
     try:
         with open(cache_path, "w") as fh:
@@ -176,9 +291,41 @@ def load(run_dir: str) -> dict | None:
 
 
 
+def epoch_of(r: dict, step: int, spe: int) -> int:
+    """Epoch for a global step, from Lightning's own `epoch` scalar.
+
+    DIVIDING BY A CONSTANT IS WRONG THE MOMENT A FAMILY CHANGES DATASET SIZE,
+    and it fails silently -- as a plausible smaller number, not an error. The
+    keyboard runs are the case that exposed it: 16000 train clips at batch 64
+    is 250 steps an epoch, which is what --steps-per-epoch assumes, but they
+    train on ~6400 keyboard clips, which is 100. Resuming at step 50000 and
+    running 200 more epochs ends at 70000, and 70000 // 250 = 280. The table
+    said 280, the run said `max_epochs=400 reached`, and 280 was read as an
+    early exit that never happened.
+
+    Lightning logs `epoch` as a scalar to TensorBoard, so the mapping is
+    recorded rather than inferred. --steps-per-epoch remains the fallback for
+    event files that predate it or lack the tag.
+    """
+    m = r["series"].get("_epoch")
+    if not m:
+        return step // spe
+    if step in m:
+        return int(round(m[step]))
+    ks = sorted(m)
+    i = bisect.bisect_left(ks, step)
+    if i <= 0:
+        return int(round(m[ks[0]]))
+    if i >= len(ks):
+        return int(round(m[ks[-1]]))
+    lo, hi = ks[i - 1], ks[i]
+    return int(round(m[lo] if step - lo <= hi - step else m[hi]))
+
+
 def pairs(r: dict, key: str, spe: int):
     """(epoch, value) sorted, for one metric of one run."""
-    return sorted((st // spe, v) for st, v in r["series"].get(key, {}).items())
+    return sorted((epoch_of(r, st, spe), v)
+                  for st, v in r["series"].get(key, {}).items())
 
 
 def around(pts, ep, half=2):
@@ -265,7 +412,14 @@ def main() -> None:
                         "mistake -- they cover different epoch ranges, so a "
                         "milestone row means different things in each column.")
     p.add_argument("--steps-per-epoch", type=int, default=250,
-                   help="16000 train / batch 64; only used to label epochs")
+                   help="FALLBACK ONLY, for event files with no `epoch` tag. "
+                        "The epoch axis normally comes from Lightning's own "
+                        "`epoch` scalar. This constant -- 16000 train clips at "
+                        "batch 64 -- is right for the full-NSynth families and "
+                        "wrong for any run on a smaller set, silently, as a "
+                        "plausible smaller number: the keyboard runs do ~100 "
+                        "steps an epoch, so their finished 400 read as 280 and "
+                        "was mistaken for an early exit.")
     args = p.parse_args()
 
     runs = {}
@@ -313,39 +467,62 @@ def main() -> None:
               "training\nobjective, MFCC logs mel BAND energies, LSD logs every "
               "bin. Param is the\nonly one independent of that axis, and it "
               "exists in-domain only.\n")
-        print(f"{'run':<18}{'sel':>6}{'epoch':>7}{'Param':>9}"
-              f"{'ID Multi':>10}{'ID MFCC':>9}{'ID LSD':>9}"
-              f"{'OOD Multi':>11}{'OOD MFCC':>10}{'OOD LSD':>9}")
+        # A pitch-conditioned run has no out-of-domain half at all -- the OOD
+        # set is loaded without targets, so it cannot supply the oscillator
+        # pitches -- and then val_ood is absent rather than bad. Drop the
+        # columns instead of printing six nan, and select on val_id/lsd, which
+        # is what train.py monitors for those runs.
+        any_ood = any("ood_lsd" in r["series"] for r in runs.values())
+        head = (f"{'run':<18}{'sel':>6}{'epoch':>7}{'Param':>9}"
+                f"{'ID Multi':>10}{'ID MFCC':>9}{'ID LSD':>9}")
+        if any_ood:
+            head += f"{'OOD Multi':>11}{'OOD MFCC':>10}{'OOD LSD':>9}"
+        print(head)
+        id_only = []
         for name, r in runs.items():
-            sel = r["series"].get("ood_lsd", {})
+            key = "ood_lsd" if "ood_lsd" in r["series"] else "id_lsd"
+            sel = r["series"].get(key, {})
             if not sel:
-                print(f"{name:<18}  (no val_ood/lsd logged yet)")
+                print(f"{name:<18}  (no lsd logged yet)")
                 continue
+            if key == "id_lsd":
+                id_only.append(name)
             best_step = min(sel, key=lambda s: sel[s])
             for tag, step in (("best", best_step), ("final", max(r["steps"]))):
-                ep = step // args.steps_per_epoch
-                print(f"{name:<18}{tag:>6}{ep:>7}"
-                      f"{at(r, step, 'param'):>9.4f}"
-                      f"{at(r, step, 'id_multi'):>10.4f}{at(r, step, 'id_mfcc'):>9.4f}"
-                      f"{at(r, step, 'id_lsd'):>9.3f}"
-                      f"{at(r, step, 'ood_multi'):>11.4f}{at(r, step, 'ood_mfcc'):>10.4f}"
-                      f"{at(r, step, 'ood_lsd'):>9.3f}")
+                ep = epoch_of(r, step, args.steps_per_epoch)
+                row = (f"{name:<18}{tag:>6}{ep:>7}"
+                       f"{at(r, step, 'param'):>9.4f}"
+                       f"{at(r, step, 'id_multi'):>10.4f}"
+                       f"{at(r, step, 'id_mfcc'):>9.4f}"
+                       f"{at(r, step, 'id_lsd'):>9.3f}")
+                if any_ood:
+                    row += (f"{at(r, step, 'ood_multi'):>11.4f}"
+                            f"{at(r, step, 'ood_mfcc'):>10.4f}"
+                            f"{at(r, step, 'ood_lsd'):>9.3f}")
+                print(row)
+        if id_only:
+            print(f"\n  'best' selected on val_id/lsd, not val_ood/lsd, for: "
+                  f"{', '.join(id_only)}\n  -- those runs have no "
+                  f"out-of-domain half. Their out-of-domain number comes from\n"
+                  f"  ds_eval_folder on the real packs, not from here.")
         return
 
+    any_ood = any("ood_lsd" in r["series"] for r in runs.values())
     print(f"{'run':<18}{'epoch':>7}{'of':>6}{'ep/h':>7}{'eta_h':>7}"
-          f"{'param_w':>9}{'sw_w':>7}{'train':>10}"
-          f"{'ID LSD':>9}{'OOD LSD':>9}{'Param':>9}")
+          f"{'param_w':>9}{'sw_w':>7}{'train':>10}{'ID LSD':>9}"
+          + (f"{'OOD LSD':>9}" if any_ood else "") + f"{'Param':>9}")
     for name, r in runs.items():
         last = max(r["steps"])
-        ep = last // args.steps_per_epoch
+        ep = epoch_of(r, last, args.steps_per_epoch)
         eph = (r["n_ev"] / (r["elapsed"] / 3600)) if r["elapsed"] > 0 else float("nan")
         tot = r["max_epochs"]
         eta = ((tot - ep) / eph) if (tot and eph and eph == eph and eph > 0) else float("nan")
         print(f"{name:<18}{ep:>7}{tot if tot else '?':>6}{eph:>7.1f}{eta:>7.1f}"
               f"{at(r, last, 'param_w'):>9.2f}{at(r, last, 'sw_w'):>7.2f}"
               f"{at(r, last, 'train'):>10.4f}"
-              f"{at(r, last, 'id_lsd'):>9.3f}{at(r, last, 'ood_lsd'):>9.3f}"
-              f"{at(r, last, 'param'):>9.4f}")
+              f"{at(r, last, 'id_lsd'):>9.3f}"
+              + (f"{at(r, last, 'ood_lsd'):>9.3f}" if any_ood else "")
+              + f"{at(r, last, 'param'):>9.4f}")
 
     for key, label in (("ood_lsd", "val_ood/lsd  (what the checkpoint selects on)"),
                        ("id_lsd", "val_id/lsd"),
@@ -354,8 +531,16 @@ def main() -> None:
                        # audio metrics and reporting it out-of-domain only
                        # invites the reading that it was chosen for where it
                        # happened to be favourable.
-                       ("ood_mfcc", "val_ood/mfcc  (log of mel BAND energies -- "
-                                    "perceptual, but not bin-wise log like LSD)"),
+                       # First because it is the reported one: Hann + Slaney +
+                       # dB at top_db 80, identical to what every analysis
+                       # table computes offline. Only runs started after it was
+                       # added have it.
+                       ("ood_mfccdb", "val_ood/mfccdb  (THE TABLE'S MFCC -- "
+                                      "Hann, Slaney, dB at top_db 80)"),
+                       ("id_mfccdb", "val_id/mfccdb"),
+                       ("ood_mfcc", "val_ood/mfcc  (torchaudio's: RECTANGULAR "
+                                    "window, HTK, log(mel+1e-6), no floor -- "
+                                    "NOT the table's number, ~5x smaller)"),
                        ("id_mfcc", "val_id/mfcc"),
                        # The same distance at Stevens' exponent. Read it against
                        # ood_mfcc directly above: if the arms order the same way

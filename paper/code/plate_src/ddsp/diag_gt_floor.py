@@ -30,6 +30,19 @@ parameters are synthesized during training, and this measures each separately:
            matched by any generation scheme -- only bounded.
 
     python -m src.ddsp.diag_gt_floor --n-val 64
+
+EVERY NUMERIC FLAG MUST MATCH THE CAMPAIGN, or this measures a different plate
+and reports the difference as arithmetic noise. For emt7 that is all of them:
+
+    PLATE_PARAM_SPACE=emt7 python -m src.ddsp.diag_gt_floor \
+        --data-dir data/val-emt7 --duration 1.0 \
+        --fmax 12000 --fixed-mode-grid 100,220 \
+        --chunk-elems 400000000 --batch-size 64 --compile-plate \
+        --losses L1_STFT L1_STFT_hyb1e2 L1_STFT_eps1e2 --report-grid
+
+Run with the defaults instead and it loads raw7's 0.25 s val set at a 10 kHz
+ceiling with no pin, which is a real measurement of something and tells you
+nothing whatsoever about the campaign you are about to spend a day on.
 """
 
 import argparse
@@ -41,15 +54,20 @@ import torch
 
 from src.data.make_dataset import parse_mode_grid, render as md_render
 from src.ddsp.train_encoder import load_dataset, peak_normalized
-from src.gd.graddescent import Raw7Space
+from src.gd.graddescent import (
+    Raw7Space, norm_to_physical_torch, physical_to_plate14_torch,
+)
 from src.loss.loss_selector import select_loss_function
 
 LOSSES = ("L1_STFT", "L1_STFT_pow", "L1_STFT_c2", "L1_STFT_log")
 
 
-def build_space(dev, batched, chunk, bucket, compile_plate=False, grid=None):
+def build_space(dev, batched, chunk, bucket, compile_plate=False, grid=None, fmax=None):
+    # Raw7Space reads PARAM_KEYS/BOUNDS from fit_7param_norm_es, which selects on
+    # PLATE_PARAM_SPACE -- so this measures whatever space the environment names,
+    # exactly as the training job does. The class name is historical.
     space = Raw7Space(dev, torch.float32, normalize=False)
-    space.configure_plate(chunk, False, batched, compile_plate, bucket, grid)
+    space.configure_plate(chunk, False, batched, compile_plate, bucket, grid, fmax)
     return space
 
 
@@ -78,6 +96,19 @@ def main() -> None:
              "amount and the batch term is unmeasurable -- a harder test than training "
              "faces, and not the one that answers whether the pin worked.",
     )
+    p.add_argument(
+        "--fmax", type=float, default=None,
+        help="Match the ceiling the dataset was rendered with. None keeps "
+             "BatchedModalPlateTorch's 10000.0, which every raw7 dataset used. A "
+             "mismatch here is not a floor measurement at all -- it renders a "
+             "different plate and reports the difference as arithmetic noise.",
+    )
+    p.add_argument(
+        "--losses", nargs="+", default=list(LOSSES), metavar="NAME",
+        help="Which losses to price the floor in. The default four are the raw7 "
+             "ladder; pass the arms a campaign actually trains, since a floor for "
+             "L1_STFT_log says nothing about L1_STFT_eps1e2.",
+    )
     p.add_argument("--report-grid", action="store_true",
                    help="Price pinning n_modes: global max grid vs the typical batch max")
     p.add_argument("--device", type=str, default="cuda")
@@ -85,14 +116,14 @@ def main() -> None:
 
     dev = torch.device(args.device if torch.cuda.is_available() else "cpu")
     space = build_space(dev, True, args.chunk_elems, args.mode_bucket,
-                        args.compile_plate, args.fixed_mode_grid)
+                        args.compile_plate, args.fixed_mode_grid, args.fmax)
     z, x_tgt = load_dataset(space, args.data_dir, args.duration, dev, args.n_val)
     print(f"{args.data_dir}   {x_tgt.shape[0]} IRs\n")
 
     # The training loss is the registry entry wrapped in target-peak
     # normalization, so that is the form the floor has to be read in.
     fns = {n: peak_normalized(select_loss_function(n, sample_rate=44100, device=dev), "target")
-           for n in LOSSES}
+           for n in args.losses}
 
     # The make_dataset path: plate14 built straight from the CSV, never through
     # a float32 z. This is how the targets on disk were rendered, so it is the
@@ -121,23 +152,24 @@ def main() -> None:
         "training path, SHUFFLED batches": x_shuf,
         "same path, batch=1": synth(space, z, args.duration, 1),
         "unbatched modal sum": synth(build_space(dev, False, args.chunk_elems, args.mode_bucket,
-                                                 args.compile_plate, args.fixed_mode_grid),
+                                                 args.compile_plate, args.fixed_mode_grid,
+                                                 args.fmax),
                                      z, args.duration, args.batch_size),
         "make_dataset path (no float32 z)": x_md,
     }
 
     perm = torch.randperm(x_tgt.shape[0], generator=torch.Generator().manual_seed(0))
-    print(f"{'':34s} " + "  ".join(f"{n:>13s}" for n in LOSSES))
+    print(f"{'':34s} " + "  ".join(f"{n:>13s}" for n in args.losses))
     with torch.no_grad():
-        sat = {n: float(fns[n](x_tgt, x_tgt[perm]).mean()) for n in LOSSES}
+        sat = {n: float(fns[n](x_tgt, x_tgt[perm]).mean()) for n in args.losses}
         print(f"{'saturation (unrelated IRs)':34s} " +
-              "  ".join(f"{sat[n]:13.4e}" for n in LOSSES))
+              "  ".join(f"{sat[n]:13.4e}" for n in args.losses))
         print()
         for tag, x_syn in variants.items():
-            vals = {n: float(fns[n](x_tgt, x_syn).mean()) for n in LOSSES}
-            print(f"{tag:34s} " + "  ".join(f"{vals[n]:13.4e}" for n in LOSSES))
+            vals = {n: float(fns[n](x_tgt, x_syn).mean()) for n in args.losses}
+            print(f"{tag:34s} " + "  ".join(f"{vals[n]:13.4e}" for n in args.losses))
             print(f"{'  as % of saturation':34s} " +
-                  "  ".join(f"{100*vals[n]/max(sat[n],1e-30):12.4f}%" for n in LOSSES))
+                  "  ".join(f"{100*vals[n]/max(sat[n],1e-30):12.4f}%" for n in args.losses))
         print()
 
     # Where the log disagreement lives, by target-magnitude decile -- the same
@@ -176,19 +208,28 @@ def main() -> None:
         # constant removes that, at the cost of every batch paying the worst
         # case -- which is exactly the batch-max effect that made early training
         # 2.5x faster. This prices it before committing.
+        # Go through the SAME conversion the renderer does rather than
+        # re-deriving it. The previous version un-normalized z linearly and then
+        # unpacked columns as (E, rho, h, Ly, T0) with nu hardcoded to 0.25 --
+        # raw7's key order and raw7's Poisson ratio, both wrong for every other
+        # space. Under emt7, whose keys are (Ly, h, T0, rho, E, T60_DC, loss_F1),
+        # it read Ly as E and rho as Ly and reported DDx 0, DDy 274 against a
+        # true (100, 220). It also ignored LOG_PARAMS, so T0 was wrong even for
+        # raw7. physical_to_plate14_torch is the single definition of the
+        # column order; taking nu from the vector means a space that changes it
+        # cannot silently desynchronize this again.
         pl = space.plate
         ddx, ddy = [], []
         with torch.no_grad():
             for i in range(0, z.shape[0], args.batch_size):
-                p14 = pl.__class__  # only the closed form is needed, not a render
                 zz = z[i : i + args.batch_size]
-                from src.cmaes.fit_7param_norm_es import BOUNDS_HI_NP, BOUNDS_LO_NP
-                ph = BOUNDS_LO_NP + ((zz.cpu().numpy() + 1.0) / 2.0) * (BOUNDS_HI_NP - BOUNDS_LO_NP)
-                E, rho, h, Ly, T0 = ph[:, 0], ph[:, 1], ph[:, 2], ph[:, 3], ph[:, 4]
-                D = E * h ** 3 / (12.0 * (1.0 - 0.25 ** 2))
+                p14 = physical_to_plate14_torch(
+                    norm_to_physical_torch(zz, space._lo, space._hi)).cpu().numpy()
+                Lx, Ly, h, T0, rho, E, nu = (p14[:, j] for j in range(7))
+                D = E * h ** 3 / (12.0 * (1.0 - nu ** 2))
                 inner = np.sqrt(np.maximum(T0 ** 2 + 4.0 * (pl.max_omega ** 2) * rho * h * D, 0.0))
                 disc = np.maximum((-T0 + inner) / (2.0 * D), 0.0)
-                ddx.append(np.floor(1.0 / np.pi * np.sqrt(disc)))
+                ddx.append(np.floor(Lx / np.pi * np.sqrt(disc)))
                 ddy.append(np.floor(Ly / np.pi * np.sqrt(disc)))
         bx = np.array([b.max() for b in ddx]); by = np.array([b.max() for b in ddy])
         allx, ally = np.concatenate(ddx), np.concatenate(ddy)
@@ -199,6 +240,14 @@ def main() -> None:
               f"   -> {allx.max()*ally.max():,.0f} modes")
         print(f"  pinning costs   {allx.max()*ally.max()/max(np.median(bx*by),1):.2f}x the "
               f"typical batch's modal work")
+        if args.fixed_mode_grid is not None:
+            px, py = args.fixed_mode_grid
+            over = int(((allx > px) | (ally > py)).sum())
+            print(f"  pin {px},{py}      " +
+                  (f"OK, covers all {allx.size} draws"
+                   if not over else
+                   f"TRUNCATES {over} of {allx.size} draws -- the targets are not "
+                   f"the plate's output at their own parameters"))
 
     print("\n  A log floor concentrated in the quiet deciles is the failure mode: it")
     print("  means the log arm's error is partly our own target/synthesis disagreement")
