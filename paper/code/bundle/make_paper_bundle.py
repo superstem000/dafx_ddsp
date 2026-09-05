@@ -850,7 +850,9 @@ MANIFEST = [
                  "scripts/ds_mfcc_check.py"],
         # The packs are commercial and are not redistributed here, so the
         # probe's CSVs are the only record of what was measured on them.
-        extra_globs=["results/probe/*.csv"],
+        # Root-level, per .gitignore's /*.csv rule -- these tables are kept out
+        # of the working tree and copied into paper/ by name.
+        extra_globs=["*_structure.csv"],
         note=(
             "ds_eval_folder scores an arbitrary folder of real audio against "
             "the same saturation denominator the rest of the project uses -- "
