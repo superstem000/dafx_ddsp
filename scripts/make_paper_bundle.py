@@ -696,6 +696,250 @@ MANIFEST = [
             "reasonable."
         ),
     ),
+    dict(
+        section="plate",
+        slug="14_emt140_real",
+        title="A real EMT-140, and the listening test that contradicted the metric",
+        sources=["results/ddsp/emt14", "results/ddsp/emt14_pre",
+                 "results/mushra/snare14"],
+        scripts=["scripts/jobs_emt14.txt", "src/ddsp/eval_real_ir.py",
+                 "src/ddsp/eval_convolved.py", "scripts/make_webmushra.py",
+                 "scripts/mushra_server.py", "src/emt/modal_diag.py"],
+        note=(
+            "Every plate section before this one scores against synthetic IRs "
+            "or against ground-truth parameters. This is the real instrument: "
+            "fifteen EMT-140 impulse responses, three arms, and the first "
+            "listening test in the project.\n\n"
+            "    THE RESULT IS AN INVERSION, and it is the reason the "
+            "diffsynth half exists. The eps arm collapsed to a CONSTANT -- h = "
+            "0.000503 on all fifteen IRs, the same value regardless of what it "
+            "was shown -- won the spectral metric, and lost the MUSHRA 36 to "
+            "69.8. A model that has learned nothing about its input can win a "
+            "compressed metric, and only listeners caught it.\n\n"
+            "    THE STIMULI ARE CONVOLVED, not bare IRs. A plate is a send "
+            "effect; nobody listens to one as an impulse. eval_convolved "
+            "renders drums through each IR, which is both closer to the "
+            "application and more sensitive, since transients expose the onset "
+            "dispersion the arms differ in.\n\n"
+            "    THE ANCHOR IN THIS SITTING IS WRONG, and it is retained "
+            "rather than rerun because the ratings are not reproducible. "
+            "webMUSHRA's createAnchor35 is a 3.5 kHz lowpass of the reference, "
+            "which is BS.1534-3's value and right for broadband programme "
+            "material. On the darker plate settings it removed 0.30% of the "
+            "reference's energy -- the anchor arrived sounding like the "
+            "reference and calibrated nothing on exactly the trials where the "
+            "arms are hardest to tell apart. make_webmushra now builds its own "
+            "anchor at --anchor-hz, defaulting to 1500, and reports the "
+            "fraction of energy above the cutoff per trial so the failure is "
+            "visible before anyone listens. The 36 vs 69.8 gap is far larger "
+            "than an anchor could account for, but the scale it sits on is "
+            "compressed at the bottom and that has to be said."
+        ),
+    ),
+    dict(
+        section="diffsynth",
+        slug="13_sensitivity_negative_design",
+        title="Where each parameter's evidence lives, and a design built for compression to win",
+        sources=["results/diffsynth"],
+        scripts=["scripts/ds_param_sensitivity.py",
+                 "scripts/ds_band_identifiability.py",
+                 "scripts/ds_quiet_reducible.py",
+                 "scripts/ds_predict_margin.py",
+                 "scripts/jobs_diffsynth_chorus.txt",
+                 "external/diffsynth/configs/synth/h2of_cf.yaml"],
+        note=(
+            "THE ADVERSARIAL HALF. Every other section asks whether the linear "
+            "loss wins. This one asks what it would take to make the "
+            "compressed loss win, builds it, and reports the outcome -- "
+            "because a claim that survives only on hand-picked material is not "
+            "a claim.\n\n"
+            "    ds_param_sensitivity perturbs one parameter at a time and "
+            "reports what each LOSS can see of it: dnorm% for a linear loss, "
+            "gnorm% for a compressed one, gain = gnorm/dnorm, and logdec, the "
+            "mean decile of the difference against a printed neutral. Above "
+            "gain 1 the compressed loss sees more. The plate campaign is the "
+            "argument for measuring rather than reasoning: mechanism arguments "
+            "there were overturned three separate times, once by discovering "
+            "that 98% of a parameter's apparent quiet bias was float32 noise "
+            "below -120 dB.\n\n"
+            "    AND IT OVERTURNED ONE HERE. A comb filter looks like a "
+            "loud-region structure -- its notches land on the loudest partials "
+            "-- but the information about delay and depth is in WHERE THE "
+            "NULLS ARE, and a null is a quiet band by definition. Measured: "
+            "chorus is compression-favouring throughout, CF_DEPTH 3.21 and "
+            "CF_MIX 4.24 on one oscillator, MD_DEPTH 4.12 and MD_PHASE 3.05 on "
+            "two. The negative design worked as designed.\n\n"
+            "    THE TABLE ALSO EXPLAINS A NULL RESULT ELSEWHERE. On the "
+            "one-oscillator synth the ONLY parameter with gain below 1 is BFRQ "
+            "at 0.70, logdec 6.60 against a neutral of 5.59 -- and every arm "
+            "recovers it to 0.008 of the constant-predictor error, so there is "
+            "nothing left to separate. AMP is 5.26, Q_FILT 3.05, M_OSC 3.37. "
+            "With two oscillators AMP's gain drops from 5.26 to 1.13: an "
+            "amplitude is a scalar on a fixed shape when it is alone and a "
+            "BALANCE between partials when it is not, and only the second "
+            "lives in the loud bands. That is the measured reason the "
+            "two-oscillator setting separates the losses and the "
+            "one-oscillator setting cannot.\n\n"
+            "    READ gain AS NECESSARY, NEVER SUFFICIENT. It measures how "
+            "much of a perturbation a loss can SEE. Whether that loss's "
+            "minimum sits at the true parameters is a different property and "
+            "the one that decides: on the plate's quiet7, E had gain 2.04 and "
+            "the compressed arms landed at 53% of its range."
+        ),
+    ),
+    dict(
+        section="diffsynth",
+        slug="14_pitch_conditioning",
+        title="Give the model the pitch, and watch the log arms switch an oscillator off",
+        sources=["results/diffsynth"],
+        scripts=["scripts/jobs_diffsynth_f0r13.txt",
+                 "external/diffsynth/configs/synth/h2of_f0only.yaml",
+                 "external/diffsynth/configs/synth/dataset/h2of_r13.yaml",
+                 "external/diffsynth/gen_dataset.py",
+                 "external/diffsynth/diffsynth/model.py",
+                 "scripts/ds_param_breakdown.py"],
+        note=(
+            "WHY CONDITION THE PITCH. On real synth-bass material pitch error "
+            "dominates every metric and every listening judgement, and the "
+            "claim under test is about timbre -- amplitudes, the oscillator "
+            "interval, the filter. h2of_f0only declares BFRQ as conditioning "
+            "and EstimatorSynth.fill_given supplies it from the batch's own "
+            "saved target, so the estimator predicts seven parameters instead "
+            "of eight and osc 1 is correct by construction.\n\n"
+            "    THE DATASET RANGE IS NARROWED, NOT THE MODEL'S. MULT's (1, 8) "
+            "lives in harmor.py's param_desc and is the model's parameter "
+            "space as much as the data's -- every checkpoint's MULT head maps "
+            "through it -- so narrowing it there would silently reinterpret "
+            "every run on disk. range_params in gen_dataset restricts the DRAW "
+            "instead: h2of_r13 is uniform on (1, 3), where the published set is "
+            "uniform on (1, 8). Median 2.0, a full 498 cents from the fifth "
+            "the Moog material actually uses, so predicting the prior mean "
+            "wins nothing.\n\n"
+            "    WHAT CONDITIONING REVEALED. With f0 given, the log arms stop "
+            "using the second oscillator: on the discrete-fifths variant "
+            "hybridx reached share2 0.05 with 48% of clips below that, and "
+            "harmor_amplitudes at 1.0364 of the constant-predictor error -- "
+            "worse than predicting the dataset mean. Its MULT then drifted to "
+            "a median 3.47 with 30% of clips beyond 4, OUTSIDE anything the "
+            "training data contained, which is the tell: a ratio multiplying a "
+            "silent oscillator has no gradient and the head wanders. The "
+            "collapse is not an artifact of the discrete draw -- it appears on "
+            "the continuous (1, 3) set too, a few epochs later.\n\n"
+            "    AT EPOCH 399, as a fraction of the constant-predictor error, "
+            "magx leads on every group: amplitudes 0.5313 against 0.8825 and "
+            "0.8859, f0_mult 0.0618 against 0.2880 and 0.2134, mean 0.3341 "
+            "against 0.5080 and 0.5078. All three arms leave the "
+            "parameter-loss-only stage at amplitudes 0.4337; the log arms lose "
+            "it specifically once the spectral loss takes over, which locates "
+            "the failure in the loss rather than in the initialisation."
+        ),
+    ),
+    dict(
+        section="diffsynth",
+        slug="15_real_audio",
+        title="Scoring real sample packs, and which of them the synth can represent at all",
+        sources=["results/diffsynth"],
+        scripts=["scripts/ds_eval_folder.py", "scripts/ds_osc_usage.py",
+                 "scripts/ds_harmonic_probe.py", "scripts/ds_param_swap.py",
+                 "scripts/ds_score_vs_param.py", "scripts/ds_source_diag.py",
+                 "scripts/ds_mfcc_check.py"],
+        note=(
+            "ds_eval_folder scores an arbitrary folder of real audio against "
+            "the same saturation denominator the rest of the project uses -- "
+            "the batch rolled by one, so the reference is another clip of the "
+            "same pack and 1.0 means an arm conveyed nothing about ITS OWN "
+            "target. Sample packs are not a datamodule: clips are short, "
+            "levels are arbitrary and pitch is in the filename, so --match, "
+            "--folder-peak, --mask-pad, --trim-db and --force-f0-re exist and "
+            "each one changes what is being asked.\n\n"
+            "    WHICH PACKS ARE USABLE IS A MEASUREMENT, not a preference, "
+            "and ds_harmonic_probe makes it. It reads the partials directly "
+            "and reports P1, the bump columns and an interval classification. "
+            "Moog Minitaur doubles: P1 -39.7 with BUMP2 5.0 AND BUMP3 6.5, the "
+            "signature of a FIFTH, whose lowest common series is a phantom "
+            "neither oscillator plays -- which is also why the pack reads as "
+            "-12 semitones if you trust a pitch tracker. Minitaur mt-pad: a "
+            "near-unison pair at +/-0.9 Hz, ratio about 1.007.\n\n"
+            "    AND WHICH ARE NOT. Korg Mono-Poly 'finally' has a comb spaced "
+            "5.9 Hz around every partial with the sideband count GROWING with "
+            "harmonic number, which is frequency modulation; Minitaur "
+            "'slight-detune' has the same at 2 Hz with four to six components "
+            "per partial. harmor emits exact static partials with no LFO and "
+            "no detune, so the residual on those packs is dominated by "
+            "structure no arm can produce -- all three arms land within 0.02 "
+            "and 0.12 of each other respectively. Reported as documented "
+            "negatives, because 'we used these two packs' needs a reason that "
+            "is not 'they agreed with us'.\n\n"
+            "    THE HEADLINE NUMBERS, epoch 399, MIDI 48-55, f0 conditioned. "
+            "Doubles: magx 1.1116, hybridx 0.8551, logx 1.0497 -- the metric "
+            "puts magx LAST. mt-pad: magx 2.7160, hybridx 3.8689, logx 4.0053, "
+            "magx first on seven of eight clips.\n\n"
+            "    ds_param_swap IS WHY THE mt-pad GAP IS ATTRIBUTABLE. It takes "
+            "one arm's predictions, replaces ONE dag entry with another arm's, "
+            "renders and rescores, in both directions. f0_mult accounts for "
+            "68% of the 1.15 gap and amplitudes 37%, summing to 100.0% -- so "
+            "the decomposition holds and the parameters do not interact. "
+            "cutoff and q are worth nothing. Level was ruled out separately "
+            "with --match-level: rescaling every render to its target's RMS "
+            "left the gap at 1.21, marginally WIDER. That matters because "
+            "make_webmushra loudness-matches every stimulus, so a level-driven "
+            "advantage would never have reached the listeners."
+        ),
+    ),
+    dict(
+        section="diffsynth",
+        slug="16_listening_test",
+        title="The metric's ranking, put to listeners",
+        sources=["results/mushra/moogr13", "results/mushra/moog12",
+                 "results/mushra/mtpad"],
+        scripts=["scripts/make_webmushra.py", "scripts/mushra_server.py",
+                 "scripts/ds_eval_folder.py"],
+        note=(
+            "THE ORDERING IS INVERTED. On the Moog doubles at epoch 399, MFCC "
+            "puts hybridx first at 0.8551 -- the only arm to beat saturation "
+            "-- and magx last at 1.1116. Listeners put magx first in 10 of 12 "
+            "trials and hybridx last. Both listeners independently, both "
+            "identifying the hidden reference at 100 on every trial. That is "
+            "the plate result reproduced on unrelated material with a "
+            "different synth and a different failure mode.\n\n"
+            "    ACROSS EVERYTHING: magx first in 30 of 38 trials, over two "
+            "packs, two mechanisms and two listeners. Not 38 independent "
+            "samples -- three of four sittings share a listener and the two "
+            "doubles tests share four clips -- so it is a consistency "
+            "statement, not a significance test.\n\n"
+            "    THE TRIAL SET IS FIXED, NOT SAMPLED PER SESSION, and that is "
+            "the whole reason the numbers can be averaged. With eight "
+            "listeners a fresh random subset each sitting leaves every clip "
+            "one or two ratings and no per-trial mean exists. MUSHRA "
+            "randomises which SLIDER holds which arm, which webMUSHRA does per "
+            "session; which trials you get is fixed. The selection covers "
+            "every note in the band and balances velocity 4/4/4 at a seed "
+            "chosen for zero note-velocity rank correlation -- chosen on the "
+            "DESIGN, before any rating existed.\n\n"
+            "    THE FIRST DESIGN WAS CONFOUNDED and is not what the reported "
+            "sitting used. Selecting on note alone gave velocities 32, 32, 32, "
+            "32, 32, 95, 95, 95, 95 -- every low note quiet, every high note "
+            "loud, so pitch and velocity could not be separated. On the "
+            "Minitaur velocity drives the filter envelope, which is exactly "
+            "what cutoff and q are asked to recover, and the single "
+            "within-note contrast that design happened to contain moved "
+            "ratings by 30 and 47 points.\n\n"
+            "    THE ANCHOR IS OURS, at 800 Hz. BS.1534-3's 3.5 kHz removes "
+            "almost nothing from a 130 Hz bass, which is the same failure the "
+            "plate sitting had one register up. At 800 Hz the weakest trial "
+            "loses 5.85% of its energy and the spread across trials is 3.4x, "
+            "against 12x for the plate anchor. Stated as an "
+            "application-specific deviation rather than hidden.\n\n"
+            "    AN HONEST LIMIT ON THE SECOND PACK. mt-pad gives magx 47.5 "
+            "against 42.0 and 39.8, first on five of eight -- consistent, but "
+            "p is about 0.14 and the 43% MFCC gap maps to under a fifth of the "
+            "anchor-to-reference range. Its mechanism is also different: on "
+            "the doubles the arms differ in WHETHER they use a second "
+            "oscillator, on mt-pad they all use one and differ in where they "
+            "put it. Two results, not one, and the second is breadth rather "
+            "than magnitude."
+        ),
+    ),
 ]
 
 
