@@ -1,0 +1,443 @@
+{
+ "testId": "moog12",
+ "participant": {
+  "name": [],
+  "response": []
+ },
+ "trials": [
+  {
+   "id": "moog-minitaur__299778__modularsamples__moog-minitaur-doubles-e3-doubles-53-32-mqoj",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 18103
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "36",
+     "comment": null,
+     "time": 18103
+    },
+    {
+     "stimulus": "anchor",
+     "score": "60",
+     "comment": null,
+     "time": 18103
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "43",
+     "comment": null,
+     "time": 18103
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "53",
+     "comment": null,
+     "time": 18103
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299782__modularsamples__moog-minitaur-doubles-f3-doubles-54-64-pjfl",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "35",
+     "comment": null,
+     "time": 18712
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "35",
+     "comment": null,
+     "time": 18712
+    },
+    {
+     "stimulus": "anchor",
+     "score": "62",
+     "comment": null,
+     "time": 18712
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 18712
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "48",
+     "comment": null,
+     "time": 18712
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299779__modularsamples__moog-minitaur-doubles-e3-doubles-53-64-4r29",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 16128
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "51",
+     "comment": null,
+     "time": 16128
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "26",
+     "comment": null,
+     "time": 16128
+    },
+    {
+     "stimulus": "anchor",
+     "score": "64",
+     "comment": null,
+     "time": 16128
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "41",
+     "comment": null,
+     "time": 16128
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299772__modularsamples__moog-minitaur-doubles-d3-doubles-51-32-1eko",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 19166
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "27",
+     "comment": null,
+     "time": 19166
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "26",
+     "comment": null,
+     "time": 19166
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "66",
+     "comment": null,
+     "time": 19166
+    },
+    {
+     "stimulus": "anchor",
+     "score": "53",
+     "comment": null,
+     "time": 19166
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299763__modularsamples__moog-minitaur-doubles-c3-doubles-48-32-3mak",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 31881
+    },
+    {
+     "stimulus": "anchor",
+     "score": "61",
+     "comment": null,
+     "time": 31881
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "38",
+     "comment": null,
+     "time": 31881
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "32",
+     "comment": null,
+     "time": 31881
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "27",
+     "comment": null,
+     "time": 31881
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299776__modularsamples__moog-minitaur-doubles-e3-doubles-52-64-fagm",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "30",
+     "comment": null,
+     "time": 34494
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "50",
+     "comment": null,
+     "time": 34494
+    },
+    {
+     "stimulus": "anchor",
+     "score": "67",
+     "comment": null,
+     "time": 34494
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "58",
+     "comment": null,
+     "time": 34494
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 34494
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299768__modularsamples__moog-minitaur-doubles-c3-doubles-49-95-dflf",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "24",
+     "comment": null,
+     "time": 26000
+    },
+    {
+     "stimulus": "anchor",
+     "score": "56",
+     "comment": null,
+     "time": 26000
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "25",
+     "comment": null,
+     "time": 26000
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "45",
+     "comment": null,
+     "time": 26000
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 26000
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299769__modularsamples__moog-minitaur-doubles-d3-doubles-50-32-vxl7",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "48",
+     "comment": null,
+     "time": 22037
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "23",
+     "comment": null,
+     "time": 22037
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 22037
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "30",
+     "comment": null,
+     "time": 22037
+    },
+    {
+     "stimulus": "anchor",
+     "score": "70",
+     "comment": null,
+     "time": 22037
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299765__modularsamples__moog-minitaur-doubles-c3-doubles-48-95-26fu",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "45",
+     "comment": null,
+     "time": 41837
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "30",
+     "comment": null,
+     "time": 41837
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 41837
+    },
+    {
+     "stimulus": "anchor",
+     "score": "58",
+     "comment": null,
+     "time": 41837
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "35",
+     "comment": null,
+     "time": 41837
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299786__modularsamples__moog-minitaur-doubles-f3-doubles-55-95-e4l5",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 18943
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "33",
+     "comment": null,
+     "time": 18943
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "80",
+     "comment": null,
+     "time": 18943
+    },
+    {
+     "stimulus": "anchor",
+     "score": "67",
+     "comment": null,
+     "time": 18943
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "40",
+     "comment": null,
+     "time": 18943
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299785__modularsamples__moog-minitaur-doubles-f3-doubles-55-64-lfut",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 17869
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "56",
+     "comment": null,
+     "time": 17869
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "27",
+     "comment": null,
+     "time": 17869
+    },
+    {
+     "stimulus": "anchor",
+     "score": "69",
+     "comment": null,
+     "time": 17869
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "43",
+     "comment": null,
+     "time": 17869
+    }
+   ]
+  },
+  {
+   "id": "moog-minitaur__299771__modularsamples__moog-minitaur-doubles-d3-doubles-50-95-no9v",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 28070
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "37",
+     "comment": null,
+     "time": 28070
+    },
+    {
+     "stimulus": "anchor",
+     "score": "62",
+     "comment": null,
+     "time": 28070
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "28",
+     "comment": null,
+     "time": 28070
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "33",
+     "comment": null,
+     "time": 28070
+    }
+   ]
+  }
+ ],
+ "uuid": "7c227e64-6fa0-4a22-8e63-8862f65b09a6",
+ "config": "configs/moog12.yaml"
+}

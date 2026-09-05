@@ -1,0 +1,299 @@
+{
+ "testId": "mtpad",
+ "participant": {
+  "name": [],
+  "response": []
+ },
+ "trials": [
+  {
+   "id": "moog-mt-pad__299851__modularsamples__moog-minitaur-mt-pad-c3-mt-pad-49-127",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "42",
+     "comment": null,
+     "time": 54279
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "31",
+     "comment": null,
+     "time": 54279
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "32",
+     "comment": null,
+     "time": 54279
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 54279
+    },
+    {
+     "stimulus": "anchor",
+     "score": "67",
+     "comment": null,
+     "time": 54279
+    }
+   ]
+  },
+  {
+   "id": "moog-mt-pad__299850__modularsamples__moog-minitaur-mt-pad-c3-mt-pad-48-127",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "34",
+     "comment": null,
+     "time": 139857
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 139857
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "54",
+     "comment": null,
+     "time": 139857
+    },
+    {
+     "stimulus": "anchor",
+     "score": "62",
+     "comment": null,
+     "time": 139857
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "41",
+     "comment": null,
+     "time": 139857
+    }
+   ]
+  },
+  {
+   "id": "moog-mt-pad__299854__modularsamples__moog-minitaur-mt-pad-e3-mt-pad-52-127",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "55",
+     "comment": null,
+     "time": 42593
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 42593
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "35",
+     "comment": null,
+     "time": 42593
+    },
+    {
+     "stimulus": "anchor",
+     "score": "58",
+     "comment": null,
+     "time": 42593
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "45",
+     "comment": null,
+     "time": 42593
+    }
+   ]
+  },
+  {
+   "id": "moog-mt-pad__299855__modularsamples__moog-minitaur-mt-pad-e3-mt-pad-53-127",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "42",
+     "comment": null,
+     "time": 47332
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "43",
+     "comment": null,
+     "time": 47332
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 47332
+    },
+    {
+     "stimulus": "anchor",
+     "score": "62",
+     "comment": null,
+     "time": 47332
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "43",
+     "comment": null,
+     "time": 47332
+    }
+   ]
+  },
+  {
+   "id": "moog-mt-pad__299853__modularsamples__moog-minitaur-mt-pad-d3-mt-pad-51-127",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 58021
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "39",
+     "comment": null,
+     "time": 58021
+    },
+    {
+     "stimulus": "anchor",
+     "score": "59",
+     "comment": null,
+     "time": 58021
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "30",
+     "comment": null,
+     "time": 58021
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "31",
+     "comment": null,
+     "time": 58021
+    }
+   ]
+  },
+  {
+   "id": "moog-mt-pad__299852__modularsamples__moog-minitaur-mt-pad-d3-mt-pad-50-127",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "46",
+     "comment": null,
+     "time": 56887
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 56887
+    },
+    {
+     "stimulus": "anchor",
+     "score": "59",
+     "comment": null,
+     "time": 56887
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "43",
+     "comment": null,
+     "time": 56887
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "61",
+     "comment": null,
+     "time": 56887
+    }
+   ]
+  },
+  {
+   "id": "moog-mt-pad__299857__modularsamples__moog-minitaur-mt-pad-f3-mt-pad-55-127",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 54215
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "58",
+     "comment": null,
+     "time": 54215
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "58",
+     "comment": null,
+     "time": 54215
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "46",
+     "comment": null,
+     "time": 54215
+    },
+    {
+     "stimulus": "anchor",
+     "score": "57",
+     "comment": null,
+     "time": 54215
+    }
+   ]
+  },
+  {
+   "id": "moog-mt-pad__299856__modularsamples__moog-minitaur-mt-pad-f3-mt-pad-54-127",
+   "type": "mushra",
+   "responses": [
+    {
+     "stimulus": "anchor",
+     "score": "53",
+     "comment": null,
+     "time": 32165
+    },
+    {
+     "stimulus": "r13_synth_logx_halfw",
+     "score": "37",
+     "comment": null,
+     "time": 32165
+    },
+    {
+     "stimulus": "r13_synth_magx_halfw",
+     "score": "48",
+     "comment": null,
+     "time": 32165
+    },
+    {
+     "stimulus": "r13_synth_hybridx",
+     "score": "40",
+     "comment": null,
+     "time": 32165
+    },
+    {
+     "stimulus": "reference",
+     "score": "100",
+     "comment": null,
+     "time": 32165
+    }
+   ]
+  }
+ ],
+ "uuid": "b7aa8b24-bf7d-42c9-8b1b-67eb4c97bdc4",
+ "config": "configs/mtpad.yaml"
+}
