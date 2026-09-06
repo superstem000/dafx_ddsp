@@ -203,6 +203,10 @@ def main() -> None:
     p.add_argument("--sr", type=int, default=16000)
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--device", default="cpu")
+    p.add_argument("--per-file", action="store_true",
+                   help="one row per clip, every arm side by side, so the "
+                        "arms can be compared on the SAME file rather than "
+                        "through two medians over the whole set.")
     p.add_argument("--csv", default=None, metavar="PATH")
     args = p.parse_args()
 
@@ -304,6 +308,25 @@ def main() -> None:
         print(f"{arm:<24}" + "".join(
             f"{np.median(np.abs(cents[m])):>18.1f}" if m.any() else f"{'-':>18}"
             for _n2, m in bands))
+
+    # PAIRED, because the medians above cannot show whether the arms miss the
+    # same clips. Every arm sees the identical file in the identical order, so
+    # reading across a row is a controlled comparison in a way that comparing
+    # two medians over the whole set is not -- three arms that each miss half
+    # the notes look the same in aggregate whether they miss the same half or
+    # opposite halves.
+    if args.per_file:
+        arms_ = list(per_arm)
+        print(f"\n=== PER FILE   signed cents, and predicted Hz")
+        print(f"{'midi':>5}{'true_hz':>10}"
+              + "".join(f"{a[:14] + ' ct':>19}" for a in arms_)
+              + "".join(f"{a[:14] + ' Hz':>19}" for a in arms_))
+        for j in range(len(files)):
+            print(f"{int(midis[j]):>5}{true_hz[j]:>10.1f}"
+                  + "".join(f"{per_arm[a][0][j]:>19.1f}" for a in arms_)
+                  + "".join(f"{per_arm[a][3][j]:>19.1f}" for a in arms_))
+        print("  A row where every arm carries the same sign and size is the\n"
+              "  clip being hard; one where they disagree is the arms differing.")
 
     # Every osc-2 column is f0*1 on a one-oscillator synth, so the table would
     # repeat osc1_cents three times and read as a measurement of an oscillator
