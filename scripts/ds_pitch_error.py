@@ -120,8 +120,16 @@ def predict(model, x: torch.Tensor):
     amp = dag_in[conn["amplitudes"]]
     a = amp.mean(dim=1).detach().cpu().numpy()          # (B, n_oscs)
     share = a[:, 0] / np.maximum(a.sum(axis=1), 1e-12)
-    return (out[0][:, -1, 0].detach().cpu().numpy(),
-            out[1][:, -1, 0].detach().cpu().numpy(), share)
+    # ONE OSCILLATOR IS A LEGAL SYNTH HERE. f0_mult has size n_oscs-1, so on
+    # h1of it is size 0 -- the parameter does not exist rather than being
+    # unused, and indexing channel 0 raised IndexError. A ratio of 1 is the
+    # honest stand-in: osc 2 is not silent, it is absent, so f0*mult is f0 and
+    # every downstream osc-2 quantity collapses onto osc 1 instead of
+    # describing something that was never predicted.
+    n = out[1].shape[-1]
+    mult = (out[1][:, -1, 0].detach().cpu().numpy() if n
+            else np.ones(x.shape[0], dtype=float))
+    return out[0][:, -1, 0].detach().cpu().numpy(), mult, share
 
 
 def fold(c: np.ndarray) -> np.ndarray:
@@ -273,15 +281,21 @@ def main() -> None:
     if not per_arm:
         raise SystemExit("no arm produced results")
 
+    # A one-oscillator synth has no f0_mult, and predict() stands it in as 1.0.
+    # Printing that as med_MULT 1.00 / osc2_semis 0.0 would read as "the model
+    # predicted unison", which is a claim about a parameter that does not exist.
+    one_osc = all(np.allclose(v[1], 1.0) for v in per_arm.values())
+
     print(f"\n=== PITCH, against the filename's MIDI number")
     print(f"{'arm':<24}{'ckpt':>12}{'slope':>8}{'med_cents':>11}{'|cents|':>9}"
           f"{'within50':>10}{'oct50':>8}{'med_MULT':>10}{'osc2_semis':>12}")
     for arm, (cents, mu, note, f0, c2, share, loud) in per_arm.items():
         s = summarise(cents, mu)
+        tail = (f"{'-':>10}{'-':>12}" if one_osc
+                else f"{s['mult']:>10.2f}{s['semis']:>12.1f}")
         print(f"{arm:<24}{note:>12}{slope_of(true_hz, f0):>8.2f}"
               f"{s['med']:>11.1f}{s['abs']:>9.1f}"
-              f"{s['w50']:>9.0%}{s['o50']:>8.0%}{s['mult']:>10.2f}"
-              f"{s['semis']:>12.1f}")
+              f"{s['w50']:>9.0%}{s['o50']:>8.0%}" + tail)
 
     print(f"\n=== BY PITCH BAND   median |cents|, tertiles of this set")
     print(f"{'arm':<24}" + "".join(f"{n + ' (n=' + str(int(m.sum())) + ')':>18}"
@@ -291,17 +305,25 @@ def main() -> None:
             f"{np.median(np.abs(cents[m])):>18.1f}" if m.any() else f"{'-':>18}"
             for _n2, m in bands))
 
-    print(f"\n=== BOTH OSCILLATORS   osc1 at f0, osc2 at f0*MULT")
-    print(f"{'arm':<24}{'osc1_cents':>12}{'osc2_cents':>12}{'share1':>9}"
-          f"{'loud_cents':>12}{'loud|cents|':>13}")
-    for arm, (cents, mu, note, f0, c2, share, loud) in per_arm.items():
-        print(f"{arm:<24}{np.median(cents):>12.1f}{np.median(c2):>12.1f}"
-              f"{np.median(share):>9.2f}{np.median(loud):>12.1f}"
-              f"{np.median(np.abs(loud)):>13.1f}")
-    print("  share1      osc 1's share of the mean control amplitude. 0.5 is an\n"
-          "              even split; near 0 means the model put the sound on\n"
-          "              osc 2 and osc1_cents is describing a quiet oscillator\n"
-          "  loud_cents  the error of whichever oscillator carries the level")
+    # Every osc-2 column is f0*1 on a one-oscillator synth, so the table would
+    # repeat osc1_cents three times and read as a measurement of an oscillator
+    # that does not exist. Say so instead.
+    if one_osc:
+        print("\n=== BOTH OSCILLATORS   skipped: this synth has one oscillator,"
+              "\n    so f0_mult has size 0 and there is no osc 2 to report")
+    else:
+        print(f"\n=== BOTH OSCILLATORS   osc1 at f0, osc2 at f0*MULT")
+        print(f"{'arm':<24}{'osc1_cents':>12}{'osc2_cents':>12}{'share1':>9}"
+              f"{'loud_cents':>12}{'loud|cents|':>13}")
+        for arm, (cents, mu, note, f0, c2, share, loud) in per_arm.items():
+            print(f"{arm:<24}{np.median(cents):>12.1f}{np.median(c2):>12.1f}"
+                  f"{np.median(share):>9.2f}{np.median(loud):>12.1f}"
+                  f"{np.median(np.abs(loud)):>13.1f}")
+        print("  share1      osc 1's share of the mean control amplitude. 0.5 is"
+              " an\n              even split; near 0 means the model put the "
+              "sound on\n              osc 2 and osc1_cents is describing a "
+              "quiet oscillator\n"
+              "  loud_cents  the error of whichever oscillator carries the level")
 
     print("\n  slope      octaves of PREDICTED pitch per octave of true pitch.\n"
           "             1.0 tracks, 0.0 is a constant regardless of input\n"
