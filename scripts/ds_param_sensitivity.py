@@ -85,6 +85,17 @@ def main() -> None:
                          "family. Where a parameter's signature lives is measured "
                          "at whatever the others are, so the pinned half is a "
                          "design variable too.")
+    ap.add_argument("--draw", nargs="+", default=None, metavar="NAME=LO:HI",
+                    help="Sample this parameter on [LO, HI] (normalized 0-1) "
+                         "instead of the full range, and read --rel as a "
+                         "fraction of THAT span. The dataset configs restrict "
+                         "the draw without touching the processor -- "
+                         "h2of_r13 draws MULT on (1, 3) while harmor keeps "
+                         "(1, 8) for every checkpoint's head -- so measuring "
+                         "on the full range asks about a family the model was "
+                         "never trained on and inflates the step by the ratio "
+                         "of the two spans. MULT on (1, 3) is --draw "
+                         "MULT=0:0.2857.")
     ap.add_argument("--detail", action="store_true",
                     help="Per-parameter dB-band table, with rel% per band")
     ap.add_argument("--floor-db", type=float, default=None,
@@ -118,8 +129,33 @@ def main() -> None:
     print(f"{Path(args.conf).name}   {P} parameter columns   {args.n} patches   "
           f"{args.audio_len}s @ {args.sr} Hz")
 
+    # THE DRAW RANGE IS PART OF THE TASK, not a property of the synth. harmor
+    # fixes f0_mult at (1, 8) because every checkpoint's head maps through it,
+    # while h2of_r13 restricts only the DRAW to (1, 3) -- so measuring on the
+    # full range asks about ratios the data never contains, and a step quoted
+    # as a fraction of range is 3.5x larger than the same fraction of the data.
+    # --draw fixes both at once: it is the interval the base is sampled from
+    # AND the interval a --rel step is a fraction of, so a number here means
+    # what it means in the dataset the model actually saw.
+    draw = {}
+    for item in args.draw or []:
+        k, _, span = item.partition("=")
+        if k not in label:
+            raise SystemExit(f"unknown parameter {k!r}; have: {', '.join(label)}")
+        lo, _, hi = span.partition(":")
+        lo, hi = float(lo), float(hi)
+        if not 0.0 <= lo < hi <= 1.0:
+            raise SystemExit(f"--draw {k}: need 0 <= LO < HI <= 1, got {lo}:{hi}")
+        draw[label.index(k)] = (lo, hi)
+
     g = torch.Generator().manual_seed(args.seed)
     base = torch.rand((args.n, 1, P), generator=g).to(dev)
+    for i, (lo, hi) in draw.items():
+        base[:, :, i] = base[:, :, i] * (hi - lo) + lo
+    if draw:
+        print("draw ranges: " + ", ".join(
+            f"{label[i]}=[{lo:g},{hi:g}] (steps are a fraction of {hi - lo:g})"
+            for i, (lo, hi) in sorted(draw.items())))
     if args.pin:
         for item in args.pin:
             k, v = item.split("=")
@@ -154,9 +190,13 @@ def main() -> None:
             runs = []
             for sign in (+1.0, -1.0):
                 p = base.clone()
-                # Clamped to [0,1]: outside it is not a patch the synth defines,
-                # and a step that walks off the range measures the clamp.
-                p[:, :, i] = (p[:, :, i] + sign * rel).clamp(0.0, 1.0)
+                # Clamped to the draw range, [0,1] by default: outside it is not
+                # a patch the family contains, and a step that walks off the end
+                # measures the clamp. Under --draw the step is also scaled to
+                # that range, so --rel keeps meaning "this fraction of what the
+                # parameter actually spans" for every column in the table.
+                lo, hi = draw.get(i, (0.0, 1.0))
+                p[:, :, i] = (p[:, :, i] + sign * rel * (hi - lo)).clamp(lo, hi)
                 x_p = render(synth, p, n_samples)
                 ok = torch.isfinite(x_p).all(dim=-1)
                 if not bool(ok.any()):
