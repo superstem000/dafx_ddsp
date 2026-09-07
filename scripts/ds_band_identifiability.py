@@ -41,11 +41,19 @@ def main() -> None:
     ap.add_argument("--conf", required=True)
     ap.add_argument("--n", type=int, default=24, help="Targets")
     ap.add_argument("--k", type=int, default=32, help="Candidates per target")
-    ap.add_argument("--max-rel", type=float, default=0.30,
+    ap.add_argument("--max-rel", type=float, nargs="+", default=[0.30],
+                    metavar="R",
                     help="Radii uniform in (0, this] as a fraction of range, "
                          "along random directions. A spread, not a fixed "
                          "radius -- concordance needs candidates at different "
-                         "true distances to have anything to rank.")
+                         "true distances to have anything to rank. Takes a "
+                         "LADDER: concordance is not a constant of a "
+                         "parameter, it is a function of how far apart the "
+                         "candidates are, and a loss can order distant "
+                         "candidates well while being noise on close ones -- "
+                         "which is the regime an optimiser near a minimum "
+                         "actually sits in. Read whether the ranking of "
+                         "parameters survives the ladder, not one row of it.")
     ap.add_argument("--pin", nargs="+", default=None, metavar="NAME=V",
                     help="Hold a parameter at V in both target and candidates, "
                          "so it contributes no distance and no difference. The "
@@ -136,7 +144,7 @@ def main() -> None:
         raise SystemExit("every column is held; nothing is being searched")
     print(f"{Path(args.conf).name}   {P} columns, {len(searched)} searched   "
           f"{args.n} targets   {args.k} candidates each   "
-          f"radii (0, {args.max_rel:g}] of range")
+          f"radii (0, {', '.join(f'{r:g}' for r in args.max_rel)}] of range")
     print(f"searching: {', '.join(searched)}")
     if pins:
         print(f"held: {', '.join(f'{label[i]}={v:g}' for i, v in sorted(pins.items()))}")
@@ -187,7 +195,7 @@ def main() -> None:
             out.append(audio)
         return torch.cat(out, dim=0)
 
-    def sweep(axis=None):
+    def sweep(axis=None, max_rel=0.30):
         # SAME SEED FOR EVERY AXIS. Each parameter is measured on the identical
         # 24 targets, so the per-parameter rows are paired rather than three
         # separate experiments -- a difference between two rows is the parameter,
@@ -213,7 +221,7 @@ def main() -> None:
                 d = torch.zeros((args.k, P))
                 d[:, axis] = torch.where(
                     torch.rand(args.k, generator=g) < 0.5, -1.0, 1.0)
-            r = torch.rand((args.k, 1), generator=g) * args.max_rel
+            r = torch.rand((args.k, 1), generator=g) * max_rel
             cand = (tgt[None, :] + d * r).clamp(0.0, 1.0)
             for i, v in pins.items():
                 cand[:, i] = v
@@ -247,40 +255,59 @@ def main() -> None:
                 "unsearched columns at --rest, which is the single operating "
                 "point --per-param exists to average over. Use --pin for "
                 "columns that are genuinely held (conditioning, say).")
-        print(f"\n=== PER PARAMETER   candidates differ in ONE column, "
-              f"background redrawn per target")
-        out = []
-        for l in searched:
-            rows, marg, dropped = sweep(label.index(l))
-            if not rows:
-                continue
-            A, B, C = bi.abc(bi.accumulate(rows))
-            live = [m for m in marg if m]
-            fl = sum(m["id_lin"] for m in live) / len(live) if live else float("nan")
-            fg = sum(m["id_log"] for m in live) / len(live) if live else float("nan")
-            out.append((C - A, l, fl, fg, B - A, C - B))
-        w = max(10, max(len(l) for _n, l, *_r in out) + 2)
-        print(f"{'param':<{w}}{'id_lin':>9}{'id_log':>9}{'reweight':>10}"
-              f"{'transform':>11}{'net':>8}")
-        for net, l, fl, fg, rw, tr in sorted(out, reverse=True):
-            print(f"{l:<{w}}{fl:>9.3f}{fg:>9.3f}{rw:>+10.3f}{tr:>+11.3f}"
-                  f"{net:>+8.3f}")
-        print("\n  id_lin/id_log  full-spectrum concordance: can that loss tell\n"
-              "                 which of two candidates is closer IN THIS "
-              "PARAMETER.\n"
-              "                 0.5 is a coin flip, below 0.5 is systematically "
-              "wrong\n"
-              "  reweight       B-A, the cost of moving weight to the quiet "
-              "bands\n"
-              "  transform      C-B, what comparing in the log domain buys "
-              "within a band\n"
-              "  net            C-A. Sorted by it, so READ THE ORDER rather "
-              "than the sign:\n"
-              "                 every parameter here saw the same targets, so "
-              "the ranking is\n"
-              "                 paired and survives whatever the absolute "
-              "numbers do under\n"
-              "                 a different floor, radius or target count.")
+        for mr in args.max_rel:
+            print(f"\n=== PER PARAMETER   radii (0, {mr:g}]   candidates differ "
+                    f"in ONE column, background redrawn per target")
+            out = []
+            for l in searched:
+                rows, marg, dropped = sweep(label.index(l), mr)
+                if not rows:
+                    continue
+                live = [m for m in marg if m]
+                if not live:
+                    continue
+                # PAIRED PER TARGET. id_lin and id_log for one target are computed
+                # on the SAME candidates, so their difference is paired and its
+                # spread over targets is the error bar that matters. Two separate
+                # means with no dispersion cannot tell +0.006 from +0.047, which is
+                # the whole question when the differences are this small.
+                fl = sum(m["id_lin"] for m in live) / len(live)
+                fg = sum(m["id_log"] for m in live) / len(live)
+                d = [m["id_lin"] - m["id_log"] for m in live]
+                n = len(d)
+                mu = sum(d) / n
+                var = sum((x - mu) ** 2 for x in d) / (n - 1) if n > 1 else 0.0
+                se = (var / n) ** 0.5
+                wins = sum(1 for x in d if x > 0) / n
+                out.append((mu, l, fl, fg, se, wins, n))
+            w = max(10, max(len(l) for _m, l, *_r in out) + 2)
+            print(f"{'param':<{w}}{'id_lin':>9}{'id_log':>9}{'lin-log':>10}"
+                  f"{'se':>8}{'t':>7}{'lin wins':>10}{'n':>6}")
+            for mu, l, fl, fg, se, wins, n in sorted(out, reverse=True):
+                t = mu / se if se > 0 else float("nan")
+                ts = "     -" if t != t else f"{t:>7.1f}"
+                print(f"{l:<{w}}{fl:>9.3f}{fg:>9.3f}{mu:>+10.4f}{se:>8.4f}{ts}"
+                      f"{100 * wins:>9.0f}%{n:>6}")
+        print("\n  id_lin/id_log  concordance: given two candidates differing "
+              "ONLY in this\n"
+              "                 parameter, how often does that loss put the "
+              "closer one\n"
+              "                 first. 0.5 is a coin flip, below 0.5 is "
+              "systematically wrong\n"
+              "  lin-log        the PAIRED difference. Both losses score the "
+              "same candidates\n"
+              "                 on the same target, so this is a per-target "
+              "quantity and its\n"
+              "                 spread over targets is the error bar\n"
+              "  se, t          standard error of that difference, and mu/se. "
+              "|t| under ~2 is\n"
+              "                 a difference this many targets cannot resolve, "
+              "whatever its sign\n"
+              "  lin wins       share of targets where linear ranked better. "
+              "Near 50% with a\n"
+              "                 nonzero mean means a few targets carry it, "
+              "which is not the\n"
+              "                 same finding as a consistent small edge")
         return
 
     rows, marg, dropped = sweep()
