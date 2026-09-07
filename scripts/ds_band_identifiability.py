@@ -80,6 +80,25 @@ def main() -> None:
                          "property of one operating point. Every column is "
                          "measured on the same targets, so the rows are paired "
                          "and the ORDER is the result.")
+    ap.add_argument("--log-radius", action="store_true",
+                    help="Draw candidate radii LOG-uniform over "
+                         "--radius-decades below --max-rel instead of uniform "
+                         "on (0, max-rel]. Uniform puts one candidate in "
+                         "fifteen inside 2% of range at the default, so the "
+                         "pairs that decide whether a minimum is resolvable "
+                         "are a rounding error in the count.")
+    ap.add_argument("--radius-decades", type=float, default=2.0, metavar="D",
+                    help="How many decades below --max-rel --log-radius "
+                         "spans. 2 means radii from max_rel/100 to max_rel.")
+    ap.add_argument("--hard-ratio", type=float, default=None, metavar="F",
+                    help="ALSO report concordance over pairs whose true "
+                         "distances are within a factor F of each other, e.g. "
+                         "1.5. A pair at 0.02 against one at 0.28 is ordered "
+                         "correctly by anything and says nothing about "
+                         "resolving a minimum; the hard pairs are the ones an "
+                         "optimiser near one actually faces, and they are a "
+                         "minority of the pair count unless asked for "
+                         "separately.")
     ap.add_argument("--list", action="store_true",
                     help="Print the parameter columns and exit.")
     ap.add_argument("--cond", nargs="+", default=None, metavar="NAME=V",
@@ -195,6 +214,22 @@ def main() -> None:
             out.append(audio)
         return torch.cat(out, dim=0)
 
+    def _mag(n, room, gen):
+        """Offset magnitudes in (0, room], uniform or log-uniform.
+
+        LOG-UNIFORM EXISTS BECAUSE UNIFORM UNDER-SAMPLES THE FINE END. At
+        max_rel 0.3 only one candidate in fifteen lands within 2% of range, so
+        the pair set is dominated by candidates far apart -- which any loss
+        orders correctly -- and the near ones that decide whether a minimum is
+        resolvable are a rounding error. Lowering max_rel does not fix that; it
+        slides the whole cloud inward and leaves the same shape. Log-uniform
+        spends equal numbers of candidates on every decade of separation.
+        """
+        u = torch.rand(n, generator=gen)
+        if args.log_radius:
+            return room * 10.0 ** (-u * args.radius_decades)
+        return room * u
+
     def sweep(axis=None, max_rel=0.30):
         # SAME SEED FOR EVERY AXIS. Each parameter is measured on the identical
         # 24 targets, so the per-parameter rows are paired rather than three
@@ -210,6 +245,8 @@ def main() -> None:
             if axis is None:
                 d = torch.randn((args.k, P), generator=g)
                 d /= d.norm(dim=1, keepdim=True).clamp(min=1e-30)
+                r = _mag(args.k, max_rel, g)[:, None]
+                cand = (tgt[None, :] + d * r).clamp(0.0, 1.0)
             else:
                 # ONE AXIS, RANDOM BACKGROUND. The candidates differ from the target
                 # in this column and nothing else, so dist IS |delta p| and the
@@ -218,16 +255,31 @@ def main() -> None:
                 # what --vary gives up: it pins the background at --rest, so every
                 # target sits at one operating point and the answer is a property of
                 # that point rather than of the parameter.
-                d = torch.zeros((args.k, P))
-                d[:, axis] = torch.where(
-                    torch.rand(args.k, generator=g) < 0.5, -1.0, 1.0)
-            r = torch.rand((args.k, 1), generator=g) * max_rel
-            cand = (tgt[None, :] + d * r).clamp(0.0, 1.0)
+                #
+                # DRAWN INSIDE THE BOUNDS, NOT CLAMPED TO THEM. A clamp maps every
+                # over-the-edge candidate onto the boundary VALUE, so they become
+                # identical patches with identical losses -- ties, counted at 0.5,
+                # dragging concordance toward the coin flip for exactly the targets
+                # sitting near an edge. Sigmoid parameters put a lot of mass there.
+                # Instead: pick a side with probability proportional to the room on
+                # that side and draw the magnitude within it, which is uniform over
+                # the feasible offsets and produces no duplicates.
+                p0 = float(tgt[axis])
+                down, up = min(max_rel, p0), min(max_rel, 1.0 - p0)
+                if down + up <= 0.0:
+                    continue
+                left = torch.rand(args.k, generator=g) * (down + up) < down
+                room = torch.where(left, torch.full((args.k,), down),
+                                   torch.full((args.k,), up))
+                off = _mag(args.k, room, g) * torch.where(
+                    left, -torch.ones(args.k), torch.ones(args.k))
+                cand = tgt[None, :].repeat(args.k, 1)
+                cand[:, axis] = p0 + off
             for i, v in pins.items():
                 cand[:, i] = v
-            # After the clamp and after the pins, so a candidate that hit a bound
-            # or whose only movement was in a pinned column is labelled with the
-            # distance it actually has rather than the one it was drawn at.
+            # After the bounds handling and after the pins, so a candidate whose
+            # only movement was in a pinned column is labelled with the distance
+            # it actually has rather than the one it was drawn at.
             dist = (cand - tgt[None, :]).norm(dim=1)
 
             x_ref = render(tgt[None, :])[0]
@@ -245,7 +297,8 @@ def main() -> None:
                    else float(A_ref.max()) * 10.0 ** (-args.floor_db / 20.0))
             dt = dist.to(A_ref.device)
             rows.append(bi.probe(A_ref, A_can, dt, eps))
-            marg.append(bi.marginal(A_ref, A_can, dt, eps))
+            marg.append(bi.marginal(A_ref, A_can, dt, eps,
+                                    args.hard_ratio))
         return rows, marg, dropped
 
     if args.per_param:
@@ -256,8 +309,14 @@ def main() -> None:
                 "point --per-param exists to average over. Use --pin for "
                 "columns that are genuinely held (conditioning, say).")
         for mr in args.max_rel:
-            print(f"\n=== PER PARAMETER   radii (0, {mr:g}]   candidates differ "
-                    f"in ONE column, background redrawn per target")
+            how = (f"log-uniform over {args.radius_decades:g} decades "
+                   f"below {mr:g}" if args.log_radius
+                   else f"uniform on (0, {mr:g}]")
+            pairs = (f"pairs within {args.hard_ratio:g}x in distance"
+                     if args.hard_ratio else "all pairs")
+            print(f"\n=== PER PARAMETER   radii {how}   {pairs}\n"
+                  f"    candidates differ in ONE column, background "
+                  f"redrawn per target")
             out = []
             for l in searched:
                 rows, marg, dropped = sweep(label.index(l), mr)
@@ -271,9 +330,14 @@ def main() -> None:
                 # spread over targets is the error bar that matters. Two separate
                 # means with no dispersion cannot tell +0.006 from +0.047, which is
                 # the whole question when the differences are this small.
-                fl = sum(m["id_lin"] for m in live) / len(live)
-                fg = sum(m["id_log"] for m in live) / len(live)
-                d = [m["id_lin"] - m["id_log"] for m in live]
+                kl = "id_lin_hard" if args.hard_ratio else "id_lin"
+                kg = "id_log_hard" if args.hard_ratio else "id_log"
+                live = [m for m in live if m.get(kl, 0.0) == m.get(kl, 0.0)]
+                if not live:
+                    continue
+                fl = sum(m[kl] for m in live) / len(live)
+                fg = sum(m[kg] for m in live) / len(live)
+                d = [m[kl] - m[kg] for m in live]
                 n = len(d)
                 mu = sum(d) / n
                 var = sum((x - mu) ** 2 for x in d) / (n - 1) if n > 1 else 0.0

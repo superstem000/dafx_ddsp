@@ -73,7 +73,7 @@ def _concordance(loss: torch.Tensor, dist: torch.Tensor) -> float:
 
 
 def marginal(A_ref: torch.Tensor, A_cand: torch.Tensor, dist: torch.Tensor,
-             eps: float = EPS) -> dict:
+             eps: float = EPS, hard_ratio: float | None = None) -> dict:
     """Is the log term's information NEW, given a linear term already present?
 
     Hybrid contains the linear term, so what a log term can contribute is only
@@ -101,6 +101,17 @@ def marginal(A_ref: torch.Tensor, A_cand: torch.Tensor, dist: torch.Tensor,
     if n == 0:
         return {}
 
+    # HARD PAIRS. A candidate at 0.02 against one at 0.28 is ordered correctly
+    # by any loss that reacts to the parameter at all, so a concordance over
+    # all pairs is mostly a report on how spread the radii were. Restricting to
+    # pairs within a factor F of each other asks the question an optimiser near
+    # a minimum faces: two guesses about equally wrong, which is closer.
+    hard = None
+    if hard_ratio is not None:
+        lo = torch.minimum(dist[:, None], dist[None, :])
+        hi = torch.maximum(dist[:, None], dist[None, :])
+        hard = m & (hi <= lo * float(hard_ratio))
+
     def right(L):
         ll = L[:, None] - L[None, :]
         return (ll < 0) & m, (ll == 0) & m
@@ -112,7 +123,20 @@ def marginal(A_ref: torch.Tensor, A_cand: torch.Tensor, dist: torch.Tensor,
     # partition the same population both ways.
     wl, wg = m & ~rl & ~tl, m & ~rg & ~tg
     nwl, nwg = int(wl.sum()), int(wg.sum())
+    extra = {}
+    if hard is not None:
+        nh = int(hard.sum())
+        extra = dict(
+            n_hard=nh,
+            id_lin_hard=((float((rl & hard).sum())
+                          + 0.5 * float((tl & hard).sum())) / nh
+                         if nh else float("nan")),
+            id_log_hard=((float((rg & hard).sum())
+                          + 0.5 * float((tg & hard).sum())) / nh
+                         if nh else float("nan")),
+        )
     return dict(
+        **extra,
         n_pairs=n,
         id_lin=(float(rl.sum()) + 0.5 * float(tl.sum())) / n,
         id_log=(float(rg.sum()) + 0.5 * float(tg.sum())) / n,
