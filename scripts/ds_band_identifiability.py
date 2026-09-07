@@ -99,6 +99,16 @@ def main() -> None:
                          "optimiser near one actually faces, and they are a "
                          "minority of the pair count unless asked for "
                          "separately.")
+    ap.add_argument("--draw", nargs="+", default=None, metavar="NAME=LO:HI",
+                    help="Sample this column on [LO, HI] (normalized 0-1) "
+                         "instead of the full range, and read --max-rel as a "
+                         "fraction of THAT span. The dataset configs restrict "
+                         "the draw without touching the processor -- h2of_r13 "
+                         "draws MULT on (1, 3) while harmor keeps (1, 8) for "
+                         "every checkpoint's head -- so the full range asks "
+                         "about a family the model never saw and inflates "
+                         "every radius by the ratio of the two spans. MULT on "
+                         "(1, 3) is --draw MULT=0:0.2857.")
     ap.add_argument("--list", action="store_true",
                     help="Print the parameter columns and exit.")
     ap.add_argument("--cond", nargs="+", default=None, metavar="NAME=V",
@@ -158,6 +168,17 @@ def main() -> None:
             raise SystemExit(f"unknown parameter {k!r}; have: {', '.join(label)}")
         pins[label.index(k)] = float(v)
 
+    draw = {}
+    for item in args.draw or []:
+        k, _, span = item.partition("=")
+        if k not in label:
+            raise SystemExit(f"unknown parameter {k!r}; have: {', '.join(label)}")
+        lo, _, hi = span.partition(":")
+        lo, hi = float(lo), float(hi)
+        if not 0.0 <= lo < hi <= 1.0:
+            raise SystemExit(f"--draw {k}: need 0 <= LO < HI <= 1, got {lo}:{hi}")
+        draw[label.index(k)] = (lo, hi)
+
     searched = [l for i, l in enumerate(label) if i not in pins]
     if not searched:
         raise SystemExit("every column is held; nothing is being searched")
@@ -165,6 +186,10 @@ def main() -> None:
           f"{args.n} targets   {args.k} candidates each   "
           f"radii (0, {', '.join(f'{r:g}' for r in args.max_rel)}] of range")
     print(f"searching: {', '.join(searched)}")
+    if draw:
+        print("draw ranges: " + ", ".join(
+            f"{label[i]}=[{lo:g},{hi:g}] (radii are a fraction of {hi - lo:g})"
+            for i, (lo, hi) in sorted(draw.items())))
     if pins:
         print(f"held: {', '.join(f'{label[i]}={v:g}' for i, v in sorted(pins.items()))}")
 
@@ -239,6 +264,8 @@ def main() -> None:
         rows, marg, dropped = [], [], 0
         for _ in range(args.n):
             tgt = torch.rand(P, generator=g)
+            for i, (lo, hi) in draw.items():
+                tgt[i] = tgt[i] * (hi - lo) + lo
             for i, v in pins.items():
                 tgt[i] = v
 
@@ -247,6 +274,8 @@ def main() -> None:
                 d /= d.norm(dim=1, keepdim=True).clamp(min=1e-30)
                 r = _mag(args.k, max_rel, g)[:, None]
                 cand = (tgt[None, :] + d * r).clamp(0.0, 1.0)
+                for i, (lo, hi) in draw.items():
+                    cand[:, i] = cand[:, i].clamp(lo, hi)
             else:
                 # ONE AXIS, RANDOM BACKGROUND. The candidates differ from the target
                 # in this column and nothing else, so dist IS |delta p| and the
@@ -265,7 +294,9 @@ def main() -> None:
                 # that side and draw the magnitude within it, which is uniform over
                 # the feasible offsets and produces no duplicates.
                 p0 = float(tgt[axis])
-                down, up = min(max_rel, p0), min(max_rel, 1.0 - p0)
+                blo, bhi = draw.get(axis, (0.0, 1.0))
+                reach = max_rel * (bhi - blo)
+                down, up = min(reach, p0 - blo), min(reach, bhi - p0)
                 if down + up <= 0.0:
                     continue
                 left = torch.rand(args.k, generator=g) * (down + up) < down
