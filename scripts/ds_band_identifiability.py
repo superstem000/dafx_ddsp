@@ -61,6 +61,17 @@ def main() -> None:
                          "put the held columns somewhere other than --rest.")
     ap.add_argument("--rest", type=float, default=0.5, metavar="V",
                     help="Where --vary holds the unsearched columns.")
+    ap.add_argument("--per-param", action="store_true",
+                    help="One row per searched column instead of one band "
+                         "table. Candidates differ from the target in that "
+                         "column ONLY, so concordance answers 'can this loss "
+                         "tell which candidate is closer in THIS parameter', "
+                         "while the rest of the target stays randomly drawn "
+                         "per target. That is the difference from --vary, "
+                         "which pins the background at --rest and so reports a "
+                         "property of one operating point. Every column is "
+                         "measured on the same targets, so the rows are paired "
+                         "and the ORDER is the result.")
     ap.add_argument("--list", action="store_true",
                     help="Print the parameter columns and exit.")
     ap.add_argument("--cond", nargs="+", default=None, metavar="NAME=V",
@@ -176,41 +187,103 @@ def main() -> None:
             out.append(audio)
         return torch.cat(out, dim=0)
 
-    g = torch.Generator().manual_seed(args.seed)
-    rows, marg, dropped = [], [], 0
-    for _ in range(args.n):
-        tgt = torch.rand(P, generator=g)
-        for i, v in pins.items():
-            tgt[i] = v
+    def sweep(axis=None):
+        # SAME SEED FOR EVERY AXIS. Each parameter is measured on the identical
+        # 24 targets, so the per-parameter rows are paired rather than three
+        # separate experiments -- a difference between two rows is the parameter,
+        # not a different draw of backgrounds.
+        g = torch.Generator().manual_seed(args.seed)
+        rows, marg, dropped = [], [], 0
+        for _ in range(args.n):
+            tgt = torch.rand(P, generator=g)
+            for i, v in pins.items():
+                tgt[i] = v
 
-        d = torch.randn((args.k, P), generator=g)
-        d /= d.norm(dim=1, keepdim=True).clamp(min=1e-30)
-        r = torch.rand((args.k, 1), generator=g) * args.max_rel
-        cand = (tgt[None, :] + d * r).clamp(0.0, 1.0)
-        for i, v in pins.items():
-            cand[:, i] = v
-        # After the clamp and after the pins, so a candidate that hit a bound
-        # or whose only movement was in a pinned column is labelled with the
-        # distance it actually has rather than the one it was drawn at.
-        dist = (cand - tgt[None, :]).norm(dim=1)
+            if axis is None:
+                d = torch.randn((args.k, P), generator=g)
+                d /= d.norm(dim=1, keepdim=True).clamp(min=1e-30)
+            else:
+                # ONE AXIS, RANDOM BACKGROUND. The candidates differ from the target
+                # in this column and nothing else, so dist IS |delta p| and the
+                # concordance is "can this loss tell which candidate is closer in p".
+                # The rest of the target stays randomly drawn per target, which is
+                # what --vary gives up: it pins the background at --rest, so every
+                # target sits at one operating point and the answer is a property of
+                # that point rather than of the parameter.
+                d = torch.zeros((args.k, P))
+                d[:, axis] = torch.where(
+                    torch.rand(args.k, generator=g) < 0.5, -1.0, 1.0)
+            r = torch.rand((args.k, 1), generator=g) * args.max_rel
+            cand = (tgt[None, :] + d * r).clamp(0.0, 1.0)
+            for i, v in pins.items():
+                cand[:, i] = v
+            # After the clamp and after the pins, so a candidate that hit a bound
+            # or whose only movement was in a pinned column is labelled with the
+            # distance it actually has rather than the one it was drawn at.
+            dist = (cand - tgt[None, :]).norm(dim=1)
 
-        x_ref = render(tgt[None, :])[0]
-        x_can = render(cand)
-        ok = torch.isfinite(x_can).all(dim=-1)
-        if not bool(ok.all()):
-            dropped += int((~ok).sum())
-            x_can, dist = x_can[ok], dist[ok.cpu()]
-        if x_can.shape[0] < 4 or not torch.isfinite(x_ref).all():
-            continue
+            x_ref = render(tgt[None, :])[0]
+            x_can = render(cand)
+            ok = torch.isfinite(x_can).all(dim=-1)
+            if not bool(ok.all()):
+                dropped += int((~ok).sum())
+                x_can, dist = x_can[ok], dist[ok.cpu()]
+            if x_can.shape[0] < 4 or not torch.isfinite(x_ref).all():
+                continue
 
-        A_ref = stft_mag(x_ref[None, :], args.n_fft, args.hop, True)[0]
-        A_can = stft_mag(x_can, args.n_fft, args.hop, True)
-        eps = (EPS if args.floor_db is None
-               else float(A_ref.max()) * 10.0 ** (-args.floor_db / 20.0))
-        dt = dist.to(A_ref.device)
-        rows.append(bi.probe(A_ref, A_can, dt, eps))
-        marg.append(bi.marginal(A_ref, A_can, dt, eps))
+            A_ref = stft_mag(x_ref[None, :], args.n_fft, args.hop, True)[0]
+            A_can = stft_mag(x_can, args.n_fft, args.hop, True)
+            eps = (EPS if args.floor_db is None
+                   else float(A_ref.max()) * 10.0 ** (-args.floor_db / 20.0))
+            dt = dist.to(A_ref.device)
+            rows.append(bi.probe(A_ref, A_can, dt, eps))
+            marg.append(bi.marginal(A_ref, A_can, dt, eps))
+        return rows, marg, dropped
 
+    if args.per_param:
+        if args.vary:
+            raise SystemExit(
+                "--per-param and --vary are incompatible: --vary pins the "
+                "unsearched columns at --rest, which is the single operating "
+                "point --per-param exists to average over. Use --pin for "
+                "columns that are genuinely held (conditioning, say).")
+        print(f"\n=== PER PARAMETER   candidates differ in ONE column, "
+              f"background redrawn per target")
+        out = []
+        for l in searched:
+            rows, marg, dropped = sweep(label.index(l))
+            if not rows:
+                continue
+            A, B, C = bi.abc(bi.accumulate(rows))
+            live = [m for m in marg if m]
+            fl = sum(m["id_lin"] for m in live) / len(live) if live else float("nan")
+            fg = sum(m["id_log"] for m in live) / len(live) if live else float("nan")
+            out.append((C - A, l, fl, fg, B - A, C - B))
+        w = max(10, max(len(l) for _n, l, *_r in out) + 2)
+        print(f"{'param':<{w}}{'id_lin':>9}{'id_log':>9}{'reweight':>10}"
+              f"{'transform':>11}{'net':>8}")
+        for net, l, fl, fg, rw, tr in sorted(out, reverse=True):
+            print(f"{l:<{w}}{fl:>9.3f}{fg:>9.3f}{rw:>+10.3f}{tr:>+11.3f}"
+                  f"{net:>+8.3f}")
+        print("\n  id_lin/id_log  full-spectrum concordance: can that loss tell\n"
+              "                 which of two candidates is closer IN THIS "
+              "PARAMETER.\n"
+              "                 0.5 is a coin flip, below 0.5 is systematically "
+              "wrong\n"
+              "  reweight       B-A, the cost of moving weight to the quiet "
+              "bands\n"
+              "  transform      C-B, what comparing in the log domain buys "
+              "within a band\n"
+              "  net            C-A. Sorted by it, so READ THE ORDER rather "
+              "than the sign:\n"
+              "                 every parameter here saw the same targets, so "
+              "the ranking is\n"
+              "                 paired and survives whatever the absolute "
+              "numbers do under\n"
+              "                 a different floor, radius or target count.")
+        return
+
+    rows, marg, dropped = sweep()
     if not rows:
         raise SystemExit("no usable targets")
     if dropped:

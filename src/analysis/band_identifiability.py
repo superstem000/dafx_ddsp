@@ -230,6 +230,21 @@ def accumulate(rows: list[list[dict]], bands=DB_BANDS) -> list[dict]:
     return out
 
 
+def abc(agg: list[dict]) -> tuple[float, float, float]:
+    """(A, B, C) -- linear as it is, log's weighting with linear's ranking,
+    log as it is. Split out of report() so a per-parameter caller gets the same
+    three numbers without reformatting a printed table, which is how one
+    decomposition becomes two that disagree.
+    """
+    def wmean(key_w, key_id):
+        live = [o for o in agg if o[key_id] == o[key_id]]
+        den = sum(o[key_w] for o in live) or 1.0
+        return sum(o[key_w] * o[key_id] for o in live) / den
+
+    return (wmean("w_lin", "id_lin"), wmean("w_log", "id_lin"),
+            wmean("w_log", "id_log"))
+
+
 def report(agg: list[dict], bands=DB_BANDS, title: str = "") -> None:
     """The table. Formatting lives here so no caller reshapes it downstream."""
     if title:
@@ -263,14 +278,7 @@ def report(agg: list[dict], bands=DB_BANDS, title: str = "") -> None:
     #
     # So: hybrid has an edge iff the transform's gain exceeds the reweighting's
     # cost. Both are measurable here, before any training run.
-    def wmean(key_w, key_id):
-        live = [o for o in agg if o[key_id] == o[key_id]]
-        den = sum(o[key_w] for o in live) or 1.0
-        return sum(o[key_w] * o[key_id] for o in live) / den
-
-    A = wmean("w_lin", "id_lin")
-    B = wmean("w_log", "id_lin")
-    C = wmean("w_log", "id_log")
+    A, B, C = abc(agg)
     print(f"\n  weighted concordance    linear {A:.3f}   log {C:.3f}"
           f"   (0.5 = coin flip)")
     print(f"  reweighting  B-A {B - A:+.3f}   moving weight to the quiet bands")
