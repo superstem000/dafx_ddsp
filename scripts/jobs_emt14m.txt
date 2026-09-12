@@ -15,20 +15,19 @@
 # nested inside the new set rather than being replaced by an unrelated one.
 # Same epsilon (1e-2 on magnitude), same per-term weights, same schedule.
 #
-# STAGE 2 ONLY, resuming emt14's own pretrain. emt14_pre ran with
-# --param-hold-frac 1.0, which makes the spectral fraction
-# f = min(1, max(0, (step - hold)/ramp)) zero at every step -- parameter loss
-# alone, spectral weight never engaged. That checkpoint is therefore
-# independent of which spectral loss was named on its job line, which is also
-# why all three emt14 arms already resume from the one file. Re-running it
-# would cost 2500 steps and produce the same weights.
+# RESUMES emt14's own pretrain, so each arm runs 7500 steps, not 10000.
+# train_encoder sets start_step = ck["step"] + 1, so the counter continues
+# rather than restarting: emt14_pre ran STEPS=2500 and these pick up at 2501.
+# Pretrain and resume therefore share ONE 10000-step axis, and with
+# --param-hold-frac 0.25 the parameter-only phase is steps 0-2500 -- which is
+# precisely what emt14_pre already ran. The crossfade (2500-6250) and the
+# spectral-only phase (6250-10000) are what happens here, so the spectral loss
+# is engaged for every step these jobs run.
 #
-# The 10000 steps here are NOT all spectral: --param-hold-frac 0.25 and
-# --param-ramp-frac 0.375 give 2500 steps of parameter loss alone, 3750 of
-# crossfade, then 3750 spectral-only. The schedule is step-indexed and
-# --ckpt-every 1000 wrote nothing at step 2500, so the parameter-only head
-# cannot be skipped by resuming further in; it is part of the trajectory the
-# arms share.
+# emt14_pre itself used --param-hold-frac 1.0, holding the spectral fraction at
+# zero throughout, so its checkpoint does not depend on which spectral loss its
+# job line named. That is why all three emt14 arms already share the one file
+# and why it does not need re-running for a new loss.
 #
 # WRITES TO results/ddsp/emt14m, NOT results/ddsp/emt14. The emt14 checkpoints
 # are what emt14_listen_8k, every convolved evaluation and four listening tests
