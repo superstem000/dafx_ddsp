@@ -73,7 +73,10 @@ def _concordance(loss: torch.Tensor, dist: torch.Tensor) -> float:
 
 
 def _flatten(A_ref, A_cand, eps):
-    """(a, c, w, db, e) for ONE resolution or a SET of them.
+    """(a, c, w, db, e, ri) for ONE resolution or a SET of them.
+
+    ri is the index of the resolution each bin came from, so a caller can
+    partition the flattened spectrum by STFT size as well as by level.
 
     A_ref/A_cand may be a single [F,T]/[K,F,T] pair, as before, or lists of
     them -- one entry per STFT size. eps may be a scalar or one value per
@@ -109,8 +112,8 @@ def _flatten(A_ref, A_cand, eps):
     if len(epss) != R:
         raise ValueError(f"{len(epss)} eps values for {R} resolutions")
 
-    a_l, c_l, w_l, db_l, e_l = [], [], [], [], []
-    for Ar, Ac, ep in zip(refs, cans, epss):
+    a_l, c_l, w_l, db_l, e_l, r_l = [], [], [], [], [], []
+    for ri, (Ar, Ac, ep) in enumerate(zip(refs, cans, epss)):
         a = Ar.flatten().double()
         c = Ac.reshape(Ac.shape[0], -1).double()
         n = a.numel()
@@ -118,10 +121,11 @@ def _flatten(A_ref, A_cand, eps):
         c_l.append(c)
         w_l.append(torch.full((n,), 1.0 / (R * n), dtype=a.dtype, device=a.device))
         e_l.append(torch.full((n,), float(ep), dtype=a.dtype, device=a.device))
+        r_l.append(torch.full((n,), ri, dtype=torch.long, device=a.device))
         db_l.append(20.0 * torch.log10(
             (a / a.max().clamp(min=1e-30)).clamp(min=1e-300)))
     return (torch.cat(a_l), torch.cat(c_l, dim=1), torch.cat(w_l),
-            torch.cat(db_l), torch.cat(e_l))
+            torch.cat(db_l), torch.cat(e_l), torch.cat(r_l))
 
 
 def marginal(A_ref, A_cand, dist: torch.Tensor,
@@ -142,7 +146,7 @@ def marginal(A_ref, A_cand, dist: torch.Tensor,
     Computed on the FULL spectrum rather than per band, because that is the
     comparison an actual loss makes.
     """
-    a, c, w, _db, e = _flatten(A_ref, A_cand, eps)
+    a, c, w, _db, e, _ri = _flatten(A_ref, A_cand, eps)
     Ll = (w * (c - a).abs()).sum(1)
     Lg = (w * ((c + e).log() - (a + e).log()).abs()).sum(1)
 
@@ -259,7 +263,7 @@ def probe(A_ref, A_cand, dist: torch.Tensor,
     loss weights it, so w_lin and w_log stay the share of that loss's total
     landing in each band.
     """
-    a, c, w, db, e = _flatten(A_ref, A_cand, eps)
+    a, c, w, db, e, _ri = _flatten(A_ref, A_cand, eps)
 
     # Exact-zero bins log to -inf and would fall outside every band. They are
     # quiet bins and belong in the deepest one, so the scale is clamped just
