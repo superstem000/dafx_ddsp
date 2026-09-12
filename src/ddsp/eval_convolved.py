@@ -232,6 +232,22 @@ def main() -> int:
                    help="check the decay fits against known signals and exit")
     p.add_argument("--dir", type=Path,
                    help="an eval_real_ir output directory")
+    p.add_argument("--match", default=None, metavar="REGEX",
+                   help="Keep only IRs whose stem matches. Needed with "
+                        "--dry-dir when the render directory holds more IRs "
+                        "than the test uses: the dry files are assigned to the "
+                        "IRs present here, so selecting later with "
+                        "make_webmushra's --pick would let two chosen IRs wrap "
+                        "onto the same source.")
+    p.add_argument("--dry-dir", type=Path, default=None,
+                   help="A DIRECTORY of dry files, one per IR, assigned to the "
+                        "IRs in sorted order and cycled if there are fewer. "
+                        "Every IR then carries a different source, so a "
+                        "listener cannot learn one source and rate the rest "
+                        "against their memory of it -- and a difference they "
+                        "hear cannot be an artefact of one unlucky sample. "
+                        "The mapping is printed and is deterministic, so a "
+                        "sitting can be reproduced exactly.")
     p.add_argument("--dry", type=Path,
                    help="dry mono source, e.g. a VocalSet excerpt")
     p.add_argument("--dry-start", type=float, default=0.0)
@@ -255,29 +271,64 @@ def main() -> int:
 
     if args.selftest:
         return selftest()
-    missing = [f for f, v in (("--dir", args.dir), ("--dry", args.dry)) if not v]
-    if missing:
-        p.error(f"{' and '.join(missing)} required (or use --selftest alone)")
+    if not args.dir:
+        p.error("--dir required (or use --selftest alone)")
+    if bool(args.dry) == bool(args.dry_dir):
+        p.error("exactly one of --dry and --dry-dir")
 
     clips = discover(args.dir)
     if not clips:
         raise SystemExit(f"no <ir>__<arm>.wav under {args.dir}")
     names = sorted(clips)
+    if args.match:
+        names = [s for s in names if re.search(args.match, s)]
+        if not names:
+            raise SystemExit(f"--match {args.match!r} kept none of "
+                             f"{len(clips)} IRs")
+        print(f"--match kept {len(names)} of {len(clips)} IRs")
+        clips = {s: clips[s] for s in names}
     arms = sorted({a for s in names for a in clips[s] if a != "target"})
 
-    dry, sr = mono(args.dry)
-    if sr != SAMPLE_RATE:
-        raise SystemExit(f"{args.dry} is {sr} Hz, expected {SAMPLE_RATE}. "
-                         f"Resample it first -- silently resampling here would "
-                         f"put a different anti-alias filter on the source than "
-                         f"the IRs ever saw.")
-    a0 = int(args.dry_start * sr)
-    dry = dry[a0:a0 + int(args.dry_dur * sr)]
-    if len(dry) < int(0.5 * sr):
-        raise SystemExit(f"only {len(dry) / sr:.2f} s of dry audio selected")
+    def load_dry(path: Path):
+        d, sr_ = mono(path)
+        if sr_ != SAMPLE_RATE:
+            raise SystemExit(f"{path} is {sr_} Hz, expected {SAMPLE_RATE}. "
+                             f"Resample it first -- silently resampling here "
+                             f"would put a different anti-alias filter on the "
+                             f"source than the IRs ever saw.")
+        a0 = int(args.dry_start * sr_)
+        d = d[a0:a0 + int(args.dry_dur * sr_)]
+        if len(d) < int(0.5 * sr_):
+            raise SystemExit(f"only {len(d) / sr_:.2f} s selected from {path}")
+        return d, sr_
+
+    if args.dry_dir:
+        pool = sorted(x for x in args.dry_dir.iterdir()
+                      if x.suffix.lower() in (".wav", ".flac", ".aiff", ".aif"))
+        if not pool:
+            raise SystemExit(f"no audio files under {args.dry_dir}")
+        if len(pool) < len(names):
+            print(f"  NOTE: {len(pool)} dry file(s) for {len(names)} IRs, so "
+                  f"some are reused")
+        dry_of, sr = {}, SAMPLE_RATE
+        for i, stem in enumerate(names):
+            d, sr = load_dry(pool[i % len(pool)])
+            dry_of[stem] = (d, pool[i % len(pool)].name)
+    else:
+        d, sr = load_dry(args.dry)
+        dry_of = {stem: (d, args.dry.name) for stem in names}
+
     print(f"{args.dir}: {len(names)} IRs x {len(arms)} arms")
-    print(f"dry: {args.dry.name}  {args.dry_start:.1f}-"
-          f"{args.dry_start + len(dry) / sr:.1f} s  ({len(dry) / sr:.2f} s used)")
+    if args.dry_dir:
+        print(f"dry: one per IR from {args.dry_dir}, "
+              f"{args.dry_start:.1f}-{args.dry_start + args.dry_dur:.1f} s each")
+        for stem in names:
+            print(f"    {stem:<34}{dry_of[stem][1]}")
+    else:
+        dry0 = dry_of[names[0]][0]
+        print(f"dry: {args.dry.name}  {args.dry_start:.1f}-"
+              f"{args.dry_start + len(dry0) / sr:.1f} s  "
+              f"({len(dry0) / sr:.2f} s used)")
 
     dev = torch.device(args.device)
     configure_loss_runtime(SAMPLE_RATE, dev)
@@ -303,6 +354,7 @@ def main() -> int:
     # --- convolve -------------------------------------------------------
     conv, irs = {}, {}
     for stem in names:
+        dry = dry_of[stem][0]
         for tag in ["target"] + arms:
             if tag not in clips[stem]:
                 continue
@@ -335,7 +387,20 @@ def main() -> int:
     sat = {k: [] for k in ("mfcc", "mfcc_db80", "linmag")}
     for i, stem in enumerate(names):
         a = t[(stem, "target")]
-        b = t[(names[(i + 1) % len(names)], "target")]
+        # THE NEIGHBOUR IR THROUGH THIS IR'S OWN DRY. Under --dry-dir the
+        # neighbour's stored stimulus carries a different source, so using it
+        # directly would make saturation "a different IR AND a different snare"
+        # -- an easier reference, and not the quantity every other table in
+        # this project reports. Re-convolving here keeps the source fixed so
+        # only the IR varies, which is what saturation has always meant.
+        nb = names[(i + 1) % len(names)]
+        if args.dry_dir:
+            d = dry_of[stem][0]
+            h = irs[(nb, "target")]
+            y = fftconvolve(d, h)[: len(d) + len(h)]
+            b = peak_norm(torch.from_numpy(y).float().to(dev)[None, :])
+        else:
+            b = t[(nb, "target")]
         sat["mfcc"].append(l1(mfcc(a), mfcc(b)).item())
         sat["mfcc_db80"].append(l1(mfcc(a, 80.0), mfcc(b, 80.0)).item())
         sat["linmag"].append(l1(linmag(a), linmag(b)).item())
