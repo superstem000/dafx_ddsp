@@ -72,8 +72,60 @@ def _concordance(loss: torch.Tensor, dist: torch.Tensor) -> float:
     return (agree + 0.5 * ties) / n
 
 
-def marginal(A_ref: torch.Tensor, A_cand: torch.Tensor, dist: torch.Tensor,
-             eps: float = EPS, hard_ratio: float | None = None) -> dict:
+def _flatten(A_ref, A_cand, eps):
+    """(a, c, w, db, e) for ONE resolution or a SET of them.
+
+    A_ref/A_cand may be a single [F,T]/[K,F,T] pair, as before, or lists of
+    them -- one entry per STFT size. eps may be a scalar or one value per
+    resolution. This is what makes the tool answer questions about a
+    multi-resolution loss rather than about a spectrogram.
+
+    w IS THE LOSS'S OWN PER-BIN WEIGHT. _make_stft_l1 takes a mean over bins
+    within a resolution and then a mean over resolutions, so a bin belonging to
+    an R-resolution set with n_r bins carries 1/(R*n_r) and sum(w * |c - a|)
+    reproduces the loss value exactly. Concatenating the resolutions unweighted
+    would instead let each one vote in proportion to its bin count on top of its
+    magnitude, which is a loss nobody trains with.
+
+    db IS PER-RESOLUTION. torch.stft here is unnormalized, so a peak-1 signal's
+    bins scale with the window length -- roughly N for tonal content. Measuring
+    every resolution against one global peak would drop the whole 512 rung
+    ~18 dB purely because its window is shorter, and the band table would report
+    that as the short windows living in the quiet bands. Each resolution's bins
+    are referred to that resolution's own reference peak instead, so "40-60 dB
+    down" means the same thing on every rung.
+
+    A single tensor with a scalar eps gives a uniform w = 1/n, which scales
+    every candidate's loss by one constant: concordance is unchanged and w_lin
+    / w_log are shares, so every number this module reports for a
+    single-resolution call is identical to what it reported before.
+    """
+    refs = list(A_ref) if isinstance(A_ref, (list, tuple)) else [A_ref]
+    cans = list(A_cand) if isinstance(A_cand, (list, tuple)) else [A_cand]
+    if len(refs) != len(cans):
+        raise ValueError(f"{len(refs)} references against {len(cans)} candidate sets")
+    R = len(refs)
+    epss = list(eps) if isinstance(eps, (list, tuple)) else [float(eps)] * R
+    if len(epss) != R:
+        raise ValueError(f"{len(epss)} eps values for {R} resolutions")
+
+    a_l, c_l, w_l, db_l, e_l = [], [], [], [], []
+    for Ar, Ac, ep in zip(refs, cans, epss):
+        a = Ar.flatten().double()
+        c = Ac.reshape(Ac.shape[0], -1).double()
+        n = a.numel()
+        a_l.append(a)
+        c_l.append(c)
+        w_l.append(torch.full((n,), 1.0 / (R * n), dtype=a.dtype, device=a.device))
+        e_l.append(torch.full((n,), float(ep), dtype=a.dtype, device=a.device))
+        db_l.append(20.0 * torch.log10(
+            (a / a.max().clamp(min=1e-30)).clamp(min=1e-300)))
+    return (torch.cat(a_l), torch.cat(c_l, dim=1), torch.cat(w_l),
+            torch.cat(db_l), torch.cat(e_l))
+
+
+def marginal(A_ref, A_cand, dist: torch.Tensor,
+             eps=EPS, hard_ratio: float | None = None) -> dict:
     """Is the log term's information NEW, given a linear term already present?
 
     Hybrid contains the linear term, so what a log term can contribute is only
@@ -90,10 +142,9 @@ def marginal(A_ref: torch.Tensor, A_cand: torch.Tensor, dist: torch.Tensor,
     Computed on the FULL spectrum rather than per band, because that is the
     comparison an actual loss makes.
     """
-    a = A_ref.flatten().double()
-    c = A_cand.reshape(A_cand.shape[0], -1).double()
-    Ll = (c - a).abs().sum(1)
-    Lg = ((c + eps).log() - (a + eps).log()).abs().sum(1)
+    a, c, w, _db, e = _flatten(A_ref, A_cand, eps)
+    Ll = (w * (c - a).abs()).sum(1)
+    Lg = (w * ((c + e).log() - (a + e).log()).abs()).sum(1)
 
     dd = dist[:, None] - dist[None, :]
     m = dd < 0
@@ -195,24 +246,28 @@ def report_marginal(rows: list[dict], title: str = "") -> None:
         print("  hybrid can actually capture.")
 
 
-def probe(A_ref: torch.Tensor, A_cand: torch.Tensor, dist: torch.Tensor,
-          eps: float = EPS, bands=DB_BANDS) -> list[dict]:
+def probe(A_ref, A_cand, dist: torch.Tensor,
+          eps=EPS, bands=DB_BANDS) -> list[dict]:
     """One target: [F,T] reference, [K,F,T] candidates, [K] parameter distances.
 
     Bands are assigned from the REFERENCE's own peak, so "40-60 dB down" means
     the same thing for every target regardless of its level.
-    """
-    a = A_ref.flatten().double()
-    c = A_cand.reshape(A_cand.shape[0], -1).double()
 
-    db = 20.0 * torch.log10((a / a.max().clamp(min=1e-30)).clamp(min=1e-300))
+    A_ref/A_cand may instead be LISTS, one entry per STFT size, with eps a
+    scalar or one value per resolution -- see _flatten. The bands are then
+    assigned per resolution and every bin is weighted as the multi-resolution
+    loss weights it, so w_lin and w_log stay the share of that loss's total
+    landing in each band.
+    """
+    a, c, w, db, e = _flatten(A_ref, A_cand, eps)
+
     # Exact-zero bins log to -inf and would fall outside every band. They are
     # quiet bins and belong in the deepest one, so the scale is clamped just
     # inside its lower edge rather than letting them vanish from the accounting.
     db = db.clamp(min=-(float(bands[-1][1]) - 1e-3))
 
-    lin = (c - a).abs()
-    lg = ((c + eps).log() - (a + eps).log()).abs()
+    lin = (c - a).abs() * w
+    lg = ((c + e).log() - (a + e).log()).abs() * w
     tot_lin = float(lin.sum()) or 1.0
     tot_log = float(lg.sum()) or 1.0
 

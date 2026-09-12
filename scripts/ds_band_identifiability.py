@@ -123,11 +123,27 @@ def main() -> None:
                          "searched parameter.")
     ap.add_argument("--sr", type=int, default=16000)
     ap.add_argument("--audio-len", type=float, default=4.0)
-    ap.add_argument("--n-fft", type=int, default=1024)
-    ap.add_argument("--hop", type=int, default=256)
+    ap.add_argument("--n-fft", type=int, nargs="+", default=[1024], metavar="N",
+                    help="STFT size, or a SET of them. A set makes this a "
+                         "measurement of a MULTI-RESOLUTION loss rather than of "
+                         "one spectrogram: every bin is weighted exactly as "
+                         "_make_stft_l1 weights it -- mean over bins within a "
+                         "resolution, mean over resolutions -- so the reported "
+                         "concordance is the concordance of that loss. Pass one "
+                         "size to reproduce the single-resolution tables "
+                         "unchanged.")
+    ap.add_argument("--hop", type=int, nargs="+", default=None, metavar="H",
+                    help="One per --n-fft. Default n_fft//4 for each, which is "
+                         "what the losses use.")
     ap.add_argument("--floor-db", type=float, default=None,
                     help="Set the log measure's floor this far below each "
-                         "target's peak instead of at the absolute eps 1e-7.")
+                         "target's peak instead of at the absolute eps 1e-7. "
+                         "With several resolutions the floor is set per "
+                         "resolution, against that resolution's own peak -- the "
+                         "STFT is unnormalized, so one absolute eps sits at a "
+                         "different percentile of the bin distribution on every "
+                         "rung and the ladder would confound the floor moving "
+                         "with the resolution changing.")
     ap.add_argument("--render-batch", type=int, default=8, metavar="K",
                     help="Render this many candidates at a time. Candidates are "
                          "a batch dimension, so all K at once is a K/8 larger "
@@ -136,6 +152,11 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
+
+    hops = args.hop or [nf // 4 for nf in args.n_fft]
+    if len(hops) != len(args.n_fft):
+        raise SystemExit(f"--hop takes one value per --n-fft: "
+                         f"{len(hops)} hops for {len(args.n_fft)} sizes")
 
     dev = torch.device(args.device if torch.cuda.is_available() else "cpu")
     conf = OmegaConf.merge(OmegaConf.create({"data": {"sample_rate": args.sr}}),
@@ -186,6 +207,10 @@ def main() -> None:
           f"{args.n} targets   {args.k} candidates each   "
           f"radii (0, {', '.join(f'{r:g}' for r in args.max_rel)}] of range")
     print(f"searching: {', '.join(searched)}")
+    print(f"resolution: {' '.join(str(n) for n in args.n_fft)}"
+          f"   hop {' '.join(str(h) for h in hops)}"
+          + ("   (bins weighted as the multi-resolution loss weights them)"
+             if len(args.n_fft) > 1 else ""))
     if draw:
         print("draw ranges: " + ", ".join(
             f"{label[i]}=[{lo:g},{hi:g}] (radii are a fraction of {hi - lo:g})"
@@ -322,11 +347,14 @@ def main() -> None:
             if x_can.shape[0] < 4 or not torch.isfinite(x_ref).all():
                 continue
 
-            A_ref = stft_mag(x_ref[None, :], args.n_fft, args.hop, True)[0]
-            A_can = stft_mag(x_can, args.n_fft, args.hop, True)
+            A_ref = [stft_mag(x_ref[None, :], nf, hp, True)[0]
+                     for nf, hp in zip(args.n_fft, hops)]
+            A_can = [stft_mag(x_can, nf, hp, True)
+                     for nf, hp in zip(args.n_fft, hops)]
             eps = (EPS if args.floor_db is None
-                   else float(A_ref.max()) * 10.0 ** (-args.floor_db / 20.0))
-            dt = dist.to(A_ref.device)
+                   else [float(A.max()) * 10.0 ** (-args.floor_db / 20.0)
+                         for A in A_ref])
+            dt = dist.to(A_ref[0].device)
             rows.append(bi.probe(A_ref, A_can, dt, eps))
             marg.append(bi.marginal(A_ref, A_can, dt, eps,
                                     args.hard_ratio))
