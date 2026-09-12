@@ -303,7 +303,14 @@ def probe(A_ref, A_cand, dist: torch.Tensor,
     # Exact-zero bins log to -inf and would fall outside every band. They are
     # quiet bins and belong in the deepest one, so the scale is clamped just
     # inside its lower edge rather than letting them vanish from the accounting.
-    db = db.clamp(min=-(float(bands[-1][1]) - 1e-3))
+    # Exact-zero bins log to -inf. Under dB edges they would fall outside every
+    # band; under a rank split they sort to the end and land in the last chunk
+    # correctly, but -inf would still poison that band's printed level range.
+    # Either way they are quiet bins and belong at the bottom, so the scale gets
+    # a finite floor -- the deepest dB edge when there is one, and DB_BANDS'
+    # own 400 otherwise, so the two partitions floor at the same place.
+    _floor = 400.0 if isinstance(bands, int) else float(bands[-1][1])
+    db = db.clamp(min=-(_floor - 1e-3))
 
     lin = (c - a).abs() * w
     lg = ((c + e).log() - (a + e).log()).abs() * w
