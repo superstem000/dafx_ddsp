@@ -333,7 +333,13 @@ def main() -> int:
         # file. Either is a legitimate stimulus, but they are different tests
         # and the difference is invisible unless counted.
         n_in = len(onsets(d, sr_))
-        return d, sr_, full, a0 / sr_, n_in
+        # TIME TO THE NEXT STROKE, which is what caps --dry-dur if every
+        # stimulus is to hold exactly one. Reported per file because the
+        # binding constraint is the SMALLEST of them across the set, and that
+        # cannot be read off a per-file hit count.
+        nxt = next((o for o in on if o > a0 + int(0.020 * sr_)), None)
+        gap = (nxt - a0) / sr_ if nxt is not None else float("inf")
+        return d, sr_, full, a0 / sr_, n_in, gap
 
     if args.dry_dir:
         pool = sorted(x for x in args.dry_dir.iterdir()
@@ -345,26 +351,32 @@ def main() -> int:
                   f"some are reused")
         dry_of, sr = {}, SAMPLE_RATE
         for i, stem in enumerate(names):
-            d, sr, full, st, n_in = load_dry(pool[i % len(pool)])
-            dry_of[stem] = (d, pool[i % len(pool)].name, full, st, n_in)
+            d, sr, full, st, n_in, gap = load_dry(pool[i % len(pool)])
+            dry_of[stem] = (d, pool[i % len(pool)].name, full, st, n_in, gap)
     else:
-        d, sr, full, st, n_in = load_dry(args.dry)
-        dry_of = {stem: (d, args.dry.name, full, st, n_in) for stem in names}
+        d, sr, full, st, n_in, gap = load_dry(args.dry)
+        dry_of = {stem: (d, args.dry.name, full, st, n_in, gap)
+                  for stem in names}
 
     print(f"{args.dir}: {len(names)} IRs x {len(arms)} arms")
     if args.dry_dir:
         print(f"dry: one per IR from {args.dry_dir}, "
               f"{args.dry_start:.1f}-{args.dry_start + args.dry_dur:.1f} s each")
         print(f"    {'ir':<24}{'source':<30}{'file_s':>8}{'start_s':>9}"
-              f"{'used_s':>8}{'hits':>6}")
+              f"{'used_s':>8}{'hits':>6}{'next_on':>9}")
         for stem in names:
-            d, nm, full, st, n_in = dry_of[stem]
+            d, nm, full, st, n_in, gap = dry_of[stem]
+            g = "    -" if gap == float("inf") else f"{gap:>9.3f}"
             print(f"    {stem:<24}{nm[:29]:<30}{full:>8.2f}{st:>9.3f}"
-                  f"{len(d) / sr:>8.2f}{n_in:>6}")
+                  f"{len(d) / sr:>8.2f}{n_in:>6}{g}")
         hits = {dry_of[s][4] for s in names}
         if hits != {1}:
+            tightest = min(dry_of[s][5] for s in names)
             print(f"    NOTE: hits per window varies {sorted(hits)} -- the "
-                  f"stimuli differ in stroke COUNT as well as in IR")
+                  f"stimuli differ in stroke COUNT as well as in IR.")
+            print(f"    The next stroke arrives at {tightest:.3f} s in the "
+                  f"tightest file, so --dry-dur below that gives every "
+                  f"stimulus exactly one.")
     else:
         dry0, nm, full, st, n_in = dry_of[names[0]]
         print(f"dry: {nm}  file {full:.2f} s, from {st:.3f} s, "
