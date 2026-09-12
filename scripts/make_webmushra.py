@@ -240,6 +240,7 @@ def select(clips: dict, groups: str, pick: str, spread_re: str | None,
     # perfectly confounded with position in the sitting and with any drift in
     # how the listener uses the scale. Deterministic, so every listener still
     # gets the same order and ratings stay poolable.
+    import random as _random
     _random.Random(order_seed).shuffle(chosen)
     return chosen
 
