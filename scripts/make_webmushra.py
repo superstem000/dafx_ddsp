@@ -206,7 +206,7 @@ def spread_balanced(clips: dict, spread_re: str, balance_re: str | None,
 
 
 def select(clips: dict, groups: str, pick: str, spread_re: str | None,
-           n_trials: int):
+           n_trials: int, order_seed: int = 0):
     """The trials to run, chosen deterministically -- never per session.
 
     WHY NOT RANDOM PER SESSION. With eight listeners, drawing a fresh subset
@@ -232,6 +232,15 @@ def select(clips: dict, groups: str, pick: str, spread_re: str | None,
         print(f"  not found, skipped: {', '.join(missing)}")
     if not chosen:
         raise SystemExit(f"none of {want} under the render directory")
+    # SHUFFLE HERE TOO, not only on the --spread-re path. --order-seed says it
+    # shuffles the page order, and it did not on this one -- trials came out in
+    # sorted order. That is harmless while the stems are one material, and
+    # wrong as soon as two are merged: a run holding snare_* and voc_* would
+    # play all nine of one and then all nine of the other, so material is
+    # perfectly confounded with position in the sitting and with any drift in
+    # how the listener uses the scale. Deterministic, so every listener still
+    # gets the same order and ratings stay poolable.
+    _random.Random(order_seed).shuffle(chosen)
     return chosen
 
 
@@ -363,7 +372,8 @@ def main() -> int:
         chosen = spread_balanced(clips, args.spread_re, args.balance_re,
                                  args.trials, args.order_seed)
     else:
-        chosen = select(clips, args.groups, args.pick, None, args.trials)
+        chosen = select(clips, args.groups, args.pick, None, args.trials,
+                        args.order_seed)
 
     arms = sorted({a for s in chosen for a in clips[s] if a != "target"})
     # Every trial must offer every arm, or listeners get a different number of
