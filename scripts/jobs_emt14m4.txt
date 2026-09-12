@@ -1,0 +1,47 @@
+# emt14m4: emt14m with the 512 rung dropped. Nothing else moves.
+#
+#   tmux new -d -s emt14m4 'python scripts/gpu_queue.py --jobs scripts/jobs_emt14m4.txt 2>&1 | tee -a logs/emt14m4.log'
+#
+# WHY. diag_band_identifiability, run on three resolution sets in one sweep so
+# they share targets and candidates exactly, puts the 512 rung on the log
+# term's side of every comparison. Full-spectrum concordance, log minus linear:
+#
+#                        radii <= 0.3   radii <= 0.5
+#     4096                   -0.012         -0.017
+#     512..8192 (m5)         +0.007         -0.005
+#     1024..8192 (m4)        -0.002         -0.013
+#
+# So dropping 512 recovers about two thirds of the single-4096 separation.
+# Mechanism, two parts pulling the same way: 512 at 44.1 kHz is 86 Hz per bin,
+# so the valleys between plate modes are smeared rather than resolved and the
+# quiet bins the log term up-weights carry more signal; and eps = 1e-2 sits
+# 77.5 dB below that rung's reference peak against 91.9 dB at 8192, so more of
+# the 512 rung sits below the knee, where log(x + eps) is linear.
+#
+# THIS SET WAS CHOSEN AFTER SEEING WHICH ONE SEPARATES FURTHER, at n=12 targets.
+# That is a prediction the measure makes, run as its own arm so the prediction
+# can be checked against a training outcome -- not a result that justifies
+# preferring this resolution set over m5. m5 stays the set picked on a priori
+# grounds: octave-spaced, nesting the 4096 the single-resolution arms use, and
+# fixed before any of this was measured. Report both or report m5; do not
+# report m4 alone as "the multi-resolution arm".
+#
+# RESUMES emt14's own pretrain, so each arm runs 7500 steps, not 10000.
+# train_encoder sets start_step = ck["step"] + 1, so the counter continues
+# rather than restarting: emt14_pre ran STEPS=2500 and these pick up at 2501.
+# With --param-hold-frac 0.25 the parameter-only phase is steps 0-2500, which
+# is exactly what emt14_pre already ran; the crossfade (2500-6250) and the
+# spectral-only phase (6250-10000) are what happens here. Evals land on
+# multiples of 500, not 250: the eval block is nested inside the --log-every
+# 100 block, so --eval-every 250 fires only where the two coincide.
+#
+# emt14_pre itself used --param-hold-frac 1.0, holding the spectral fraction at
+# zero throughout, so its checkpoint does not depend on which spectral loss its
+# job line named. That is why emt14, emt14m and emt14m4 all share the one file.
+#
+# WRITES TO results/ddsp/emt14m4. emt14 and emt14m are what the listening
+# tests, the convolved evaluations and every quoted number were built from.
+
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14m4 ARMS="L1_STFT_m4" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14m4 ARMS="L1_STFT_hyb1e2_m4" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14m4 ARMS="L1_STFT_eps1e2_m4" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"

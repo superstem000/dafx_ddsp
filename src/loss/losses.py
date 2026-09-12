@@ -1080,6 +1080,34 @@ _DECOMP_LOSSES["L1_STFT_m5"] = _make_stft_l1(_M5, comp="linear")
 _DECOMP_LOSSES["L1_STFT_eps1e2_m5"] = _make_stft_l1(_M5, comp="c1", eps=1e-2)
 _DECOMP_LOSSES["L1_STFT_hyb1e2_m5"] = _make_stft_hybrid(_M5, eps=1e-2)
 
+# _M5 WITHOUT ITS SHORTEST RUNG, which is one variable against _M5 and not a
+# new ladder. diag_band_identifiability puts the 512 rung on the log term's
+# side of every comparison it was measured in -- full-spectrum concordance,
+# log minus linear, over three resolution sets on identical targets and
+# candidates:
+#
+#                        radii <= 0.3   radii <= 0.5
+#     4096                   -0.012         -0.017
+#     512..8192 (_M5)        +0.007         -0.005
+#     1024..8192 (_M4)       -0.002         -0.013
+#
+# Two mechanisms, both in that direction. 512 at 44.1 kHz is 86 Hz per bin, so
+# the valleys between plate modes are smeared rather than resolved and the
+# quiet bins log up-weights carry more signal; and eps = 1e-2 sits 77.5 dB
+# below that rung's reference peak against 91.9 dB at 8192, so a larger share
+# of the 512 rung is below the knee and therefore effectively linear.
+#
+# NOTE WHAT THIS IS AND IS NOT EVIDENCE OF. The set was chosen AFTER seeing
+# which one separates the arms further, on n=12. It is a prediction the measure
+# makes, run as its own arm so the prediction can be checked; it is not a
+# measurement that justifies preferring this set, and _M5 remains the set
+# picked on a priori grounds (octave-spaced, nesting the 4096 the
+# single-resolution arms use).
+_M4 = [1024, 2048, 4096, 8192]
+_DECOMP_LOSSES["L1_STFT_m4"] = _make_stft_l1(_M4, comp="linear")
+_DECOMP_LOSSES["L1_STFT_eps1e2_m4"] = _make_stft_l1(_M4, comp="c1", eps=1e-2)
+_DECOMP_LOSSES["L1_STFT_hyb1e2_m4"] = _make_stft_hybrid(_M4, eps=1e-2)
+
 
 # ---------------------------------------------------------------------------
 # HARD-FLOORED LOG AND HYBRID -- the arm the eps ladder never was.
@@ -1241,6 +1269,9 @@ for _name, _fn in (
     ("L1_STFT_m5", _DECOMP_LOSSES["L1_STFT_m5"]),
     ("L1_STFT_eps1e2_m5", _DECOMP_LOSSES["L1_STFT_eps1e2_m5"]),
     ("L1_STFT_hyb1e2_m5", _DECOMP_LOSSES["L1_STFT_hyb1e2_m5"]),
+    ("L1_STFT_m4", _DECOMP_LOSSES["L1_STFT_m4"]),
+    ("L1_STFT_eps1e2_m4", _DECOMP_LOSSES["L1_STFT_eps1e2_m4"]),
+    ("L1_STFT_hyb1e2_m4", _DECOMP_LOSSES["L1_STFT_hyb1e2_m4"]),
     *((f"L1_STFT_{_t}", _DECOMP_LOSSES[f"L1_STFT_{_t}"]) for _t in _GAMMA_I),
     *((f"L1_STFT_g03_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_g03_eps{_t}"])
       for _t in ("1e4", "1e5")),
