@@ -361,6 +361,14 @@ def main() -> int:
                         "this has to match the material or the instructions "
                         "are wrong on their face.")
     p.add_argument("--title", default=None)
+    p.add_argument("--anon-trials", action="store_true",
+                   help="Show each page as 'Sample N' instead of its stem. "
+                        "The stem names the material and the IR -- 'snare emt "
+                        "140 dark 2' -- so the listener is told what they are "
+                        "about to hear and how dark it is before they hear "
+                        "it. The page id is unchanged, so trial_id in the CSV "
+                        "still identifies the stimulus exactly; only the "
+                        "label the listener reads is hidden.")
     args = p.parse_args()
 
     out = args.out or Path(f"mushra_{args.id}")
@@ -500,11 +508,12 @@ def main() -> int:
     # and kept. If you later need page order shuffled for a real panel, the
     # robust way is one config file per listener with `chosen` pre-shuffled --
     # deterministic, recorded, and not dependent on an undocumented feature.
-    for stem in chosen:
+    for i, stem in enumerate(chosen, 1):
+        shown = f"Sample {i}" if args.anon_trials else stem.replace("_", " ")
         L += [
             "  - type: mushra",
             f"    id: {stem}",
-            f"    name: {stem.replace('_', ' ')}",
+            f"    name: {shown}",
             "    showWaveform: true",
             "    enableLooping: true",
             # strict forces every slider to be moved, so an untouched slider
