@@ -362,6 +362,14 @@ def main() -> int:
                         "this has to match the material or the instructions "
                         "are wrong on their face.")
     p.add_argument("--title", default=None)
+    p.add_argument("--all-trials", action="store_true",
+                   help="Use every stem in --dir, in shuffled order, instead "
+                        "of selecting with --groups/--pick or --spread-re. For "
+                        "a directory assembled by hand -- a merge of two "
+                        "packs, say -- the selection has already happened, and "
+                        "neither selector can express it: --pick matches a "
+                        "bright_2 style suffix these stems do not have, and "
+                        "one --spread-re cannot cover two naming conventions.")
     p.add_argument("--anon-trials", action="store_true",
                    help="Show each page as 'Sample N' instead of its stem. "
                         "The stem names the material and the IR -- 'snare emt "
@@ -381,8 +389,14 @@ def main() -> int:
         chosen = spread_balanced(clips, args.spread_re, args.balance_re,
                                  args.trials, args.order_seed)
     else:
-        chosen = select(clips, args.groups, args.pick, None, args.trials,
-                        args.order_seed)
+        if args.all_trials:
+            chosen = sorted(clips)
+            import random as _r
+            _r.Random(args.order_seed).shuffle(chosen)
+            print(f"  --all-trials: {len(chosen)} stems, order shuffled")
+        else:
+            chosen = select(clips, args.groups, args.pick, None, args.trials,
+                            args.order_seed)
 
     arms = sorted({a for s in chosen for a in clips[s] if a != "target"})
     # Every trial must offer every arm, or listeners get a different number of
