@@ -232,7 +232,7 @@ def main() -> int:
                    help="check the decay fits against known signals and exit")
     p.add_argument("--dir", type=Path,
                    help="an eval_real_ir output directory")
-    p.add_argument("--match", default=None, metavar="REGEX",
+    p.add_argument("--ir-match", default=None, metavar="REGEX",
                    help="Keep only IRs whose stem matches. Needed with "
                         "--dry-dir when the render directory holds more IRs "
                         "than the test uses: the dry files are assigned to the "
@@ -250,6 +250,16 @@ def main() -> int:
                         "sitting can be reproduced exactly.")
     p.add_argument("--dry", type=Path,
                    help="dry mono source, e.g. a VocalSet excerpt")
+    p.add_argument("--align-onset", action="store_true",
+                   help="Start each dry file just before its first onset "
+                        "instead of at --dry-start. One-shot recordings do not "
+                        "share a lead-in, so a fixed start takes a different "
+                        "part of the hit from each file, and with --dry-dir "
+                        "that difference is confounded with the IR.")
+    p.add_argument("--onset-db", type=float, default=-40.0, metavar="DB",
+                   help="Onset threshold, dB below the file's peak.")
+    p.add_argument("--pre-ms", type=float, default=10.0, metavar="MS",
+                   help="Lead-in kept before the detected onset.")
     p.add_argument("--dry-start", type=float, default=0.0)
     p.add_argument("--dry-dur", type=float, default=6.0,
                    help="seconds of the dry source to use")
@@ -280,14 +290,27 @@ def main() -> int:
     if not clips:
         raise SystemExit(f"no <ir>__<arm>.wav under {args.dir}")
     names = sorted(clips)
-    if args.match:
-        names = [s for s in names if re.search(args.match, s)]
+    if args.ir_match:
+        names = [s for s in names if re.search(args.ir_match, s)]
         if not names:
-            raise SystemExit(f"--match {args.match!r} kept none of "
+            raise SystemExit(f"--ir-match {args.ir_match!r} kept none of "
                              f"{len(clips)} IRs")
-        print(f"--match kept {len(names)} of {len(clips)} IRs")
+        print(f"--ir-match kept {len(names)} of {len(clips)} IRs")
         clips = {s: clips[s] for s in names}
     arms = sorted({a for s in names for a in clips[s] if a != "target"})
+
+    def onsets(x, sr_):
+        """Sample indices where a hit starts, 10 ms envelope, 50 ms apart."""
+        w = max(1, int(0.010 * sr_))
+        env = np.sqrt(np.convolve(x ** 2, np.ones(w) / w, mode="same"))
+        thr = float(env.max()) * 10.0 ** (args.onset_db / 20.0)
+        hot = env > thr
+        starts = np.nonzero(hot & ~np.concatenate(([False], hot[:-1])))[0]
+        keep, last = [], -10 ** 9
+        for s in starts:
+            if s - last > int(0.050 * sr_):
+                keep.append(int(s)); last = s
+        return keep
 
     def load_dry(path: Path):
         d, sr_ = mono(path)
@@ -296,11 +319,21 @@ def main() -> int:
                              f"Resample it first -- silently resampling here "
                              f"would put a different anti-alias filter on the "
                              f"source than the IRs ever saw.")
-        a0 = int(args.dry_start * sr_)
+        full = len(d) / sr_
+        on = onsets(d, sr_)
+        if args.align_onset:
+            a0 = max(0, (on[0] if on else 0) - int(args.pre_ms * 1e-3 * sr_))
+        else:
+            a0 = int(args.dry_start * sr_)
         d = d[a0:a0 + int(args.dry_dur * sr_)]
         if len(d) < int(0.5 * sr_):
             raise SystemExit(f"only {len(d) / sr_:.2f} s selected from {path}")
-        return d, sr_
+        # HOW MANY HITS ARE IN THE WINDOW. --dry-dur defaults to 6 s, which on a
+        # multi-hit recording is several strokes; on a one-shot it is the whole
+        # file. Either is a legitimate stimulus, but they are different tests
+        # and the difference is invisible unless counted.
+        n_in = len(onsets(d, sr_))
+        return d, sr_, full, a0 / sr_, n_in
 
     if args.dry_dir:
         pool = sorted(x for x in args.dry_dir.iterdir()
@@ -312,23 +345,30 @@ def main() -> int:
                   f"some are reused")
         dry_of, sr = {}, SAMPLE_RATE
         for i, stem in enumerate(names):
-            d, sr = load_dry(pool[i % len(pool)])
-            dry_of[stem] = (d, pool[i % len(pool)].name)
+            d, sr, full, st, n_in = load_dry(pool[i % len(pool)])
+            dry_of[stem] = (d, pool[i % len(pool)].name, full, st, n_in)
     else:
-        d, sr = load_dry(args.dry)
-        dry_of = {stem: (d, args.dry.name) for stem in names}
+        d, sr, full, st, n_in = load_dry(args.dry)
+        dry_of = {stem: (d, args.dry.name, full, st, n_in) for stem in names}
 
     print(f"{args.dir}: {len(names)} IRs x {len(arms)} arms")
     if args.dry_dir:
         print(f"dry: one per IR from {args.dry_dir}, "
               f"{args.dry_start:.1f}-{args.dry_start + args.dry_dur:.1f} s each")
+        print(f"    {'ir':<24}{'source':<30}{'file_s':>8}{'start_s':>9}"
+              f"{'used_s':>8}{'hits':>6}")
         for stem in names:
-            print(f"    {stem:<34}{dry_of[stem][1]}")
+            d, nm, full, st, n_in = dry_of[stem]
+            print(f"    {stem:<24}{nm[:29]:<30}{full:>8.2f}{st:>9.3f}"
+                  f"{len(d) / sr:>8.2f}{n_in:>6}")
+        hits = {dry_of[s][4] for s in names}
+        if hits != {1}:
+            print(f"    NOTE: hits per window varies {sorted(hits)} -- the "
+                  f"stimuli differ in stroke COUNT as well as in IR")
     else:
-        dry0 = dry_of[names[0]][0]
-        print(f"dry: {args.dry.name}  {args.dry_start:.1f}-"
-              f"{args.dry_start + len(dry0) / sr:.1f} s  "
-              f"({len(dry0) / sr:.2f} s used)")
+        dry0, nm, full, st, n_in = dry_of[names[0]]
+        print(f"dry: {nm}  file {full:.2f} s, from {st:.3f} s, "
+              f"{len(dry0) / sr:.2f} s used, {n_in} hit(s) in window")
 
     dev = torch.device(args.device)
     configure_loss_runtime(SAMPLE_RATE, dev)
