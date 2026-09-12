@@ -20,6 +20,7 @@ range with no per-parameter bounds table and no convention to pick.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 from pathlib import Path
@@ -150,6 +151,32 @@ def main() -> None:
                     help="One comma-joined set per --n-fft set, same shape. "
                          "Default n_fft//4 throughout, the 75% overlap the "
                          "losses use.")
+    ap.add_argument("--eps", type=float, default=None, metavar="E",
+                    help="ONE ABSOLUTE floor on every rung, which is what the "
+                         "loss does: a single eps applied to each resolution's "
+                         "magnitudes unchanged. This is NOT the same experiment "
+                         "as --floor-db, and the difference is the point: "
+                         "torch.stft is unnormalized, so bins scale with the "
+                         "window length and a fixed eps sits deeper on a long "
+                         "window than a short one -- the short rungs of an eps "
+                         "arm are closer to linear, which --floor-db normalizes "
+                         "away by construction. Mutually exclusive with "
+                         "--floor-db.")
+    ap.add_argument("--norm", default="none", choices=("target", "self", "none"),
+                    help="How the two signals are put on a common scale before "
+                         "the STFT. none (default) leaves the renders alone, "
+                         "which is what diffsynth trains with: SpecWaveLoss is "
+                         "constructed without `norm`, so spec_norm is 1.0 and "
+                         "no per-example scaling happens anywhere. self divides "
+                         "each by its own peak -- what this tool used to do "
+                         "unconditionally, and what reproduces tables run "
+                         "before this flag existed; it deletes the level "
+                         "difference between candidate and target, which is a "
+                         "cue the linear term reads. target divides BOTH by the "
+                         "target's peak, which is what the PLATE trains with "
+                         "(peak_normalized mode='target') -- use it when the "
+                         "point is to hold normalization fixed across the two "
+                         "systems rather than to model each one's own loss.")
     ap.add_argument("--floor-db", type=float, default=None,
                     help="Set the log measure's floor this far below each "
                          "target's peak instead of at the absolute eps 1e-7. "
@@ -180,6 +207,35 @@ def main() -> None:
     # is the same waste as re-rendering, one level down.
     uniq = sorted({(nf, hp) for S, H in zip(nffts, hops) for nf, hp in zip(S, H)})
     tag = ["+".join(str(n) for n in S) for S in nffts]
+    if args.eps is not None and args.floor_db is not None:
+        raise SystemExit(
+            "--eps and --floor-db are two different experiments and cannot "
+            "both apply. --eps is one absolute floor on every rung, which is "
+            "what the loss does; --floor-db puts the floor at a fixed DEPTH "
+            "below each rung's own peak, which deliberately removes the "
+            "resolution dependence --eps exists to expose.")
+    # Where the floor actually lands. Printed rather than assumed: whether an
+    # eps arm is really a log arm is the question of where eps sits in the bin
+    # distribution, and that is not knowable from the eps value alone.
+    scale: dict = {}
+
+    def report_scale():
+        if not scale:
+            return
+        print("\n=== reference scale per resolution"
+              + ("   (floor = --eps, absolute, as the loss applies it)"
+                 if args.eps is not None else ""))
+        print(f"{'n_fft':>7}{'hop':>7}{'ref peak':>12}"
+              f"{'floor below peak':>19}{'ref bins under':>16}")
+        for nf, hp in sorted(scale):
+            pk_l, fr_l = scale[(nf, hp)]
+            pk = sum(pk_l) / len(pk_l)
+            if args.eps is not None and fr_l:
+                dbb = 20.0 * math.log10(max(pk, 1e-300) / args.eps)
+                print(f"{nf:>7}{hp:>7}{pk:>12.4g}{dbb:>16.1f} dB"
+                      f"{100 * sum(fr_l) / len(fr_l):>15.1f}%")
+            else:
+                print(f"{nf:>7}{hp:>7}{pk:>12.4g}{'-':>19}{'-':>16}")
 
     dev = torch.device(args.device if torch.cuda.is_available() else "cpu")
     conf = OmegaConf.merge(OmegaConf.create({"data": {"sample_rate": args.sr}}),
@@ -374,17 +430,36 @@ def main() -> None:
             if x_can.shape[0] < 4 or not torch.isfinite(x_ref).all():
                 continue
 
+            # The normalization the LOSS applies, before the transform, not
+            # stft_mag's own per-signal one -- see --norm.
+            tp = x_ref.abs().max().clamp(min=1e-30)
+            if args.norm == "target":
+                xr, xc = x_ref / tp, x_can / tp
+            elif args.norm == "self":
+                xr = x_ref / tp
+                xc = x_can / x_can.abs().amax(dim=-1, keepdim=True).clamp(min=1e-30)
+            else:
+                xr, xc = x_ref, x_can
             # Once per (size, hop), not once per set: the sets share sizes.
-            cache = {(nf, hp): (stft_mag(x_ref[None, :], nf, hp, True)[0],
-                                stft_mag(x_can, nf, hp, True))
+            cache = {(nf, hp): (stft_mag(xr[None, :], nf, hp, False)[0],
+                                stft_mag(xc, nf, hp, False))
                      for nf, hp in uniq}
+            for (nf, hp), (Ar, _Ac) in cache.items():
+                st = scale.setdefault((nf, hp), ([], []))
+                st[0].append(float(Ar.max()))
+                if args.eps is not None:
+                    st[1].append(float((Ar < args.eps).double().mean()))
             dt = dist.to(next(iter(cache.values()))[0].device)
             for si, (S, H) in enumerate(zip(nffts, hops)):
                 A_ref = [cache[(nf, hp)][0] for nf, hp in zip(S, H)]
                 A_can = [cache[(nf, hp)][1] for nf, hp in zip(S, H)]
-                eps = (EPS if args.floor_db is None
-                       else [float(A.max()) * 10.0 ** (-args.floor_db / 20.0)
-                             for A in A_ref])
+                if args.eps is not None:
+                    eps = [args.eps] * len(S)
+                elif args.floor_db is not None:
+                    eps = [float(A.max()) * 10.0 ** (-args.floor_db / 20.0)
+                           for A in A_ref]
+                else:
+                    eps = EPS
                 rows[si].append(bi.probe(A_ref, A_can, dt, eps))
                 marg[si].append(bi.marginal(A_ref, A_can, dt, eps,
                                             args.hard_ratio))
@@ -433,6 +508,7 @@ def main() -> None:
                     se = (var / n) ** 0.5
                     wins = sum(1 for x in d if x > 0) / n
                     outs[si].append((mu, l, fl, fg, se, wins, n))
+            report_scale()
             for si, out in enumerate(outs):
                 if not out:
                     continue
@@ -475,6 +551,7 @@ def main() -> None:
             print(f"  {dropped} non-finite candidate renders dropped")
         if args.floor_db is not None:
             print(f"  log floor: {args.floor_db:g} dB below each target's peak")
+        report_scale()
         # Every set below is scored on the SAME targets and the SAME candidates
         # -- they came out of one sweep -- so differences across these tables
         # carry no sampling noise at all and are the resolution, exactly.
