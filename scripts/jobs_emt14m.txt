@@ -1,0 +1,39 @@
+# emt14m: emt14's three arms at MULTI-RESOLUTION. Nothing else moves.
+#
+#   tmux new -d -s emt14m 'python scripts/gpu_queue.py --jobs scripts/jobs_emt14m.txt 2>&1 | tee -a logs/emt14m.log'
+#
+# WHY. The plate's L1_STFT family is a SINGLE 4096 by construction -- the
+# decomposition in losses.py isolates resolution as its own variable, and
+# _MSS_RES is the arm that varies it. diffsynth's SpecWaveLoss runs six sizes
+# for every arm. So "the same loss in both systems" held for the compression
+# and the epsilon and NOT for the scale set, which is a difference a reader
+# would reasonably read as an oversight rather than as a controlled variable.
+#
+# These arms remove it. L1_STFT_m5 / _eps1e2_m5 / _hyb1e2_m5 are the same
+# linear / log / hybrid at {512, 1024, 2048, 4096, 8192} -- octave-spaced,
+# keeping the 4096 the existing arms use so the single-resolution result stays
+# nested inside the new set rather than being replaced by an unrelated one.
+# Same epsilon (1e-2 on magnitude), same per-term weights, same schedule.
+#
+# STAGE 2 ONLY, resuming emt14's own pretrain. emt14_pre ran with
+# --param-hold-frac 1.0, which makes the spectral fraction
+# f = min(1, max(0, (step - hold)/ramp)) zero at every step -- parameter loss
+# alone, spectral weight never engaged. That checkpoint is therefore
+# independent of which spectral loss was named on its job line, which is also
+# why all three emt14 arms already resume from the one file. Re-running it
+# would cost 2500 steps and produce the same weights.
+#
+# The 10000 steps here are NOT all spectral: --param-hold-frac 0.25 and
+# --param-ramp-frac 0.375 give 2500 steps of parameter loss alone, 3750 of
+# crossfade, then 3750 spectral-only. The schedule is step-indexed and
+# --ckpt-every 1000 wrote nothing at step 2500, so the parameter-only head
+# cannot be skipped by resuming further in; it is part of the trajectory the
+# arms share.
+#
+# WRITES TO results/ddsp/emt14m, NOT results/ddsp/emt14. The emt14 checkpoints
+# are what emt14_listen_8k, every convolved evaluation and four listening tests
+# were built from; overwriting them would leave all of that unreproducible.
+
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14m ARMS="L1_STFT_m5" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14m ARMS="L1_STFT_hyb1e2_m5" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"
+PLATE_PARAM_SPACE=emt14 TRAIN=data/train-emt14 VAL=data/val-emt14 N_TRAIN=24576 N_VAL=991 NUMERICS="--batched-plate --compile-plate --chunk-elems 1000000000 --mode-bucket 1024 --fixed-mode-grid 205,411 --fmax 20000 --duration 1.0" NORM=batch HEAD_BOUND=tanh ADAM_EPS=1e-8 HEAD_HINGE=1e-2 LR_HOLD=0 STEPS=10000 OUT=results/ddsp/emt14m ARMS="L1_STFT_eps1e2_m5" EXTRA="--resume results/ddsp/emt14_pre/L1_STFT/encoder_last.pt --param-loss l1 --param-w 10.0 --param-hold-frac 0.25 --param-ramp-frac 0.375 --eval-every 250 --ckpt-every 1000" scripts/eps_ladder.sh "{gpu}"

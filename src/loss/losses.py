@@ -1056,6 +1056,32 @@ for _tag, _eps in _HYBRID_EPS.items():
 
 
 # ---------------------------------------------------------------------------
+# MULTI-RESOLUTION, at the three compressions. The plate's L1_STFT family is a
+# SINGLE 4096 by design -- the decomposition above isolates resolution as its
+# own variable, and _MSS_RES {512, 2048, 8192} is the arm that varies it. That
+# leaves the plate and diffsynth differing in resolution as well as in system:
+# diffsynth's SpecWaveLoss runs six sizes {64 ... 2048} for every arm, so
+# "the same loss in both systems" was true of the compression and the epsilon
+# and false of the scale set.
+#
+# These three close that gap. {512, 1024, 2048, 4096, 8192} is a denser and
+# wider ladder than _MSS_RES -- octave-spaced, keeping the 4096 the existing
+# arms use so the single-resolution result stays nested inside it rather than
+# being replaced by an unrelated set.
+#
+# Weighting is unchanged from the single-resolution arms: each builder divides
+# by len(n_ffts), so a term's coefficient is the same as before and only the
+# number of scales it is averaged over has changed. The hybrid still sums its
+# two terms at 1.0 each without normalising by the weight sum, matching
+# L1_STFT_hyb1e2, so linear/log/hybrid remain comparable within this set on the
+# same footing they had within the old one.
+_M5 = [512, 1024, 2048, 4096, 8192]
+_DECOMP_LOSSES["L1_STFT_m5"] = _make_stft_l1(_M5, comp="linear")
+_DECOMP_LOSSES["L1_STFT_eps1e2_m5"] = _make_stft_l1(_M5, comp="c1", eps=1e-2)
+_DECOMP_LOSSES["L1_STFT_hyb1e2_m5"] = _make_stft_hybrid(_M5, eps=1e-2)
+
+
+# ---------------------------------------------------------------------------
 # HARD-FLOORED LOG AND HYBRID -- the arm the eps ladder never was.
 #
 # See _hard_floor. eps caps how much quiet bins dominate; clamping removes them.
@@ -1212,6 +1238,9 @@ for _name, _fn in (
     ("SOT_lin_paper", _DECOMP_LOSSES["SOT_lin_paper"]),
     *((f"L1_STFT_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_eps{_t}"]) for _t in _EPS_LADDER),
     *((f"L1_STFT_hyb{_t}", _DECOMP_LOSSES[f"L1_STFT_hyb{_t}"]) for _t in _HYBRID_EPS),
+    ("L1_STFT_m5", _DECOMP_LOSSES["L1_STFT_m5"]),
+    ("L1_STFT_eps1e2_m5", _DECOMP_LOSSES["L1_STFT_eps1e2_m5"]),
+    ("L1_STFT_hyb1e2_m5", _DECOMP_LOSSES["L1_STFT_hyb1e2_m5"]),
     *((f"L1_STFT_{_t}", _DECOMP_LOSSES[f"L1_STFT_{_t}"]) for _t in _GAMMA_I),
     *((f"L1_STFT_g03_eps{_t}", _DECOMP_LOSSES[f"L1_STFT_g03_eps{_t}"])
       for _t in ("1e4", "1e5")),
