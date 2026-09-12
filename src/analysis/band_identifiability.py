@@ -250,6 +250,41 @@ def report_marginal(rows: list[dict], title: str = "") -> None:
         print("  hybrid can actually capture.")
 
 
+def _masks(db, bands):
+    """Band membership, either by fixed dB edges or by EQUAL BIN COUNT.
+
+    bands as a list of (lo, hi) dB pairs is the original partition: the edges
+    mean the same level on every target, and the counts fall where the
+    spectrum puts them -- which on the plate is 50% of bins in one band and
+    0.8% in another, so six of the seven concordances are measured on a
+    sliver and the seventh on half the spectrum.
+
+    bands as an INT n splits by RANK instead: sort by reference level, cut into
+    n equal chunks. Every band then carries n_bins/n bins exactly and the dB
+    edges move per target. That trades a fixed level axis for a fixed sample
+    size, which is the right trade when the question is whether a band ranks
+    correctly rather than what happens at a particular loudness.
+
+    Rank, not quantile-of-value: a spectrum with many identical bins -- exact
+    zeros clamped to the floor, and the plate has tens of thousands -- gives
+    duplicate quantile edges and therefore empty bands. Splitting the sorted
+    ORDER cannot.
+    """
+    if not isinstance(bands, int):
+        return [((db <= -float(lo)) & (db > -float(hi))) for lo, hi in bands]
+    order = torch.argsort(db, descending=True)
+    out = []
+    for chunk in torch.chunk(order, bands):
+        m = torch.zeros_like(db, dtype=torch.bool)
+        m[chunk] = True
+        out.append(m)
+    return out
+
+
+def n_bands(bands) -> int:
+    return bands if isinstance(bands, int) else len(bands)
+
+
 def probe(A_ref, A_cand, dist: torch.Tensor,
           eps=EPS, bands=DB_BANDS) -> list[dict]:
     """One target: [F,T] reference, [K,F,T] candidates, [K] parameter distances.
@@ -276,26 +311,28 @@ def probe(A_ref, A_cand, dist: torch.Tensor,
     tot_log = float(lg.sum()) or 1.0
 
     out = []
-    for lo, hi in bands:
-        m = (db <= -float(lo)) & (db > -float(hi))
+    for m in _masks(db, bands):
         n = int(m.sum())
         if n == 0:
             out.append(dict(bins=0, id_lin=float("nan"), id_log=float("nan"),
-                            w_lin=0.0, w_log=0.0))
+                            w_lin=0.0, w_log=0.0,
+                            db_lo=float("nan"), db_hi=float("nan")))
             continue
         Ll, Lg = lin[:, m].sum(1), lg[:, m].sum(1)
+        sel = db[m]
         out.append(dict(bins=n,
                         id_lin=_concordance(Ll, dist),
                         id_log=_concordance(Lg, dist),
                         w_lin=float(Ll.sum()) / tot_lin,
-                        w_log=float(Lg.sum()) / tot_log))
+                        w_log=float(Lg.sum()) / tot_log,
+                        db_lo=float(sel.max()), db_hi=float(sel.min())))
     return out
 
 
 def accumulate(rows: list[list[dict]], bands=DB_BANDS) -> list[dict]:
     """Mean over targets. id is averaged only over targets where the band exists."""
     out = []
-    for i in range(len(bands)):
+    for i in range(n_bands(bands)):
         cells = [r[i] for r in rows]
         live = [c for c in cells if c["bins"] > 0]
         n = len(live) or 1
@@ -306,6 +343,11 @@ def accumulate(rows: list[list[dict]], bands=DB_BANDS) -> list[dict]:
             id_log=sum(c["id_log"] for c in live) / n if live else float("nan"),
             w_lin=sum(c["w_lin"] for c in cells) / max(len(cells), 1),
             w_log=sum(c["w_log"] for c in cells) / max(len(cells), 1),
+            # Under equal-count bands the dB edges move per target, so the
+            # band's level range is itself a measured quantity rather than a
+            # setting, and printing it is the only way to see where a band sat.
+            db_lo=sum(c["db_lo"] for c in live) / n if live else float("nan"),
+            db_hi=sum(c["db_hi"] for c in live) / n if live else float("nan"),
         ))
     total_bins = sum(o["bins"] for o in out) or 1.0
     for o in out:
@@ -332,12 +374,19 @@ def report(agg: list[dict], bands=DB_BANDS, title: str = "") -> None:
     """The table. Formatting lives here so no caller reshapes it downstream."""
     if title:
         print(f"\n=== {title}")
-    print(f"{'dB below peak':>14}{'bins':>8}{'w_lin':>9}{'w_log':>9}"
+    equal = isinstance(bands, int)
+    head = "band, equal count" if equal else "dB below peak"
+    print(f"{head:>18}{'bins':>8}{'w_lin':>9}{'w_log':>9}"
           f"{'id_lin':>9}{'id_log':>9}")
-    for (lo, hi), o in zip(bands, agg):
+    for i, o in enumerate(agg):
         idl = "     -   " if o["id_lin"] != o["id_lin"] else f"{o['id_lin']:>9.3f}"
         idg = "     -   " if o["id_log"] != o["id_log"] else f"{o['id_log']:>9.3f}"
-        print(f"{f'{lo}-{hi}':>14}{100*o['binfrac']:>7.1f}%"
+        if equal:
+            label = f"{i + 1}  {-o['db_lo']:.0f}-{-o['db_hi']:.0f} dB"
+        else:
+            lo, hi = bands[i]
+            label = f"{lo}-{hi}"
+        print(f"{label:>18}{100*o['binfrac']:>7.1f}%"
               f"{100*o['w_lin']:>8.1f}%{100*o['w_log']:>8.1f}%{idl}{idg}")
 
     # THE DECOMPOSITION, which is the point of the table. Going from linear to
