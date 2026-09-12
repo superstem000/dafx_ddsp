@@ -4,11 +4,11 @@
     PLATE_PARAM_SPACE=quiet7 python -m src.ddsp.diag_band_identifiability \
         --fixed-mode-grid 60,185 --n 24 --k 32
 
-    # the resolution question: one 4096 against the m5 set, same everything else
+    # the resolution question: three sets in ONE run, sharing the renders, so
+    # the tables differ in the STFT and in nothing else
     PLATE_PARAM_SPACE=emt14 python -m src.ddsp.diag_band_identifiability \
-        --fixed-mode-grid 205,411 --duration 1.0 --n-fft 4096
-    PLATE_PARAM_SPACE=emt14 python -m src.ddsp.diag_band_identifiability \
-        --fixed-mode-grid 205,411 --duration 1.0 --n-fft 512 1024 2048 4096 8192
+        --fixed-mode-grid 205,411 --duration 1.0 \
+        --n-fft 4096 512,1024,2048,4096,8192 1024,2048,4096,8192
 
 This is the counterpart of scripts/ds_band_identifiability, mirroring it flag
 for flag -- --per-param, --vary/--rest, --pin, --draw, --log-radius,
@@ -46,6 +46,17 @@ from src.analysis import band_identifiability as bi
 def _grid(text):
     a, b = text.split(",")
     return int(a), int(b)
+
+
+def _sets(tokens, what):
+    """['4096', '512,1024,4096'] -> [[4096], [512, 1024, 4096]]."""
+    out = []
+    for t in tokens:
+        vals = [int(v) for v in t.split(",") if v.strip()]
+        if not vals:
+            raise SystemExit(f"{what}: empty set in {t!r}")
+        out.append(vals)
+    return out
 
 
 def main() -> None:
@@ -122,18 +133,27 @@ def main() -> None:
     p.add_argument("--list", action="store_true",
                    help="Print the searched parameters and exit.")
     p.add_argument("--duration", type=float, default=0.25)
-    p.add_argument("--n-fft", type=int, nargs="+", default=[4096], metavar="N",
-                   help="STFT size, or a SET of them. A set makes this a "
-                        "measurement of a MULTI-RESOLUTION loss rather than of "
-                        "one spectrogram: every bin is weighted exactly as "
-                        "_make_stft_l1 weights it -- mean over bins within a "
-                        "resolution, mean over resolutions -- so the reported "
-                        "concordance is the concordance of that loss. The "
-                        "default single 4096 is the L1_STFT family; the _m5 "
-                        "arms are 512 1024 2048 4096 8192.")
-    p.add_argument("--hop", type=int, nargs="+", default=None, metavar="H",
-                   help="One per --n-fft. Default n_fft//4 for each, which is "
-                        "what the losses use.")
+    p.add_argument("--n-fft", nargs="+", default=["4096"], metavar="SET",
+                   help="One or more RESOLUTION SETS, each a comma-joined list "
+                        "of STFT sizes: 4096 is the L1_STFT family, "
+                        "512,1024,2048,4096,8192 is the _m5 arms. A set with "
+                        "more than one size measures a MULTI-RESOLUTION loss "
+                        "rather than one spectrogram -- every bin is weighted "
+                        "exactly as _make_stft_l1 weights it, mean over bins "
+                        "within a resolution then mean over resolutions -- so "
+                        "the reported concordance is that loss's concordance. "
+                        "SEVERAL SETS IN ONE RUN SHARE THE RENDERS. Targets and "
+                        "candidates depend on --seed and not on the STFT, so "
+                        "separate runs would re-render identical audio; here "
+                        "each size is transformed once per target and every set "
+                        "that names it reuses the result. The comparison is "
+                        "exactly paired, which is the whole point -- the "
+                        "difference between two sets' tables is the resolution "
+                        "and nothing else.")
+    p.add_argument("--hop", nargs="+", default=None, metavar="SET",
+                   help="One comma-joined set per --n-fft set, same shape. "
+                        "Default n_fft//4 throughout, which is the 75% overlap "
+                        "the losses use.")
     p.add_argument("--floor-db", type=float, default=None,
                    help="Set the log measure's floor this far below each "
                         "target's peak instead of at the absolute eps 1e-7. At "
@@ -165,10 +185,19 @@ def main() -> None:
     p.add_argument("--device", default="cuda")
     args = p.parse_args()
 
-    hops = args.hop or [nf // 4 for nf in args.n_fft]
-    if len(hops) != len(args.n_fft):
-        raise SystemExit(f"--hop takes one value per --n-fft: "
-                         f"{len(hops)} hops for {len(args.n_fft)} sizes")
+    nffts = _sets(args.n_fft, "--n-fft")
+    hops = (_sets(args.hop, "--hop") if args.hop
+            else [[nf // 4 for nf in S] for S in nffts])
+    if len(hops) != len(nffts) or any(len(h) != len(s) for h, s in zip(hops, nffts)):
+        raise SystemExit(
+            f"--hop must mirror --n-fft exactly: "
+            f"{[len(s) for s in nffts]} sizes against {[len(h) for h in hops]} hops")
+    # Every (size, hop) pair appearing in ANY set, transformed once per target.
+    # The sets overlap heavily by design -- 4096 is in all three of the
+    # comparison that motivated this -- and recomputing a shared size per set
+    # is the same waste as re-rendering, one level down.
+    uniq = sorted({(nf, hp) for S, H in zip(nffts, hops) for nf, hp in zip(S, H)})
+    tag = ["+".join(str(n) for n in S) for S in nffts]
 
     label = list(PARAM_KEYS)
     P = len(label)
@@ -220,10 +249,12 @@ def main() -> None:
           f"searched   {args.n} targets   {args.k} candidates each   "
           f"radii (0, {', '.join(f'{r:g}' for r in args.max_rel)}] of range")
     print(f"searching: {', '.join(searched)}")
-    print(f"resolution: {' '.join(str(n) for n in args.n_fft)}"
-          f"   hop {' '.join(str(h) for h in hops)}"
-          + ("   (bins weighted as the multi-resolution loss weights them)"
-             if len(args.n_fft) > 1 else ""))
+    print(f"resolution sets ({len(nffts)}, sharing one set of renders):")
+    for S, H in zip(nffts, hops):
+        print(f"  n_fft {' '.join(str(n) for n in S)}"
+              f"   hop {' '.join(str(h) for h in H)}"
+              + ("   (bins weighted as the multi-resolution loss weights them)"
+                 if len(S) > 1 else ""))
     if draw:
         print("draw ranges: " + ", ".join(
             f"{label[i]}=[{lo:g},{hi:g}] (radii are a fraction of {hi - lo:g})"
@@ -264,7 +295,9 @@ def main() -> None:
         # experiments -- a difference between two rows is the parameter, not a
         # different draw of backgrounds.
         g = torch.Generator().manual_seed(args.seed)
-        rows, marg, dropped = [], [], 0
+        rows = [[] for _ in nffts]
+        marg = [[] for _ in nffts]
+        dropped = 0
         for _ in range(args.n):
             tgt = torch.rand(P, generator=g)
             for i, (lo, hi) in draw.items():
@@ -325,16 +358,20 @@ def main() -> None:
             if x_can.shape[0] < 4 or not torch.isfinite(x_ref).all():
                 continue
 
-            A_ref = [stft_mag(x_ref[None, :], nf, hp, True)[0]
-                     for nf, hp in zip(args.n_fft, hops)]
-            A_can = [stft_mag(x_can, nf, hp, True)
-                     for nf, hp in zip(args.n_fft, hops)]
-            eps = (EPS if args.floor_db is None
-                   else [float(A.max()) * 10.0 ** (-args.floor_db / 20.0)
-                         for A in A_ref])
-            dt = dist.to(A_ref[0].device)
-            rows.append(bi.probe(A_ref, A_can, dt, eps))
-            marg.append(bi.marginal(A_ref, A_can, dt, eps, args.hard_ratio))
+            # Once per (size, hop), not once per set: the sets share sizes.
+            cache = {(nf, hp): (stft_mag(x_ref[None, :], nf, hp, True)[0],
+                                stft_mag(x_can, nf, hp, True))
+                     for nf, hp in uniq}
+            dt = dist.to(next(iter(cache.values()))[0].device)
+            for si, (S, H) in enumerate(zip(nffts, hops)):
+                A_ref = [cache[(nf, hp)][0] for nf, hp in zip(S, H)]
+                A_can = [cache[(nf, hp)][1] for nf, hp in zip(S, H)]
+                eps = (EPS if args.floor_db is None
+                       else [float(A.max()) * 10.0 ** (-args.floor_db / 20.0)
+                             for A in A_ref])
+                rows[si].append(bi.probe(A_ref, A_can, dt, eps))
+                marg[si].append(bi.marginal(A_ref, A_can, dt, eps,
+                                            args.hard_ratio))
         return rows, marg, dropped
 
     if args.per_param:
@@ -353,44 +390,45 @@ def main() -> None:
             print(f"\n=== PER PARAMETER   radii {how}   {pairs}\n"
                   f"    candidates differ in ONE parameter, background "
                   f"redrawn per target")
-            out = []
+            outs = [[] for _ in nffts]
             for l in searched:
                 rows, marg, dropped = sweep(label.index(l), mr)
-                if not rows:
+                for si, mset in enumerate(marg):
+                    live = [m for m in mset if m]
+                    if not live:
+                        continue
+                    # PAIRED PER TARGET. id_lin and id_log for one target are
+                    # computed on the SAME candidates, so their difference is
+                    # paired and its spread over targets is the error bar that
+                    # matters. Two separate means with no dispersion cannot tell
+                    # +0.006 from +0.047, which is the whole question when the
+                    # differences are this small.
+                    kl = "id_lin_hard" if args.hard_ratio else "id_lin"
+                    kg = "id_log_hard" if args.hard_ratio else "id_log"
+                    live = [m for m in live if m.get(kl, 0.0) == m.get(kl, 0.0)]
+                    if not live:
+                        continue
+                    fl = sum(m[kl] for m in live) / len(live)
+                    fg = sum(m[kg] for m in live) / len(live)
+                    d = [m[kl] - m[kg] for m in live]
+                    n = len(d)
+                    mu = sum(d) / n
+                    var = sum((x - mu) ** 2 for x in d) / (n - 1) if n > 1 else 0.0
+                    se = (var / n) ** 0.5
+                    wins = sum(1 for x in d if x > 0) / n
+                    outs[si].append((mu, l, fl, fg, se, wins, n))
+            for si, out in enumerate(outs):
+                if not out:
                     continue
-                live = [m for m in marg if m]
-                if not live:
-                    continue
-                # PAIRED PER TARGET. id_lin and id_log for one target are
-                # computed on the SAME candidates, so their difference is paired
-                # and its spread over targets is the error bar that matters. Two
-                # separate means with no dispersion cannot tell +0.006 from
-                # +0.047, which is the whole question when the differences are
-                # this small.
-                kl = "id_lin_hard" if args.hard_ratio else "id_lin"
-                kg = "id_log_hard" if args.hard_ratio else "id_log"
-                live = [m for m in live if m.get(kl, 0.0) == m.get(kl, 0.0)]
-                if not live:
-                    continue
-                fl = sum(m[kl] for m in live) / len(live)
-                fg = sum(m[kg] for m in live) / len(live)
-                d = [m[kl] - m[kg] for m in live]
-                n = len(d)
-                mu = sum(d) / n
-                var = sum((x - mu) ** 2 for x in d) / (n - 1) if n > 1 else 0.0
-                se = (var / n) ** 0.5
-                wins = sum(1 for x in d if x > 0) / n
-                out.append((mu, l, fl, fg, se, wins, n))
-            if not out:
-                continue
-            w = max(10, max(len(l) for _m, l, *_r in out) + 2)
-            print(f"{'param':<{w}}{'id_lin':>9}{'id_log':>9}{'lin-log':>10}"
-                  f"{'se':>8}{'t':>7}{'lin wins':>10}{'n':>6}")
-            for mu, l, fl, fg, se, wins, n in sorted(out, reverse=True):
-                t = mu / se if se > 0 else float("nan")
-                ts = "     -" if t != t else f"{t:>7.1f}"
-                print(f"{l:<{w}}{fl:>9.3f}{fg:>9.3f}{mu:>+10.4f}{se:>8.4f}{ts}"
-                      f"{100 * wins:>9.0f}%{n:>6}")
+                w = max(10, max(len(l) for _m, l, *_r in out) + 2)
+                print(f"\n  n_fft {tag[si]}")
+                print(f"{'param':<{w}}{'id_lin':>9}{'id_log':>9}{'lin-log':>10}"
+                      f"{'se':>8}{'t':>7}{'lin wins':>10}{'n':>6}")
+                for mu, l, fl, fg, se, wins, n in sorted(out, reverse=True):
+                    t = mu / se if se > 0 else float("nan")
+                    ts = "     -" if t != t else f"{t:>7.1f}"
+                    print(f"{l:<{w}}{fl:>9.3f}{fg:>9.3f}{mu:>+10.4f}{se:>8.4f}{ts}"
+                          f"{100 * wins:>9.0f}%{n:>6}")
         print("\n  id_lin/id_log  concordance: given two candidates differing "
               "ONLY in this\n"
               "                 parameter, how often does that loss put the "
@@ -415,17 +453,22 @@ def main() -> None:
 
     for mr in args.max_rel:
         rows, marg, dropped = sweep(None, mr)
-        if not rows:
+        if not any(rows):
             raise SystemExit("no usable targets")
         if dropped:
             print(f"  {dropped} non-finite candidate renders dropped")
         if args.floor_db is not None:
             print(f"  log floor: {args.floor_db:g} dB below each target's peak")
-        res = "+".join(str(n) for n in args.n_fft)
-        bi.report(bi.accumulate(rows),
-                  title=f"plate / {PARAM_SPACE}   n_fft {res}   "
-                        f"radii <= {mr:g}   {len(rows)} targets")
-        bi.report_marginal(marg)
+        # Every set below is scored on the SAME targets and the SAME candidates
+        # -- they came out of one sweep -- so differences across these tables
+        # carry no sampling noise at all and are the resolution, exactly.
+        for si, (rset, mset) in enumerate(zip(rows, marg)):
+            if not rset:
+                continue
+            bi.report(bi.accumulate(rset),
+                      title=f"plate / {PARAM_SPACE}   n_fft {tag[si]}   "
+                            f"radii <= {mr:g}   {len(rset)} targets")
+            bi.report_marginal(mset, title=f"n_fft {tag[si]}")
 
 
 if __name__ == "__main__":
