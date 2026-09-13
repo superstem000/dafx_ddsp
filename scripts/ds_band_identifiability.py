@@ -126,6 +126,23 @@ def main() -> None:
                          "about a family the model never saw and inflates "
                          "every radius by the ratio of the two spans. MULT on "
                          "(1, 3) is --draw MULT=0:0.2857.")
+    ap.add_argument("--axis-draw", default="uniform",
+                    choices=("uniform", "offset"),
+                    help="How --per-param places its candidates along the axis. "
+                         "uniform (default) draws each candidate's value "
+                         "independently over the parameter's own range, which "
+                         "is exactly how draw_batch draws it when generating "
+                         "the dataset -- so every candidate is a value the data "
+                         "contains, the distances spread themselves, and no "
+                         "radius has to be chosen. offset is the older scheme: "
+                         "pick a side weighted by the room available, then draw "
+                         "a magnitude in (0, room] scaled by --max-rel, which "
+                         "buys control of the near/far regime at the cost of a "
+                         "parameter nobody can set from first principles. "
+                         "--max-rel and --log-radius apply to offset only; "
+                         "under uniform the near regime is reached by "
+                         "conditioning with --hard-ratio instead of by "
+                         "redrawing.")
     ap.add_argument("--list", action="store_true",
                     help="Print the parameter columns and exit.")
     ap.add_argument("--cond", nargs="+", default=None, metavar="NAME=V",
@@ -572,27 +589,39 @@ def main() -> None:
                 # target sits at one operating point and the answer is a property of
                 # that point rather than of the parameter.
                 #
-                # DRAWN INSIDE THE BOUNDS, NOT CLAMPED TO THEM. A clamp maps every
-                # over-the-edge candidate onto the boundary VALUE, so they become
-                # identical patches with identical losses -- ties, counted at 0.5,
-                # dragging concordance toward the coin flip for exactly the targets
-                # sitting near an edge. Sigmoid parameters put a lot of mass there.
-                # Instead: pick a side with probability proportional to the room on
-                # that side and draw the magnitude within it, which is uniform over
-                # the feasible offsets and produces no duplicates.
-                p0 = float(tgt[axis])
                 blo, bhi = draw.get(axis, (0.0, 1.0))
-                reach = max_rel * (bhi - blo)
-                down, up = min(reach, p0 - blo), min(reach, bhi - p0)
-                if down + up <= 0.0:
-                    continue
-                left = torch.rand(args.k, generator=g) * (down + up) < down
-                room = torch.where(left, torch.full((args.k,), down),
-                                   torch.full((args.k,), up))
-                off = _mag(args.k, room, g) * torch.where(
-                    left, -torch.ones(args.k), torch.ones(args.k))
                 cand = tgt[None, :].repeat(args.k, 1)
-                cand[:, axis] = p0 + off
+                if args.axis_draw == "uniform":
+                    # EXACTLY HOW THE DATASET DRAWS IT. draw_batch samples each
+                    # parameter uniform on its own slot, so an independent
+                    # uniform draw here makes every candidate a value the data
+                    # actually contains -- no radius to choose, no side to
+                    # weight, no clamping, and distances that spread themselves.
+                    # The near regime is then reached by CONDITIONING on close
+                    # pairs with --hard-ratio rather than by redrawing them,
+                    # which is the same population without a second parameter
+                    # deciding it.
+                    cand[:, axis] = (torch.rand(args.k, generator=g)
+                                     * (bhi - blo) + blo)
+                else:
+                    # DRAWN INSIDE THE BOUNDS, NOT CLAMPED TO THEM. A clamp maps
+                    # every over-the-edge candidate onto the boundary VALUE, so
+                    # they become identical patches with identical losses --
+                    # ties, counted at 0.5, dragging concordance toward the coin
+                    # flip for exactly the targets sitting near an edge. Instead:
+                    # pick a side with probability proportional to the room on
+                    # that side and draw the magnitude within it.
+                    p0 = float(tgt[axis])
+                    reach = max_rel * (bhi - blo)
+                    down, up = min(reach, p0 - blo), min(reach, bhi - p0)
+                    if down + up <= 0.0:
+                        continue
+                    left = torch.rand(args.k, generator=g) * (down + up) < down
+                    room = torch.where(left, torch.full((args.k,), down),
+                                       torch.full((args.k,), up))
+                    off = _mag(args.k, room, g) * torch.where(
+                        left, -torch.ones(args.k), torch.ones(args.k))
+                    cand[:, axis] = p0 + off
             for i, v in pins.items():
                 cand[:, i] = v
             for i in hold:
@@ -662,12 +691,16 @@ def main() -> None:
                 "point --per-param exists to average over. Use --pin for "
                 "columns that are genuinely held (conditioning, say).")
         for mr in args.max_rel:
-            how = (f"log-uniform over {args.radius_decades:g} decades "
-                   f"below {mr:g}" if args.log_radius
-                   else f"uniform on (0, {mr:g}]")
+            if args.axis_draw == "uniform":
+                how = "values drawn uniform over each parameter's own range"
+            elif args.log_radius:
+                how = (f"offsets log-uniform over {args.radius_decades:g} "
+                       f"decades below {mr:g} of range")
+            else:
+                how = f"offsets uniform on (0, {mr:g}] of range"
             pairs = (f"pairs within {args.hard_ratio:g}x in distance"
                      if args.hard_ratio else "all pairs")
-            print(f"\n=== PER PARAMETER   radii {how}   {pairs}\n"
+            print(f"\n=== PER PARAMETER   {how}   {pairs}\n"
                   f"    candidates differ in ONE column, background "
                   f"redrawn per target")
             outs = [[] for _ in nffts]
