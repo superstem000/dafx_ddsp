@@ -187,7 +187,8 @@ def main() -> None:
                          "rung and the ladder would confound the floor moving "
                          "with the resolution changing.")
     ap.add_argument("--floors", type=float, nargs="+",
-                   default=[20.0, 40.0, 60.0, 80.0, 100.0, 400.0], metavar="DB",
+                   default=[10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0,
+                            90.0, 100.0, 110.0, 120.0, 400.0], metavar="DB",
                    help="Cumulative dB floors, replacing the per-band table. "
                         "Each entry restricts BOTH losses to bins within that "
                         "many dB of the reference peak and ranks candidates with "
