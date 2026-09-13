@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from omegaconf import OmegaConf                                    # noqa: E402
 from diffsynth.modelutils import construct_synth_from_conf          # noqa: E402
-from gen_dataset import unit_of                                     # noqa: E402
+from gen_dataset import draw_slots                                  # noqa: E402
 
 from src.analysis.band_sensitivity import EPS, stft_mag             # noqa: E402
 from src.analysis import band_identifiability as bi                 # noqa: E402
@@ -51,7 +51,11 @@ def _sets(tokens, what):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--conf", required=True)
+    ap.add_argument("--conf", default=None,
+                    help="A MODEL synth config. Draws come from harmor's own "
+                         "param_desc and every clip renders with flat envelopes, "
+                         "so prefer --dataset-conf; kept for configs that have "
+                         "no generator.")
     ap.add_argument("--n", type=int, default=24, help="Targets")
     ap.add_argument("--k", type=int, default=32, help="Candidates per target")
     ap.add_argument("--max-rel", type=float, nargs="+", default=[0.30],
@@ -200,19 +204,15 @@ def main() -> None:
                         "row-to-row difference. 400 means no floor.")
     ap.add_argument("--dataset-conf", type=Path, default=None, metavar="YAML",
                     help="The DATASET config the checkpoints were trained on, "
-                         "e.g. configs/synth/dataset/h2of_r13.yaml. Its "
-                         "range_params are read and applied as --draw, in the "
-                         "config's own physical units, inverted through the "
-                         "processor's param_desc by gen_dataset.unit_of -- the "
-                         "same function that built the data. This matters "
-                         "because a restricted draw lives in the DATASET and "
-                         "not in the model synth: harmor's MULT range stays "
-                         "(1, 8) for every checkpoint's head whatever the data "
-                         "holds, so probing the model config alone samples a "
-                         "family the checkpoints never saw. Hand-computing the "
-                         "normalised interval instead is how MULT on (1, 3) "
-                         "became the literal --draw MULT=0:0.2857, correct "
-                         "only until a range moves.")
+                         "e.g. configs/synth/dataset/h2of_r13.yaml. This is the "
+                         "generator, and using it makes the probe draw and "
+                         "render exactly as gen_dataset.py does: the same dag "
+                         "with its ADSR envelopes, the same parameters, and the "
+                         "same ranges via draw_slots. A model synth instead "
+                         "renders flat amplitude and cutoff -- not a member of "
+                         "the data distribution -- and takes each parameter's "
+                         "bounds from harmor's param_desc, so MULT reads (1, 8) "
+                         "on data generated over (1, 3).")
     ap.add_argument("--render-batch", type=int, default=8, metavar="K",
                     help="Render this many candidates at a time. Candidates are "
                          "a batch dimension, so all K at once is a K/8 larger "
@@ -221,6 +221,9 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
+
+    if not args.conf and not args.dataset_conf:
+        raise SystemExit("give --dataset-conf (preferred) or --conf")
 
     nffts = _sets(args.n_fft, "--n-fft")
     hops = (_sets(args.hop, "--hop") if args.hop
@@ -266,9 +269,26 @@ def main() -> None:
                 print(f"{nf:>7}{hp:>7}{pk:>12.4g}{'-':>19}{'-':>16}")
 
     dev = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    # THE GENERATOR, NOT THE MODEL SYNTH, when a dataset config is given.
+    #
+    # The two are different dags and the difference is the whole point. The
+    # model synth consumes amplitude and cutoff as per-frame curves; the
+    # generator PRODUCES those curves from ADSR controls, and it is the
+    # generator that defines what the training data actually is -- which
+    # parameters vary, over what ranges, and with what envelopes. Drawing from
+    # the model synth instead renders every clip with a flat amplitude and a
+    # flat cutoff, which is not a member of the data distribution, and reads
+    # each parameter's bounds off harmor's param_desc rather than off the
+    # dataset -- so MULT comes back (1, 8) on data generated over (1, 3).
+    #
+    # Here the draws come from draw_slots, the same function gen_dataset.py
+    # uses, so the ranges are the dataset's by construction rather than by a
+    # flag the caller has to remember.
+    src = args.dataset_conf or args.conf
     conf = OmegaConf.merge(OmegaConf.create({"data": {"sample_rate": args.sr}}),
-                           OmegaConf.load(args.conf))
+                           OmegaConf.load(src))
     synth = construct_synth_from_conf(conf).to(dev)
+    gen_mode = args.dataset_conf is not None
     names = list(synth.ext_param_sizes.keys())
     sizes = [synth.ext_param_sizes[k] for k in names]
     label = [n if s == 1 else f"{n}[{j}]"
@@ -277,7 +297,7 @@ def main() -> None:
     n_samples = int(args.audio_len * args.sr)
 
     if args.list:
-        print(f"{Path(args.conf).name}   {P} columns:")
+        print(f"{Path(src).name}   {P} columns:")
         for l in label:
             print(f"  {l}")
         return
@@ -297,46 +317,26 @@ def main() -> None:
         pins[label.index(k)] = float(v)
 
     draw = {}
-    # THE DATASET'S OWN RANGES, INVERTED BY THE FUNCTION THAT BUILT THE DATA.
-    # Applied before --draw so an explicit flag still wins, and reported below
-    # in both the config's physical units and the normalised interval, since a
-    # silent conversion is exactly what went wrong when MULT on (1, 3) was
-    # hand-carried as 0:0.2857.
-    if args.dataset_conf:
-        # to_container FIRST: dconf.get on a missing key returns None, and
-        # `None or {}` is a plain dict, which to_container refuses. resolve is
-        # left off because the dataset configs interpolate ${data.sample_rate},
-        # which has no value outside a hydra run and is not needed here.
-        dconf = OmegaConf.to_container(OmegaConf.load(args.dataset_conf))
-        quant = dconf.get("quantize_params") or {}
+    if gen_mode:
+        cdict = OmegaConf.to_container(conf)
+        quant = cdict.get("quantize_params") or {}
         if quant:
             raise SystemExit(
-                f"{args.dataset_conf.name} quantizes {', '.join(sorted(quant))} "
-                f"to a discrete SET of values. This probe draws candidates from "
-                f"a continuous interval and cannot represent that: the hull "
-                f"would sample the dead ground between the legal values, which "
-                f"is a region the data never contains. Probe a continuous "
-                f"dataset, or pin the parameter with --pin.")
-        rng = dconf.get("range_params") or {}
-        desc_of = {}
-        for processor, connections in synth.dag:
-            for input_name, key in connections.items():
-                if input_name in processor.param_desc:
-                    desc_of[key] = processor.param_desc[input_name]
-        for k, vals in rng.items():
-            if k not in synth.ext_param_sizes:
-                raise SystemExit(
-                    f"{args.dataset_conf.name} restricts {k!r}, which is not an "
-                    f"external parameter of {Path(args.conf).name}. The dataset "
-                    f"and the model synth do not match.")
-            lo, hi = (unit_of(float(v), desc_of[k]) for v in vals)
-            size = synth.ext_param_sizes[k]
+                f"{Path(src).name} quantizes {', '.join(sorted(quant))} to a "
+                f"discrete SET of values. Candidates here are drawn from a "
+                f"continuous interval and cannot represent that -- the hull "
+                f"samples the dead ground between the legal values, a region "
+                f"the data never contains. Pin it with --pin, or probe a "
+                f"continuous dataset.")
+        for key, offset, size, kind, payload in draw_slots(
+                synth, {}, cdict.get("range_params") or {}):
+            if kind != "range":
+                continue
+            lo, hi = payload
             for j in range(size):
-                nm = k if size == 1 else f"{k}[{j}]"
-                draw[label.index(nm)] = (lo, hi)
-            print(f"dataset range: {k} on {list(vals)} "
-                  f"({desc_of[k]['type']}, model range {list(desc_of[k]['range'])}) "
-                  f"-> normalised [{lo:.4f}, {hi:.4f}]")
+                draw[offset + j] = (float(lo), float(hi))
+            print(f"dataset range: {key} on {list(cdict['range_params'][key])} "
+                  f"-> draws on [{lo:.4f}, {hi:.4f}] of its 0..1 space")
 
     for item in args.draw or []:
         k, _, span = item.partition("=")
@@ -351,7 +351,7 @@ def main() -> None:
     searched = [l for i, l in enumerate(label) if i not in pins]
     if not searched:
         raise SystemExit("every column is held; nothing is being searched")
-    print(f"{Path(args.conf).name}   {P} columns, {len(searched)} searched   "
+    print(f"{Path(src).name}   {P} columns, {len(searched)} searched   "
           f"{args.n} targets   {args.k} candidates each   "
           f"radii (0, {', '.join(f'{r:g}' for r in args.max_rel)}] of range")
     print(f"searching: {', '.join(searched)}")
@@ -397,7 +397,7 @@ def main() -> None:
         # was printed, and nothing read it.
         if k not in need:
             raise SystemExit(
-                f"--cond {k}: {Path(args.conf).name} does not leave {k!r} to be "
+                f"--cond {k}: {Path(src).name} does not leave {k!r} to be "
                 f"supplied. It conditions "
                 f"{', '.join(need) if need else 'nothing'}."
                 + (f" Did you mean --cond {need[0]}={v}?" if need else ""))
@@ -405,7 +405,7 @@ def main() -> None:
     missing = [n for n in need if n not in _DEFAULT_COND and n not in given]
     if missing:
         raise SystemExit(
-            f"{Path(args.conf).name} leaves {', '.join(missing)} to be supplied "
+            f"{Path(src).name} leaves {', '.join(missing)} to be supplied "
             f"at run time and there is no default for it.\nThese are PHYSICAL "
             f"values, not [0,1] -- fill_params does not scale them -- so a guess "
             f"is not safe.\nSet it explicitly, e.g. --cond {missing[0]}=220")
@@ -447,6 +447,10 @@ def main() -> None:
             return room * 10.0 ** (-u * args.radius_decades)
         return room * u
 
+    span = torch.ones(P)
+    for i, (lo, hi) in draw.items():
+        span[i] = hi - lo
+
     def sweep(axis=None, max_rel=0.30):
         # SAME SEED FOR EVERY AXIS. Each parameter is measured on the identical
         # 24 targets, so the per-parameter rows are paired rather than three
@@ -464,11 +468,21 @@ def main() -> None:
                 tgt[i] = v
 
             if axis is None:
+                # EVERY COORDINATE MOVES BY THE SAME FRACTION OF ITS OWN RANGE.
+                # --max-rel is a fraction of range, and a restricted parameter's
+                # range is the restricted one. Offsetting on the raw 0..1 scale
+                # and clamping afterwards -- which is what this did -- gives a
+                # parameter drawn on a 0.29-wide interval a typical offset of
+                # 0.19, two thirds of its whole span, so most candidates pin to
+                # one of its bounds and the parameter goes near-degenerate.
+                # Scaling by the span is also what the per-axis branch below
+                # already does, and what the header claims is happening.
                 d = torch.randn((args.k, P), generator=g)
                 d /= d.norm(dim=1, keepdim=True).clamp(min=1e-30)
                 r = _mag(args.k, max_rel, g)[:, None]
-                cand = (tgt[None, :] + d * r).clamp(0.0, 1.0)
-                for i, (lo, hi) in draw.items():
+                cand = tgt[None, :] + d * r * span[None, :]
+                for i in range(P):
+                    lo, hi = draw.get(i, (0.0, 1.0))
                     cand[:, i] = cand[:, i].clamp(lo, hi)
             else:
                 # ONE AXIS, RANDOM BACKGROUND. The candidates differ from the target
@@ -505,7 +519,12 @@ def main() -> None:
             # After the bounds handling and after the pins, so a candidate whose
             # only movement was in a pinned column is labelled with the distance
             # it actually has rather than the one it was drawn at.
-            dist = (cand - tgt[None, :]).norm(dim=1)
+            # IN UNITS OF EACH PARAMETER'S OWN RANGE, for the same reason.
+            # A raw Euclidean norm counts a full-span error in a parameter
+            # drawn over 0.29 as a third of a full-span error in one drawn over
+            # 1.0, so a restricted parameter is quietly down-weighted in the
+            # ground truth the losses are being scored against.
+            dist = ((cand - tgt[None, :]) / span[None, :]).norm(dim=1)
 
             x_ref = render(tgt[None, :])[0]
             x_can = render(cand)
@@ -645,7 +664,7 @@ def main() -> None:
             if not rset:
                 continue
             bi.report_cum(bi.accumulate_cum(rset),
-                          title=f"{Path(args.conf).stem}   n_fft {tag[si]}   "
+                          title=f"{Path(src).stem}   n_fft {tag[si]}   "
                             f"radii <= {mr:g}   {len(rset)} targets")
             bi.report_marginal(mset, title=f"n_fft {tag[si]}")
 
