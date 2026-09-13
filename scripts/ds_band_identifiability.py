@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from omegaconf import OmegaConf                                    # noqa: E402
 from diffsynth.modelutils import construct_synth_from_conf          # noqa: E402
+from gen_dataset import unit_of                                     # noqa: E402
 
 from src.analysis.band_sensitivity import EPS, stft_mag             # noqa: E402
 from src.analysis import band_identifiability as bi                 # noqa: E402
@@ -197,6 +198,21 @@ def main() -> None:
                         "deepest floor reproduces the full-spectrum numbers, "
                         "which is the check. A band's contribution is then the "
                         "row-to-row difference. 400 means no floor.")
+    ap.add_argument("--dataset-conf", type=Path, default=None, metavar="YAML",
+                    help="The DATASET config the checkpoints were trained on, "
+                         "e.g. configs/synth/dataset/h2of_r13.yaml. Its "
+                         "range_params are read and applied as --draw, in the "
+                         "config's own physical units, inverted through the "
+                         "processor's param_desc by gen_dataset.unit_of -- the "
+                         "same function that built the data. This matters "
+                         "because a restricted draw lives in the DATASET and "
+                         "not in the model synth: harmor's MULT range stays "
+                         "(1, 8) for every checkpoint's head whatever the data "
+                         "holds, so probing the model config alone samples a "
+                         "family the checkpoints never saw. Hand-computing the "
+                         "normalised interval instead is how MULT on (1, 3) "
+                         "became the literal --draw MULT=0:0.2857, correct "
+                         "only until a range moves.")
     ap.add_argument("--render-batch", type=int, default=8, metavar="K",
                     help="Render this many candidates at a time. Candidates are "
                          "a batch dimension, so all K at once is a K/8 larger "
@@ -281,6 +297,43 @@ def main() -> None:
         pins[label.index(k)] = float(v)
 
     draw = {}
+    # THE DATASET'S OWN RANGES, INVERTED BY THE FUNCTION THAT BUILT THE DATA.
+    # Applied before --draw so an explicit flag still wins, and reported below
+    # in both the config's physical units and the normalised interval, since a
+    # silent conversion is exactly what went wrong when MULT on (1, 3) was
+    # hand-carried as 0:0.2857.
+    if args.dataset_conf:
+        dconf = OmegaConf.load(args.dataset_conf)
+        quant = OmegaConf.to_container(dconf.get("quantize_params") or {})
+        if quant:
+            raise SystemExit(
+                f"{args.dataset_conf.name} quantizes {', '.join(sorted(quant))} "
+                f"to a discrete SET of values. This probe draws candidates from "
+                f"a continuous interval and cannot represent that: the hull "
+                f"would sample the dead ground between the legal values, which "
+                f"is a region the data never contains. Probe a continuous "
+                f"dataset, or pin the parameter with --pin.")
+        rng = OmegaConf.to_container(dconf.get("range_params") or {})
+        desc_of = {}
+        for processor, connections in synth.dag:
+            for input_name, key in connections.items():
+                if input_name in processor.param_desc:
+                    desc_of[key] = processor.param_desc[input_name]
+        for k, vals in rng.items():
+            if k not in synth.ext_param_sizes:
+                raise SystemExit(
+                    f"{args.dataset_conf.name} restricts {k!r}, which is not an "
+                    f"external parameter of {Path(args.conf).name}. The dataset "
+                    f"and the model synth do not match.")
+            lo, hi = (unit_of(float(v), desc_of[k]) for v in vals)
+            size = synth.ext_param_sizes[k]
+            for j in range(size):
+                nm = k if size == 1 else f"{k}[{j}]"
+                draw[label.index(nm)] = (lo, hi)
+            print(f"dataset range: {k} on {list(vals)} "
+                  f"({desc_of[k]['type']}, model range {list(desc_of[k]['range'])}) "
+                  f"-> normalised [{lo:.4f}, {hi:.4f}]")
+
     for item in args.draw or []:
         k, _, span = item.partition("=")
         if k not in label:
@@ -332,6 +385,18 @@ def main() -> None:
     given = {}
     for item in args.cond or []:
         k, v = item.split("=")
+        # REFUSE A NAME THAT CONDITIONS NOTHING. fixed_param_names is
+        # list(fixed_params.keys()) from the model config, so h2of_f0only needs
+        # BFRQ and not f0_hz -- and an unrecognised key used to be accepted and
+        # then ignored, leaving the parameter on the _DEFAULT_COND fallback.
+        # That is how a run intended at 130.81 Hz was measured at 220: the value
+        # was printed, and nothing read it.
+        if k not in need:
+            raise SystemExit(
+                f"--cond {k}: {Path(args.conf).name} does not leave {k!r} to be "
+                f"supplied. It conditions "
+                f"{', '.join(need) if need else 'nothing'}."
+                + (f" Did you mean --cond {need[0]}={v}?" if need else ""))
         given[k] = float(v)
     missing = [n for n in need if n not in _DEFAULT_COND and n not in given]
     if missing:
@@ -345,6 +410,11 @@ def main() -> None:
         print("conditioning: "
               + ", ".join(f"{k}={v:g}" for k, v in cond_v.items())
               + "   (held equal across target and candidates)")
+        fell_back = [n for n in need if n not in given]
+        if fell_back:
+            print(f"  NOTE: {', '.join(fell_back)} not given, using the built-in "
+                  f"default. The dataset draws it per clip, so this measures "
+                  f"ONE operating point rather than the family.")
 
     def render(p: torch.Tensor) -> torch.Tensor:
         out = []
