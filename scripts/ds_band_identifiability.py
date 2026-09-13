@@ -186,17 +186,16 @@ def main() -> None:
                          "different percentile of the bin distribution on every "
                          "rung and the ladder would confound the floor moving "
                          "with the resolution changing.")
-    ap.add_argument("--equal-bands", type=int, default=0, metavar="N",
-                    help="Replace the fixed dB bands with N bands of EQUAL BIN "
-                         "COUNT, cut by rank of reference level. The fixed "
-                         "bands put 50% of the plate's bins in 120-400 and 0.8% "
-                         "in 0-20, so one concordance is measured on half the "
-                         "spectrum and another on a sliver, and the two are "
-                         "averaged as though equally resolved. Equal-count "
-                         "bands hold the sample size fixed and let the dB edges "
-                         "move; the printed label is then the mean level range "
-                         "each band spanned, which is measured rather than set. "
-                         "0 keeps the dB bands.")
+    ap.add_argument("--floors", type=float, nargs="+",
+                   default=[20.0, 40.0, 60.0, 80.0, 100.0, 400.0], metavar="DB",
+                   help="Cumulative dB floors, replacing the per-band table. "
+                        "Each entry restricts BOTH losses to bins within that "
+                        "many dB of the reference peak and ranks candidates with "
+                        "what is left, so every row is a real loss over many "
+                        "bins rather than a band scored in isolation -- and the "
+                        "deepest floor reproduces the full-spectrum numbers, "
+                        "which is the check. A band's contribution is then the "
+                        "row-to-row difference. 400 means no floor.")
     ap.add_argument("--render-batch", type=int, default=8, metavar="K",
                     help="Render this many candidates at a time. Candidates are "
                          "a batch dimension, so all K at once is a K/8 larger "
@@ -218,9 +217,7 @@ def main() -> None:
     # is the same waste as re-rendering, one level down.
     uniq = sorted({(nf, hp) for S, H in zip(nffts, hops) for nf, hp in zip(S, H)})
     tag = ["+".join(str(n) for n in S) for S in nffts]
-    if args.equal_bands and args.equal_bands < 2:
-        raise SystemExit("--equal-bands needs at least 2 bands")
-    bands = args.equal_bands if args.equal_bands else bi.DB_BANDS
+
     if args.eps is not None and args.floor_db is not None:
         raise SystemExit(
             "--eps and --floor-db are two different experiments and cannot "
@@ -474,7 +471,7 @@ def main() -> None:
                            for A in A_ref]
                 else:
                     eps = EPS
-                rows[si].append(bi.probe(A_ref, A_can, dt, eps, bands))
+                rows[si].append(bi.cumulative(A_ref, A_can, dt, eps, args.floors))
                 marg[si].append(bi.marginal(A_ref, A_can, dt, eps,
                                             args.hard_ratio))
         return rows, marg, dropped
@@ -572,8 +569,8 @@ def main() -> None:
         for si, (rset, mset) in enumerate(zip(rows, marg)):
             if not rset:
                 continue
-            bi.report(bi.accumulate(rset, bands), bands=bands,
-                      title=f"{Path(args.conf).stem}   n_fft {tag[si]}   "
+            bi.report_cum(bi.accumulate_cum(rset),
+                          title=f"{Path(args.conf).stem}   n_fft {tag[si]}   "
                             f"radii <= {mr:g}   {len(rset)} targets")
             bi.report_marginal(mset, title=f"n_fft {tag[si]}")
 

@@ -427,3 +427,101 @@ def report(agg: list[dict], bands=DB_BANDS, title: str = "") -> None:
     print("  reweighting cost. They are independent -- a flat band profile makes")
     print("  reweighting cheap regardless of the transform, and a transform can")
     print("  gain within a band whose weight share never changes.")
+
+
+# ---------------------------------------------------------------------------
+# CUMULATIVE FLOORS, which replace the per-band table for the same question.
+#
+# A band scored in ISOLATION is a loss over a sliver of the spectrum, and a
+# sliver ranks badly for a reason that has nothing to do with compression:
+# there is not enough of it. Worse, recombining those isolated verdicts is not
+# the verdict of the combined loss -- a weighted mean of concordances is not
+# the concordance of the weighted sum, because a band that is wrong by a hair
+# counts as a full loss in the average and is overridden in the sum. The band
+# table therefore measured something systematically different from the loss it
+# was meant to describe, and by a margin (C-A = -0.035 against -0.013 on the
+# plate) comparable to the effects being read off it.
+#
+# The floor version asks the same question without that defect. For each floor
+# F, restrict BOTH losses to the bins within F dB of the reference peak and
+# rank candidates with what is left. Every row is then a real loss over many
+# bins, directly comparable to the full-spectrum numbers -- and the deepest
+# floor reproduces them exactly, which is the built-in check. What each band
+# CONTRIBUTES is the row-to-row difference rather than a number measured in
+# isolation: d_lin and d_log say what admitting the next 20 dB did to the whole
+# loss's ranking, which is the quantity the band table was a proxy for.
+
+
+def cumulative(A_ref, A_cand, dist: torch.Tensor, eps=EPS,
+               floors=(20.0, 40.0, 60.0, 80.0, 100.0, 400.0)) -> list[dict]:
+    """One target. Each entry: the loss restricted to bins above -F dB."""
+    a, c, w, db, e, _ri = _flatten(A_ref, A_cand, eps)
+    db = db.clamp(min=-(400.0 - 1e-3))
+    lin = (c - a).abs() * w
+    lg = ((c + e).log() - (a + e).log()).abs() * w
+    tot_lin = float(lin.sum()) or 1.0
+    tot_log = float(lg.sum()) or 1.0
+    n_all = db.numel()
+
+    out = []
+    for f in floors:
+        m = db > -float(f)
+        n = int(m.sum())
+        if n < 2:
+            out.append(dict(floor=float(f), binfrac=0.0, w_lin=0.0, w_log=0.0,
+                            id_lin=float("nan"), id_log=float("nan")))
+            continue
+        Ll, Lg = lin[:, m].sum(1), lg[:, m].sum(1)
+        out.append(dict(
+            floor=float(f),
+            binfrac=n / max(n_all, 1),
+            w_lin=float(Ll.sum()) / tot_lin,
+            w_log=float(Lg.sum()) / tot_log,
+            id_lin=_concordance(Ll, dist),
+            id_log=_concordance(Lg, dist)))
+    return out
+
+
+def accumulate_cum(rows: list[list[dict]]) -> list[dict]:
+    """Mean over targets, per floor. id averaged over targets where it exists."""
+    if not rows:
+        return []
+    out = []
+    for i in range(len(rows[0])):
+        cells = [r[i] for r in rows if i < len(r)]
+        live = [x for x in cells if x["id_lin"] == x["id_lin"]]
+        n = len(live) or 1
+        out.append(dict(
+            floor=cells[0]["floor"],
+            binfrac=sum(x["binfrac"] for x in cells) / max(len(cells), 1),
+            w_lin=sum(x["w_lin"] for x in cells) / max(len(cells), 1),
+            w_log=sum(x["w_log"] for x in cells) / max(len(cells), 1),
+            id_lin=sum(x["id_lin"] for x in live) / n if live else float("nan"),
+            id_log=sum(x["id_log"] for x in live) / n if live else float("nan")))
+    return out
+
+
+def report_cum(agg: list[dict], title: str = "") -> None:
+    if not agg:
+        return
+    print(f"\n=== {title}" if title else "")
+    print("  Each row is the WHOLE loss restricted to bins within F dB of the")
+    print("  reference peak -- not a band in isolation -- so every row is")
+    print("  comparable to the full-spectrum numbers, and the deepest floor")
+    print("  reproduces them. d_lin/d_log are the change from the row above:")
+    print("  what admitting the next slice of dynamic range did to the ranking.")
+    print(f"{'floor':>8}{'bins':>8}{'w_lin':>9}{'w_log':>9}"
+          f"{'id_lin':>9}{'id_log':>9}{'lin-log':>10}{'d_lin':>9}{'d_log':>9}")
+    prev = None
+    for o in agg:
+        il, ig = o["id_lin"], o["id_log"]
+        f = f"{o['floor']:.0f} dB" if o["floor"] < 400 else "all"
+        if il != il:
+            print(f"{f:>8}{100*o['binfrac']:>7.1f}%{'-':>9}{'-':>9}"
+                  f"{'-':>9}{'-':>9}{'-':>10}{'-':>9}{'-':>9}")
+            continue
+        d = (f"{il - prev[0]:>+9.3f}{ig - prev[1]:>+9.3f}" if prev
+             else f"{'-':>9}{'-':>9}")
+        print(f"{f:>8}{100*o['binfrac']:>7.1f}%{100*o['w_lin']:>8.1f}%"
+              f"{100*o['w_log']:>8.1f}%{il:>9.3f}{ig:>9.3f}{il - ig:>+10.3f}{d}")
+        prev = (il, ig)
