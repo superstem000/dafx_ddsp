@@ -303,8 +303,12 @@ def main() -> None:
     # silent conversion is exactly what went wrong when MULT on (1, 3) was
     # hand-carried as 0:0.2857.
     if args.dataset_conf:
-        dconf = OmegaConf.load(args.dataset_conf)
-        quant = OmegaConf.to_container(dconf.get("quantize_params") or {})
+        # to_container FIRST: dconf.get on a missing key returns None, and
+        # `None or {}` is a plain dict, which to_container refuses. resolve is
+        # left off because the dataset configs interpolate ${data.sample_rate},
+        # which has no value outside a hydra run and is not needed here.
+        dconf = OmegaConf.to_container(OmegaConf.load(args.dataset_conf))
+        quant = dconf.get("quantize_params") or {}
         if quant:
             raise SystemExit(
                 f"{args.dataset_conf.name} quantizes {', '.join(sorted(quant))} "
@@ -313,7 +317,7 @@ def main() -> None:
                 f"would sample the dead ground between the legal values, which "
                 f"is a region the data never contains. Probe a continuous "
                 f"dataset, or pin the parameter with --pin.")
-        rng = OmegaConf.to_container(dconf.get("range_params") or {})
+        rng = dconf.get("range_params") or {}
         desc_of = {}
         for processor, connections in synth.dag:
             for input_name, key in connections.items():
