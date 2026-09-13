@@ -339,10 +339,10 @@ def main() -> None:
                   f"-> draws on [{lo:.4f}, {hi:.4f}] of its 0..1 space")
 
     for item in args.draw or []:
-        k, _, span = item.partition("=")
+        k, _, interval = item.partition("=")
         if k not in label:
             raise SystemExit(f"unknown parameter {k!r}; have: {', '.join(label)}")
-        lo, _, hi = span.partition(":")
+        lo, _, hi = interval.partition(":")
         lo, hi = float(lo), float(hi)
         if not 0.0 <= lo < hi <= 1.0:
             raise SystemExit(f"--draw {k}: need 0 <= LO < HI <= 1, got {lo}:{hi}")
@@ -451,16 +451,27 @@ def main() -> None:
                   f"default. The dataset draws it per clip, so this measures "
                   f"ONE operating point rather than the family.")
 
-    def render(p: torch.Tensor) -> torch.Tensor:
-        out = []
+    def render(p: torch.Tensor):
+        """(audio, {save_param: value}) -- the second is the training target.
+
+        gen_dataset.py writes exactly output[dag_summary[k]] for k in
+        save_params, and the trainer's param_loss compares the estimator
+        against those. Returning them here is what lets parameter distance be
+        measured in the space the objective uses rather than in the space the
+        generator happens to be drawn from.
+        """
+        out, par = [], []
         for i in range(0, p.shape[0], args.render_batch):
             chunk = p[i:i + args.render_batch, None, :].to(dev)
             cond = {k: torch.full((chunk.shape[0], 1, 1), v, device=dev)
                     for k, v in cond_v.items()}
             with torch.no_grad():
-                audio, _ = synth(synth.fill_params(chunk, cond), n_samples)
+                audio, o = synth(synth.fill_params(chunk, cond), n_samples)
             out.append(audio)
-        return torch.cat(out, dim=0)
+            par.append({k: o[synth.dag_summary[k]].detach().cpu()
+                        for k in save_keys})
+        return (torch.cat(out, dim=0),
+                {k: torch.cat([q[k] for q in par], dim=0) for k in save_keys})
 
     def _mag(n, room, gen):
         """Offset magnitudes in (0, room], uniform or log-uniform.
@@ -478,9 +489,46 @@ def main() -> None:
             return room * 10.0 ** (-u * args.radius_decades)
         return room * u
 
+    # Each parameter's own draw width, so --max-rel is a fraction of THAT
+    # rather than of the raw 0..1 scale. 1.0 for anything unrestricted.
     span = torch.ones(P)
     for i, (lo, hi) in draw.items():
         span[i] = hi - lo
+
+    # save_params: what gen_dataset writes and what param_loss compares.
+    save_keys = list(OmegaConf.to_container(conf).get("save_params") or [])
+    if gen_mode and not save_keys:
+        raise SystemExit(
+            f"{Path(src).name} has no save_params, so there is no statement of "
+            f"what the estimator is trained to predict and no training space to "
+            f"measure distance in.")
+    held_out = {label[i].split("[")[0] for i in hold}
+    skip = {k for k in save_keys
+            if synth.dag_summary.get(k) in held_out
+            or synth.dag_summary.get(k) in synth.fixed_param_names}
+
+    def param_dist(pc, pt):
+        """param_loss between each candidate and the target, same convention.
+
+        L1 per key, mean over everything but the batch, summed, then divided by
+        the number of save_params keys -- skipped and empty entries still count
+        in the denominator, exactly as EstimatorSynth.param_loss does.
+        """
+        n = next(iter(pc.values())).shape[0]
+        tot = torch.zeros(n, dtype=torch.float64)
+        for k in save_keys:
+            if k in skip or pt[k].numel() == 0:
+                continue
+            a = pc[k].double()
+            b = pt[k].double().expand_as(a)
+            tot += (a - b).abs().flatten(1).mean(1)
+        return tot / max(len(save_keys), 1)
+
+    if gen_mode:
+        used = [k for k in save_keys if k not in skip]
+        print(f"parameter distance over save_params: {', '.join(used)}"
+              + (f"   (skipped: {', '.join(sorted(skip))})" if skip else ""))
+
 
     def sweep(axis=None, max_rel=0.30):
         # SAME SEED FOR EVERY AXIS. Each parameter is measured on the identical
@@ -549,18 +597,17 @@ def main() -> None:
                 cand[:, i] = v
             for i in hold:
                 cand[:, i] = tgt[i]
-            # After the bounds handling and after the pins, so a candidate whose
-            # only movement was in a pinned column is labelled with the distance
-            # it actually has rather than the one it was drawn at.
-            # IN UNITS OF EACH PARAMETER'S OWN RANGE, for the same reason.
-            # A raw Euclidean norm counts a full-span error in a parameter
-            # drawn over 0.29 as a third of a full-span error in one drawn over
-            # 1.0, so a restricted parameter is quietly down-weighted in the
-            # ground truth the losses are being scored against.
-            dist = ((cand - tgt[None, :]) / span[None, :]).norm(dim=1)
-
-            x_ref = render(tgt[None, :])[0]
-            x_can = render(cand)
+            x_ref, p_ref = render(tgt[None, :])
+            x_can, p_can = render(cand)
+            # PARAMETER DISTANCE IN THE TRAINING SPACE, not in the space the
+            # generator is drawn from. The estimator never sees PEAK_A or AT_C;
+            # it predicts the rendered curves those controls produce, and
+            # param_loss is an L1 over save_params divided by the key count,
+            # skipping conditioned and zero-width entries. Measuring distance
+            # over the draw vector instead scores the losses against a
+            # different quantity from the one being optimised, with no reason
+            # for the two to be monotone in each other.
+            dist = param_dist(p_can, p_ref)
             ok = torch.isfinite(x_can).all(dim=-1)
             if not bool(ok.all()):
                 dropped += int((~ok).sum())
