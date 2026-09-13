@@ -248,6 +248,18 @@ def main() -> int:
                         "hear cannot be an artefact of one unlucky sample. "
                         "The mapping is printed and is deterministic, so a "
                         "sitting can be reproduced exactly.")
+    p.add_argument("--dry-all", action="store_true",
+                   help="Convolve EVERY IR with EVERY file in --dry-dir, "
+                        "instead of pairing one source per IR. The paired mode "
+                        "confounds source with IR -- each IR's score is that "
+                        "IR through ONE snare, so an arm that happens to get an "
+                        "easy source on a hard IR reads as a property of the "
+                        "IR. The cross product separates them: the same nine "
+                        "sources are heard through every IR, so a per-IR mean "
+                        "is a statement about the IR and a per-SOURCE mean is a "
+                        "statement about the material. Costs IRs x sources "
+                        "convolutions and writes no wavs -- 81 trials is not a "
+                        "listening test, it is a measurement.")
     p.add_argument("--dry", type=Path,
                    help="dry mono source, e.g. a VocalSet excerpt")
     p.add_argument("--align-onset", action="store_true",
@@ -349,10 +361,14 @@ def main() -> int:
         if len(pool) < len(names):
             print(f"  NOTE: {len(pool)} dry file(s) for {len(names)} IRs, so "
                   f"some are reused")
-        dry_of, sr = {}, SAMPLE_RATE
+        dry_of, sr, pool_dry = {}, SAMPLE_RATE, {}
         for i, stem in enumerate(names):
             d, sr, full, st, n_in, gap = load_dry(pool[i % len(pool)])
             dry_of[stem] = (d, pool[i % len(pool)].name, full, st, n_in, gap)
+        if args.dry_all:
+            for q in pool:
+                d, sr, full, st, n_in, gap = load_dry(q)
+                pool_dry[q.name] = d
     else:
         d, sr, full, st, n_in, gap = load_dry(args.dry)
         dry_of = {stem: (d, args.dry.name, full, st, n_in, gap)
@@ -383,6 +399,20 @@ def main() -> int:
         print(f"dry: {nm}  file {full:.2f} s, from {st:.3f} s, "
               f"{len(dry0) / sr:.2f} s used, {n_in} hit(s) in window{g}")
 
+    if args.dry_all:
+        if not args.dry_dir:
+            raise SystemExit("--dry-all needs --dry-dir: it is the pool to "
+                             "cross with the IRs")
+        srcs = [q.name for q in pool]
+        units = [(stem, src) for stem in names for src in srcs]
+        dry_for = {(stem, src): pool_dry[src] for stem, src in units}
+        print(f"cross product: {len(names)} IRs x {len(srcs)} sources "
+              f"= {len(units)} pairs per arm")
+    else:
+        srcs = None
+        units = [(stem, dry_of[stem][1]) for stem in names]
+        dry_for = {u: dry_of[u[0]][0] for u in units}
+
     dev = torch.device(args.device)
     configure_loss_runtime(SAMPLE_RATE, dev)
     win = torch.hann_window(args.n_fft, device=dev)
@@ -407,7 +437,6 @@ def main() -> int:
     # --- convolve -------------------------------------------------------
     conv, irs = {}, {}
     for stem in names:
-        dry = dry_of[stem][0]
         for tag in ["target"] + arms:
             if tag not in clips[stem]:
                 continue
@@ -415,7 +444,13 @@ def main() -> int:
             if hsr != SAMPLE_RATE:
                 raise SystemExit(f"{clips[stem][tag]} is {hsr} Hz")
             irs[(stem, tag)] = h
-            conv[(stem, tag)] = fftconvolve(dry, h)[: len(dry) + len(h)]
+    for stem, src in units:
+        dry = dry_for[(stem, src)]
+        for tag in ["target"] + arms:
+            if (stem, tag) not in irs:
+                continue
+            h = irs[(stem, tag)]
+            conv[(stem, src, tag)] = fftconvolve(dry, h)[: len(dry) + len(h)]
     print(f"convolved {len(conv)} stimuli, "
           f"{len(next(iter(conv.values()))) / sr:.2f} s each")
 
@@ -424,12 +459,13 @@ def main() -> int:
     l1 = torch.nn.functional.l1_loss
 
     rows: dict = defaultdict(dict)
-    for stem in names:
+    for u in units:
+        stem, src = u
         for arm in arms:
-            if (stem, arm) not in t:
+            if (stem, src, arm) not in t:
                 continue
-            a, b = t[(stem, "target")], t[(stem, arm)]
-            rows[arm][stem] = {
+            a, b = t[(stem, src, "target")], t[(stem, src, arm)]
+            rows[arm][u] = {
                 "mfcc": l1(mfcc(a), mfcc(b)).item(),
                 "mfcc_db80": l1(mfcc(a, 80.0), mfcc(b, 80.0)).item(),
                 "linmag": l1(linmag(a), linmag(b)).item(),
@@ -438,8 +474,9 @@ def main() -> int:
     # Saturation, rolled by one exactly as eval_real_ir does: consecutive names
     # are usually the same brightness, which is the harder reference.
     sat = {k: [] for k in ("mfcc", "mfcc_db80", "linmag")}
-    for i, stem in enumerate(names):
-        a = t[(stem, "target")]
+    for stem, src in units:
+        i = names.index(stem)
+        a = t[(stem, src, "target")]
         # THE NEIGHBOUR IR THROUGH THIS IR'S OWN DRY. Under --dry-dir the
         # neighbour's stored stimulus carries a different source, so using it
         # directly would make saturation "a different IR AND a different snare"
@@ -448,30 +485,41 @@ def main() -> int:
         # only the IR varies, which is what saturation has always meant.
         nb = names[(i + 1) % len(names)]
         if args.dry_dir:
-            d = dry_of[stem][0]
+            d = dry_for[(stem, src)]
             h = irs[(nb, "target")]
             y = fftconvolve(d, h)[: len(d) + len(h)]
             b = peak_norm(torch.from_numpy(y).float().to(dev)[None, :])
         else:
-            b = t[(nb, "target")]
+            b = t[(nb, src, "target")]
         sat["mfcc"].append(l1(mfcc(a), mfcc(b)).item())
         sat["mfcc_db80"].append(l1(mfcc(a, 80.0), mfcc(b, 80.0)).item())
         sat["linmag"].append(l1(linmag(a), linmag(b)).item())
 
+    def block(key, label, groups):
+        """One table, one row per group, each row a mean over that group's units."""
+        print(f"{label:<34}" + "".join(f"{a[:22]:>24}" for a in arms))
+        for name, us in groups:
+            print(f"{name[:34]:<34}"
+                  + "".join(f"{np.mean([rows[a][u][key] for u in us]):>24.4f}"
+                            for a in arms))
+
     for key in ("mfcc", "mfcc_db80", "linmag"):
         print(f"\n=== {key} ON THE CONVOLVED AUDIO   "
               f"(peak-normalised both sides; lower is better)")
-        print(f"{'ir':<34}" + "".join(f"{a[:22]:>24}" for a in arms))
-        for stem in names:
-            print(f"{stem[:34]:<34}"
-                  + "".join(f"{rows[a][stem][key]:>24.4f}" for a in arms))
+        block(key, "ir", [(st, [u for u in units if u[0] == st]) for st in names])
+        if args.dry_all:
+            # The same nine sources through every IR, so this row is a property
+            # of the MATERIAL rather than of whichever IR it happened to land on.
+            print()
+            block(key, "source",
+                  [(sc, [u for u in units if u[1] == sc]) for sc in srcs])
         print(f"{'MEAN':<34}"
-              + "".join(f"{np.mean([rows[a][s][key] for s in names]):>24.4f}"
+              + "".join(f"{np.mean([rows[a][u][key] for u in units]):>24.4f}"
                         for a in arms))
-        s = float(np.mean(sat[key]))
-        print(f"{'SATURATION (another real IR)':<34}{s:>24.4f}")
+        sv = float(np.mean(sat[key]))
+        print(f"{'SATURATION (another real IR)':<34}{sv:>24.4f}")
         print(f"{'  arm / saturation':<34}"
-              + "".join(f"{np.mean([rows[a][s2][key] for s2 in names]) / s:>24.3f}"
+              + "".join(f"{np.mean([rows[a][u][key] for u in units]) / sv:>24.3f}"
                         for a in arms))
 
     # --- per-band diagnosis ---------------------------------------------
@@ -513,7 +561,11 @@ def main() -> int:
         print(f"    {tag[:10]:>10}" + cells)
 
     # --- wavs -----------------------------------------------------------
-    if not args.no_wavs:
+    if args.dry_all and not args.no_wavs:
+        print(f"\n  --dry-all: {len(conv)} stimuli, no wavs written. This is a "
+              f"measurement, not a listening test -- build one from a paired "
+              f"run.")
+    elif not args.no_wavs:
         args.out.mkdir(parents=True, exist_ok=True)
         gains, peak = {}, 0.0
         for k, y in conv.items():
@@ -525,9 +577,9 @@ def main() -> int:
             print(f"\n  peak after matching {peak:.3f} -- one common "
                   f"{20 * np.log10(head):+.2f} dB applied to every stimulus, so "
                   f"the match is preserved")
-        for (stem, tag), y in conv.items():
+        for (stem, _src, tag), y in conv.items():
             sf.write(args.out / f"{stem}__{tag}.wav",
-                     (y * gains[(stem, tag)] * head).astype(np.float32),
+                     (y * gains[(stem, _src, tag)] * head).astype(np.float32),
                      sr, subtype="PCM_24")
         print(f"  wrote {len(conv)} loudness-matched wavs to {args.out}")
         print(f"\nFor the listening test:\n"
