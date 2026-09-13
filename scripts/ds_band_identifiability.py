@@ -598,6 +598,10 @@ def main() -> None:
             for i in hold:
                 cand[:, i] = tgt[i]
             x_ref, p_ref = render(tgt[None, :])
+            # Strip the batch dim the single-target render carries. The old
+            # call was render(...)[0] on a bare tensor; unpacking the tuple
+            # kept the [1, n] shape and stft then saw a 3-D input.
+            x_ref = x_ref[0]
             x_can, p_can = render(cand)
             # PARAMETER DISTANCE IN THE TRAINING SPACE, not in the space the
             # generator is drawn from. The estimator never sees PEAK_A or AT_C;
