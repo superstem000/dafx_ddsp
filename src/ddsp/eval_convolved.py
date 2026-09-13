@@ -378,9 +378,10 @@ def main() -> int:
                   f"tightest file, so --dry-dur below that gives every "
                   f"stimulus exactly one.")
     else:
-        dry0, nm, full, st, n_in = dry_of[names[0]]
+        dry0, nm, full, st, n_in, gap = dry_of[names[0]]
+        g = "" if gap == float("inf") else f", next onset at {gap:.3f} s"
         print(f"dry: {nm}  file {full:.2f} s, from {st:.3f} s, "
-              f"{len(dry0) / sr:.2f} s used, {n_in} hit(s) in window")
+              f"{len(dry0) / sr:.2f} s used, {n_in} hit(s) in window{g}")
 
     dev = torch.device(args.device)
     configure_loss_runtime(SAMPLE_RATE, dev)
