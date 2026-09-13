@@ -348,7 +348,38 @@ def main() -> None:
             raise SystemExit(f"--draw {k}: need 0 <= LO < HI <= 1, got {lo}:{hi}")
         draw[label.index(k)] = (lo, hi)
 
-    searched = [l for i, l in enumerate(label) if i not in pins]
+    # CONDITIONED COLUMNS: drawn per target, held constant across that
+    # target's candidates. The generator must sample BFRQ -- it cannot make
+    # data otherwise -- but under an _f0only model the estimator never predicts
+    # it, so candidates that differ in pitch are measuring a failure the task
+    # design exists to remove. Which columns those are is in the MODEL config's
+    # fixed_params, not the dataset's, so both configs are needed: the dataset
+    # says how to generate, the model says what is estimated.
+    hold = set()
+    if gen_mode and args.conf:
+        mconf = OmegaConf.to_container(
+            OmegaConf.merge(OmegaConf.create({"data": {"sample_rate": args.sr}}),
+                            OmegaConf.load(args.conf)))
+        for k, v in (mconf.get("fixed_params") or {}).items():
+            if v is not None:
+                continue
+            if k not in synth.ext_param_sizes:
+                raise SystemExit(
+                    f"{Path(args.conf).name} conditions {k!r}, which "
+                    f"{Path(src).name} does not generate. The model and the "
+                    f"dataset do not match.")
+            off, size = 0, synth.ext_param_sizes[k]
+            for key, sz in synth.ext_param_sizes.items():
+                if key == k:
+                    break
+                off += sz
+            hold.update(range(off, off + size))
+        if hold:
+            print("conditioned (drawn per target, equal across its candidates): "
+                  + ", ".join(label[i] for i in sorted(hold)))
+
+    searched = [l for i, l in enumerate(label)
+                if i not in pins and i not in hold]
     if not searched:
         raise SystemExit("every column is held; nothing is being searched")
     print(f"{Path(src).name}   {P} columns, {len(searched)} searched   "
@@ -516,6 +547,8 @@ def main() -> None:
                 cand[:, axis] = p0 + off
             for i, v in pins.items():
                 cand[:, i] = v
+            for i in hold:
+                cand[:, i] = tgt[i]
             # After the bounds handling and after the pins, so a candidate whose
             # only movement was in a pinned column is labelled with the distance
             # it actually has rather than the one it was drawn at.
